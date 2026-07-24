@@ -1,0 +1,176 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum InstrumentType {
+  STOCK
+  ETF
+  INDEX
+}
+
+enum WatchlistStatus {
+  FOCUS
+  NEW
+  WATCH
+  DOWNGRADED
+}
+
+enum JobStatus {
+  SUCCESS
+  FAILED
+  PARTIAL
+}
+
+model Instrument {
+  id        String         @id @default(cuid())
+  symbol    String         @unique
+  name      String
+  type      InstrumentType
+  sector    String?
+  industry  String?
+  exchange  String?
+  isActive  Boolean        @default(true)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  bars       DailyBar[]
+  scores     StockScore[]
+  states     WatchlistState[]
+  sectorRows SectorScore[] @relation("SectorInstrument")
+}
+
+model DailyBar {
+  id           String     @id @default(cuid())
+  instrumentId String
+  date         DateTime
+  open         Float
+  high         Float
+  low          Float
+  close        Float
+  volume       BigInt
+  source       String
+  createdAt    DateTime   @default(now())
+
+  instrument Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+
+  @@unique([instrumentId, date])
+  @@index([date])
+}
+
+model MarketMetric {
+  id         String   @id @default(cuid())
+  date       DateTime
+  mss        Float
+  skewScore  Float?
+  pcrScore   Float?
+  creditScore Float?
+  breadthScore Float?
+  confidence Float
+  details    Json
+  createdAt  DateTime @default(now())
+
+  @@unique([date])
+}
+
+model SectorScore {
+  id           String   @id @default(cuid())
+  date         DateTime
+  instrumentId String
+  symbol       String
+  name         String
+  rs21         Float
+  rs63         Float
+  score        Float
+  rank         Int
+  createdAt    DateTime @default(now())
+
+  instrument Instrument @relation("SectorInstrument", fields: [instrumentId], references: [id], onDelete: Cascade)
+
+  @@unique([date, symbol])
+  @@index([date, rank])
+}
+
+model StockScore {
+  id             String   @id @default(cuid())
+  date           DateTime
+  instrumentId   String
+  symbol         String
+  totalScore     Float
+  rpsScore       Float
+  trendScore     Float
+  sectorScore    Float
+  fundamentalScore Float
+  accumulationScore Float
+  rank           Int
+  status         WatchlistStatus
+  details        Json
+  createdAt      DateTime @default(now())
+
+  instrument Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+
+  @@unique([date, symbol])
+  @@index([date, rank])
+}
+
+model WatchlistState {
+  id           String          @id @default(cuid())
+  date         DateTime
+  instrumentId String
+  symbol       String
+  previous     WatchlistStatus?
+  current      WatchlistStatus
+  reason       String
+  createdAt    DateTime        @default(now())
+
+  instrument Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+
+  @@unique([date, symbol])
+  @@index([date, current])
+}
+
+model Report {
+  id        String   @id @default(cuid())
+  date      DateTime @unique
+  title     String
+  summary   String
+  body      String
+  version   String
+  createdAt DateTime @default(now())
+}
+
+model NewsItem {
+  id             String   @id @default(cuid())
+  externalId     String
+  date           DateTime
+  source         String
+  category       String
+  headline       String
+  summary        String?
+  url            String
+  imageUrl       String?
+  relatedSymbols String[]
+  publishedAt    DateTime
+  createdAt      DateTime @default(now())
+
+  @@unique([source, externalId])
+  @@index([date])
+  @@index([publishedAt])
+}
+
+model JobRun {
+  id          String    @id @default(cuid())
+  name        String
+  status      JobStatus
+  startedAt   DateTime
+  finishedAt  DateTime
+  durationMs  Int
+  recordsRead Int       @default(0)
+  recordsWritten Int    @default(0)
+  error       String?
+  details     Json
+}

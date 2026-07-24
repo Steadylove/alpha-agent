@@ -1,0 +1,86 @@
+import { renderDailyReport } from "@/lib/report/renderDailyReport";
+import type { DailyReportInput } from "@/lib/types/market";
+
+export const demoReportInput: DailyReportInput = {
+  date: "2026-07-24",
+  marketMetric: {
+    date: "2026-07-24",
+    mss: 78,
+    skewScore: null,
+    pcrScore: null,
+    creditScore: 25,
+    breadthScore: 15,
+    confidence: 0.5,
+    details: { mode: "demo" },
+  },
+  sectorScores: [
+    { symbol: "XLK", name: "Technology", rs21: 0.042, rs63: 0.087, score: 96, rank: 1 },
+    { symbol: "XLI", name: "Industrials", rs21: 0.031, rs63: 0.061, score: 88, rank: 2 },
+    { symbol: "XLC", name: "Communication Services", rs21: 0.024, rs63: 0.052, score: 82, rank: 3 },
+  ],
+  stockScores: [
+    {
+      symbol: "NVDA",
+      name: "NVIDIA Corp",
+      sector: "Technology",
+      totalScore: 91,
+      rpsScore: 25,
+      trendScore: 20,
+      sectorScore: 15,
+      fundamentalScore: 18,
+      accumulationScore: 13,
+      rank: 1,
+      status: "FOCUS",
+      details: { weightedRps: 98 },
+    },
+    {
+      symbol: "ANET",
+      name: "Arista Networks Inc",
+      sector: "Technology",
+      totalScore: 87,
+      rpsScore: 23,
+      trendScore: 20,
+      sectorScore: 15,
+      fundamentalScore: 17,
+      accumulationScore: 12,
+      rank: 2,
+      status: "FOCUS",
+      details: { weightedRps: 94 },
+    },
+    {
+      symbol: "AVGO",
+      name: "Broadcom Inc",
+      sector: "Technology",
+      totalScore: 83,
+      rpsScore: 22,
+      trendScore: 18,
+      sectorScore: 15,
+      fundamentalScore: 18,
+      accumulationScore: 10,
+      rank: 3,
+      status: "WATCH",
+      details: { weightedRps: 91 },
+    },
+  ],
+  watchlistChanges: [
+    { symbol: "NVDA", previous: "FOCUS", current: "FOCUS", reason: "状态延续" },
+    { symbol: "ANET", previous: "WATCH", current: "FOCUS", reason: "评分增强" },
+    { symbol: "AVGO", previous: null, current: "WATCH", reason: "新进入跟踪池" },
+  ],
+  newsItems: [
+    {
+      externalId: "demo-ai-capex",
+      date: "2026-07-24",
+      source: "demo",
+      category: "general",
+      headline: "AI infrastructure spending remains the dominant market catalyst",
+      summary: "Large-cap technology and data center suppliers continue to attract institutional flows.",
+      url: "https://example.com/market-compass-demo-news",
+      imageUrl: null,
+      relatedSymbols: ["NVDA", "ANET", "AVGO"],
+      publishedAt: "2026-07-24T20:00:00.000Z",
+    },
+  ],
+};
+
+export const demoReport = renderDailyReport(demoReportInput);
