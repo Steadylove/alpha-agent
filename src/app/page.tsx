@@ -4,6 +4,8 @@ import { getDashboardData } from "@/lib/dashboard/data";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 
+export const dynamic = "force-dynamic";
+
 export default async function DashboardPage() {
   const data = await getDashboardData();
   const mss = data.report.summary.match(/MSS (\d+)\/100/)?.[1] ?? "N/A";

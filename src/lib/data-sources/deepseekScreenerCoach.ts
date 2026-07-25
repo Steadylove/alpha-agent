@@ -33,13 +33,10 @@ function buildUserPrompt(result: ScreenerResult): string {
       ? "（无）"
       : result.elite.map((r) => fmtRow(r)).join("\n");
 
-  const playbookBlocks = result.buckets
-    .map((b) => {
-      const header = `【${b.meta.name}】规则=${b.meta.rule} · 命中=${b.totalMatches}`;
-      if (b.picks.length === 0) return `${header}\n（无命中）`;
-      return `${header}\n${b.picks.map((r) => fmtRow(r)).join("\n")}`;
-    })
-    .join("\n\n");
+  const newHighLines =
+    result.newHighs.length === 0
+      ? "（无）"
+      : result.newHighs.map((r) => fmtRow(r)).join("\n");
 
   return `【今日筛选日志 · 快照】
 日期UTC：${result.generatedAt.toISOString().slice(0, 10)}
@@ -49,7 +46,8 @@ function buildUserPrompt(result: ScreenerResult): string {
 【四周期共振强势池 · RPS均>${result.baseThreshold}】命中=${result.elite.length}
 ${eliteLines}
 
-${playbookBlocks}
+【盘中新高趋势发现池】命中=${result.newHighs.length}
+${newHighLines}
 
 请完成：机会在哪里 / 风险在哪里 / 感悟提炼。返回 JSON。`;
 }

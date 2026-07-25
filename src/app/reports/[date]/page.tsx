@@ -3,6 +3,8 @@ import { getDashboardData } from "@/lib/dashboard/data";
 import { ReportMarkdown } from "@/components/ReportMarkdown";
 import { ReportHud } from "@/components/ReportHud";
 
+export const dynamic = "force-dynamic";
+
 export default async function ReportDetailPage({ params }: { params: Promise<{ date: string }> }) {
   const { date } = await params;
   const data = await getDashboardData();

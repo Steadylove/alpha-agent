@@ -2,6 +2,8 @@ import { Card } from "@/components/Card";
 import { StatusBadge } from "@/components/StatusBadge";
 import { getDashboardData } from "@/lib/dashboard/data";
 
+export const dynamic = "force-dynamic";
+
 export default async function JobsPage() {
   const data = await getDashboardData();
 
