@@ -12,7 +12,7 @@ export function computeWatchlistChanges(
     if (previous == null) {
       reason = "新进入跟踪池";
     } else if (previous !== current) {
-      reason = score.totalScore >= 80 ? "评分增强" : "评分或排名走弱";
+      reason = score.finalCompassScore >= 80 ? "评分增强" : "评分或排名走弱";
     }
 
     return {
@@ -20,6 +20,7 @@ export function computeWatchlistChanges(
       previous,
       current,
       reason,
+      finalScore: score.finalCompassScore,
     };
   });
 }

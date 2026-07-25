@@ -31,16 +31,22 @@ export type SectorScore = {
   rank: number;
 };
 
+export type KillSwitchStatus = "PASSED" | "BLOCKED";
+
 export type StockScore = {
   symbol: string;
   name: string;
   sector: string;
-  totalScore: number;
-  rpsScore: number;
-  trendScore: number;
-  sectorScore: number;
-  fundamentalScore: number;
-  accumulationScore: number;
+  finalCompassScore: number; // 0~100 · v3 终极决策打分
+  qualityScore: number; // 0~50
+  momentumScore: number; // 0~15
+  trendScore: number; // 0~10
+  fundamentalScore: number; // 0~25
+  valuationScore: number; // 0~20
+  environmentScore: number; // 0~15
+  executionScore: number; // 0~15
+  killSwitchStatus: KillSwitchStatus;
+  killSwitchReason: string | null;
   rank: number;
   status: WatchlistStatus;
   details: Record<string, number | string | boolean | null>;
@@ -62,6 +68,30 @@ export type WatchlistChange = {
   previous: WatchlistStatus | null;
   current: WatchlistStatus;
   reason: string;
+  finalScore?: number;
+};
+
+export type Valuation = {
+  bear: number;
+  base: number;
+  bull: number;
+  weightedFair: number;
+  safetyMargin: number;
+  score: number;
+};
+
+export type ExecutionPlan = {
+  symbol: string;
+  currentPrice: number;
+  signalConfidence: number;
+  positionSizePercent: number;
+  goldenBuyLow: number;
+  goldenBuyHigh: number;
+  stopLoss: number;
+  expectedReturn60d: number;
+  expectedVolatility60d: number;
+  rewardRiskRatio: number;
+  valuation: Valuation;
 };
 
 export type DailyReportInput = {
@@ -72,12 +102,16 @@ export type DailyReportInput = {
   watchlistChanges: WatchlistChange[];
   newsItems: NewsItem[];
   insights?: ReportInsights | null;
+  execution?: ExecutionPlan | null;
+  executions?: ExecutionPlan[];
 };
 
 export type ReportInsights = {
   marketNarrative: string;
   themeChain: string[];
   beneficiarySectors: string[];
+  sectorHeadlines?: Record<string, string>;
+  featuredQuality?: string | null;
 };
 
 export type DailyReport = {

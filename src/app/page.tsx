@@ -20,10 +20,30 @@ export default async function DashboardPage() {
         </Link>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-4">
         <MetricCard label="Market Safety Score" value={`${mss}`} hint="Macro risk & breadth" valueColor="blue.4" />
         <MetricCard label="Leading Sector" value={data.sectors[0]?.name ?? "N/A"} hint={data.sectors[0]?.symbol} valueColor="cyan.4" />
         <MetricCard label="Top Candidate" value={data.stocks[0]?.symbol ?? "N/A"} hint={data.stocks[0]?.name} valueColor="teal.4" />
+        <MetricCard
+          label="Kill Switch 通过率"
+          value={
+            data.killSwitchSummary.total > 0
+              ? `${Math.round(((data.killSwitchSummary.total - data.killSwitchSummary.blocked.length) / data.killSwitchSummary.total) * 100)}%`
+              : "N/A"
+          }
+          hint={
+            data.killSwitchSummary.blocked.length > 0
+              ? `${data.killSwitchSummary.blocked.length} 只熔断`
+              : "全部通过 6 条量化熔断"
+          }
+          valueColor={
+            data.killSwitchSummary.blocked.length === 0
+              ? "teal.4"
+              : data.killSwitchSummary.blocked.length <= 3
+                ? "yellow.4"
+                : "red.4"
+          }
+        />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -61,8 +81,8 @@ export default async function DashboardPage() {
               <thead>
                 <tr>
                   <th>Symbol</th>
-                  <th className="text-right">Score</th>
-                  <th className="text-right">RPS</th>
+                  <th className="text-right">Final</th>
+                  <th className="text-right">Quality</th>
                   <th className="text-right">Status</th>
                 </tr>
               </thead>
@@ -75,8 +95,8 @@ export default async function DashboardPage() {
                       </Link>
                       <div className="text-xs text-zinc-500">{stock.name}</div>
                     </td>
-                    <td className="text-right font-medium text-emerald-400">{stock.totalScore}</td>
-                    <td className="text-right text-zinc-400">{stock.rpsScore}</td>
+                    <td className="text-right font-medium text-emerald-400">{stock.finalCompassScore}</td>
+                    <td className="text-right text-zinc-400">{stock.qualityScore}</td>
                     <td className="text-right">
                       <StatusBadge status={stock.status} />
                     </td>

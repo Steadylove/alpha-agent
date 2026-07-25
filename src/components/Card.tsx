@@ -9,7 +9,7 @@ export function Card({
   className = "",
   action,
 }: {
-  title?: string;
+  title?: ReactNode;
   children: ReactNode;
   className?: string;
   action?: ReactNode;
@@ -18,9 +18,13 @@ export function Card({
     <Paper p="md" className={className}>
       {title ? (
         <Group justify="space-between" mb="md">
-          <Title order={3} size="h6" fw={600} c="gray.1">
-            {title}
-          </Title>
+          {typeof title === "string" ? (
+            <Title order={3} size="h6" fw={600} c="gray.1">
+              {title}
+            </Title>
+          ) : (
+            title
+          )}
           {action}
         </Group>
       ) : null}

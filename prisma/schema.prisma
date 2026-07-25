@@ -100,12 +100,16 @@ model StockScore {
   date           DateTime
   instrumentId   String
   symbol         String
-  totalScore     Float
-  rpsScore       Float
+  finalCompassScore Float
+  qualityScore   Float
+  momentumScore  Float
   trendScore     Float
-  sectorScore    Float
   fundamentalScore Float
-  accumulationScore Float
+  valuationScore Float
+  environmentScore Float
+  executionScore Float
+  killSwitchStatus String
+  killSwitchReason String?
   rank           Int
   status         WatchlistStatus
   details        Json
@@ -173,4 +177,34 @@ model JobRun {
   recordsWritten Int    @default(0)
   error       String?
   details     Json
+}
+
+model AlphaScreenerRun {
+  id               String   @id @default(cuid())
+  date             DateTime @unique
+  universeSize     Int
+  targetCount      Int
+  dailyFetchErrors Int      @default(0)
+  buckets          Json
+  createdAt        DateTime @default(now())
+}
+
+/// Screener LLM 情景目标价历史（用于日更锚定，避免大幅漂移）
+model TargetPriceHistory {
+  id           String   @id @default(cuid())
+  symbol       String
+  date         DateTime
+  method       String
+  currentPrice Float
+  bearTarget   Float
+  baseTarget   Float
+  bullTarget   Float
+  weightedFair Float
+  scenarios    Json
+  rationale    String
+  source       String   @default("screener-llm")
+  createdAt    DateTime @default(now())
+
+  @@unique([symbol, date, source])
+  @@index([symbol, date])
 }

@@ -1,0 +1,48 @@
+import { NextResponse } from "next/server";
+import { runAlphaScreenerJob } from "@/lib/jobs/alphaScreener";
+import { sendAlphaScreenerToDiscord } from "@/lib/discord/screenerWebhook";
+
+export const maxDuration = 600;
+
+export async function POST(request: Request) {
+  const secret = request.headers.get("x-cron-secret");
+  if (process.env.CRON_SECRET && secret !== process.env.CRON_SECRET) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const result = await runAlphaScreenerJob();
+  const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+  let discordError: string | null = null;
+  if (webhookUrl) {
+    try {
+      await sendAlphaScreenerToDiscord(webhookUrl, result);
+    } catch (err) {
+      discordError = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  return NextResponse.json({
+    ok: true,
+    universeSize: result.universeSize,
+    rankedSize: result.rankedSize,
+    baseThreshold: result.baseThreshold,
+    eliteCount: result.elite.length,
+    elite: result.elite.map((p) => ({
+      symbol: p.symbol,
+      name: p.name,
+      sector: p.sector,
+      industry: p.industry,
+      industryLabel: p.industryLabel,
+      blurb: p.blurb,
+      minRps: Number(p.minRps.toFixed(1)),
+      rps: {
+        20: Number(p.rps[20].toFixed(1)),
+        50: Number(p.rps[50].toFixed(1)),
+        120: Number(p.rps[120].toFixed(1)),
+        250: Number(p.rps[250].toFixed(1)),
+      },
+    })),
+    dailyFetchErrors: result.dailyFetchErrors,
+    discordError,
+  });
+}

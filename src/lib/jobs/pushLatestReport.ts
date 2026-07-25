@@ -2,7 +2,14 @@ import { sendDailyReportDiscordWebhook } from "@/lib/discord/sendWebhook";
 import { generateReportInsights } from "@/lib/data-sources/deepseek";
 import { getPrisma } from "@/lib/db/prisma";
 import { renderDailyReport } from "@/lib/report/renderDailyReport";
-import type { DailyReport, DailyReportInput, WatchlistStatus } from "@/lib/types/market";
+import { computeExecutionPlan } from "@/lib/scoring/execution";
+import type {
+  DailyBar,
+  DailyReport,
+  DailyReportInput,
+  KillSwitchStatus,
+  WatchlistStatus,
+} from "@/lib/types/market";
 
 const toDateString = (date: Date) => date.toISOString().slice(0, 10);
 
@@ -62,12 +69,16 @@ export async function pushLatestReportFromDatabase() {
       symbol: score.symbol,
       name: score.instrument.name,
       sector: score.instrument.sector ?? "Unknown",
-      totalScore: score.totalScore,
-      rpsScore: score.rpsScore,
+      finalCompassScore: score.finalCompassScore,
+      qualityScore: score.qualityScore,
+      momentumScore: score.momentumScore,
       trendScore: score.trendScore,
-      sectorScore: score.sectorScore,
       fundamentalScore: score.fundamentalScore,
-      accumulationScore: score.accumulationScore,
+      valuationScore: score.valuationScore,
+      environmentScore: score.environmentScore,
+      executionScore: score.executionScore,
+      killSwitchStatus: score.killSwitchStatus as KillSwitchStatus,
+      killSwitchReason: score.killSwitchReason,
       rank: score.rank,
       status: score.status as WatchlistStatus,
       details: score.details as Record<string, number | string | boolean | null>,
@@ -77,6 +88,7 @@ export async function pushLatestReportFromDatabase() {
       previous: change.previous as WatchlistStatus | null,
       current: change.current as WatchlistStatus,
       reason: change.reason,
+      finalScore: stockScores.find((s) => s.symbol === change.symbol)?.finalCompassScore,
     })),
     newsItems: newsItems.map((item) => ({
       externalId: item.externalId,
@@ -99,6 +111,45 @@ export async function pushLatestReportFromDatabase() {
     topStocks: reportInput.stockScores.slice(0, 5),
     newsItems: reportInput.newsItems,
   });
+
+  // 用 DB 里存的 Top 5 K 线全部重算执行计划，最高 R:R 为 featured
+  const top5 = reportInput.stockScores.slice(0, 5);
+  if (top5.length > 0) {
+    const instruments = await prisma.instrument.findMany({
+      where: { symbol: { in: top5.map((s) => s.symbol) } },
+    });
+    const instrumentBySymbol = new Map(instruments.map((inst) => [inst.symbol, inst]));
+
+    const executions = (
+      await Promise.all(
+        top5.map(async (score) => {
+          const inst = instrumentBySymbol.get(score.symbol);
+          if (!inst) return null;
+          const rows = await prisma.dailyBar.findMany({
+            where: { instrumentId: inst.id },
+            orderBy: { date: "asc" },
+          });
+          if (rows.length === 0) return null;
+          const bars: DailyBar[] = rows.map((row) => ({
+            symbol: score.symbol,
+            date: toDateString(row.date),
+            open: row.open,
+            high: row.high,
+            low: row.low,
+            close: row.close,
+            volume: Number(row.volume),
+            source: row.source,
+          }));
+          return computeExecutionPlan(bars, score);
+        }),
+      )
+    ).filter((plan): plan is NonNullable<typeof plan> => plan != null);
+
+    reportInput.executions = executions;
+    reportInput.execution =
+      executions.slice().sort((a, b) => b.rewardRiskRatio - a.rewardRiskRatio)[0] ?? null;
+  }
+
   const rendered = renderDailyReport(reportInput);
   await prisma.report.update({
     where: { date },

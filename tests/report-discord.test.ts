@@ -28,18 +28,28 @@ describe("report and discord", () => {
     const payload = renderDailyReportDiscordPayload(demoReportInput, demoReport);
 
     expect(payload.embeds).toHaveLength(1);
-    expect(payload.embeds?.[0].title).toBe("🟢 Market Compass 每日简报");
+    expect(payload.embeds?.[0].title).toBe("🟢 Market Compass 6.1 每日简报");
     expect(payload.embeds?.[0].fields?.map((field) => field.name)).toEqual([
       "📊 市场状态",
       "🔄 行业资金罗盘 Top 3",
       "📰 今日新闻催化",
-      "🚀 强势股票池 Top 5",
-      "📌 股票状态追踪",
+      "🚀 强势股票池 Top 5（按 R:R 排序）",
+      "⭐ Investment Card 深度研究卡",
+      "🎯 Execution Compass (NVDA)",
+      "📌 Portfolio Monitor 状态追踪",
       "🟢 数据质量",
     ]);
-    expect(payload.embeds?.[0].fields?.[1].value).toContain("分数");
+    expect(payload.embeds?.[0].fields?.[0].value).toContain("流动性");
+    expect(payload.embeds?.[0].fields?.[1].value).toContain("🥇");
+    expect(payload.embeds?.[0].fields?.[1].value).toContain("第一主线");
     expect(payload.embeds?.[0].fields?.[2].value).toContain("AI infrastructure");
     expect(payload.embeds?.[0].fields?.[2].value).toContain("](https://example.com");
-    expect(payload.embeds?.[0].fields?.[4].value).toContain("→");
+    expect(payload.embeds?.[0].fields?.[3].value).toContain("R:R");
+    expect(payload.embeds?.[0].fields?.[4].value).toContain("PWFV");
+    expect(payload.embeds?.[0].fields?.[4].value).toContain("CUDA");
+    expect(payload.embeds?.[0].fields?.[5].value).toContain("Golden Buy Zone");
+    expect(payload.embeds?.[0].fields?.[5].value).toContain("单次进场");
+    expect(payload.embeds?.[0].fields?.[5].value).toContain("成本价");
+    expect(payload.embeds?.[0].fields?.[6].value).toContain("Final");
   });
 });

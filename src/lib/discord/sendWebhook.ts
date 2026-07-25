@@ -1,3 +1,12 @@
+import {
+  medalForRank,
+  positionCapPercent,
+  sectorMomentumLabel,
+  signalLabel,
+  signedPercent,
+  starsFromScore,
+  watchlistStatusLabel,
+} from "@/lib/scoring/format";
 import type { DailyReport, DailyReportInput } from "@/lib/types/market";
 import { request } from "node:https";
 
@@ -145,68 +154,69 @@ const regimeIcon = (mss: number) => {
   return "🔴";
 };
 
-const statusIcon = (status: string) => {
-  if (status === "FOCUS") return "⭐";
-  if (status === "NEW") return "🆕";
-  if (status === "WATCH") return "👀";
-  return "⚠️";
-};
-
-const statusLabelZh = (status: string) => {
-  if (status === "FOCUS") return "核心关注";
-  if (status === "NEW") return "新加入";
-  if (status === "WATCH") return "观察";
-  return "降级";
-};
-
-const signedPercent = (value: number) => `${value >= 0 ? "+" : ""}${(value * 100).toFixed(2)}%`;
-
 const truncate = (value: string, maxLength: number) =>
   value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
+
+// Discord embed field.value 上限 1024 字符。所有 field 落地前统一截断，避免撞 400。
+const DISCORD_FIELD_VALUE_LIMIT = 1024;
+const fitField = (value: string) => truncate(value, DISCORD_FIELD_VALUE_LIMIT);
 
 export function renderDailyReportDiscordPayload(
   input: DailyReportInput,
   report: DailyReport,
   errors: Record<string, string> = {},
 ): DiscordPayload {
+  const executions = input.executions ?? (input.execution ? [input.execution] : []);
+  const executionBySymbol = new Map(executions.map((plan) => [plan.symbol, plan]));
+  const execution = input.execution ?? executions[0] ?? null;
+  const top5Score = input.stockScores.slice(0, 5);
+  const featured = execution
+    ? top5Score.find((stock) => stock.symbol === execution.symbol) ?? top5Score[0]
+    : top5Score[0];
+
+  const displayTop5 = top5Score
+    .map((stock) => ({ stock, plan: executionBySymbol.get(stock.symbol) ?? null }))
+    .sort((a, b) => {
+      const rrA = a.plan ? a.plan.rewardRiskRatio : -Infinity;
+      const rrB = b.plan ? b.plan.rewardRiskRatio : -Infinity;
+      if (rrA !== rrB) return rrB - rrA;
+      return b.stock.finalCompassScore - a.stock.finalCompassScore;
+    });
+
   const topSectors = input.sectorScores
     .slice(0, 3)
-    .map((sector) =>
-      [
-        `**${sector.rank}. ${sector.name}**`,
-        `\`${sector.symbol}\``,
-        `分数 **${sector.score}**`,
-        `21D ${signedPercent(sector.rs21)}`,
-        `63D ${signedPercent(sector.rs63)}`,
-      ].join("  ·  "),
-    )
+    .map((sector) => {
+      const headline = input.insights?.sectorHeadlines?.[sector.name];
+      const suffix = headline ? `\n   ➔ ${headline}` : "";
+      return `${medalForRank(sector.rank)} **${sector.name}** · Sector Score **${sector.score}** · ${sectorMomentumLabel(sector)}${suffix}`;
+    })
     .join("\n");
 
-  const topStocks = input.stockScores
-    .slice(0, 5)
-    .map((stock) =>
-      [
-        `${statusIcon(stock.status)} **${stock.rank}. ${stock.symbol}**`,
-        `总分 **${stock.totalScore}**`,
-        `RPS ${stock.rpsScore}`,
-        `趋势 ${stock.trendScore}`,
-        statusLabelZh(stock.status),
-      ].join("  ·  "),
-    )
+  const topStocks = displayTop5
+    .map(({ stock, plan }, index) => {
+      const head = `**${index + 1}. ${stock.symbol}** · Final **${stock.finalCompassScore}** ${starsFromScore(stock.finalCompassScore)}`;
+      if (plan) {
+        return `${head}\n   ➔ 60D 目标价 $${plan.valuation.weightedFair.toFixed(2)} · R:R **${plan.rewardRiskRatio.toFixed(2)}**`;
+      }
+      return head;
+    })
     .join("\n");
 
   const changes = input.watchlistChanges
     .slice(0, 5)
-    .map((change) =>
-      `**${change.symbol}**：${change.previous ? statusLabelZh(change.previous) : "无"} → **${statusLabelZh(
-        change.current,
-      )}**  ·  ${change.reason}`,
-    )
+    .map((change) => {
+      const prevLabel = change.previous ? watchlistStatusLabel(change.previous) : "无";
+      const currLabel = watchlistStatusLabel(change.current);
+      const score = change.finalScore != null ? ` · Final **${change.finalScore}**` : "";
+      const delta = change.previous === change.current ? change.reason : `${currLabel}（${change.reason}）`;
+      return `**${change.symbol}**：${prevLabel} → ${delta}${score}`;
+    })
     .join("\n");
+
   const news = input.newsItems
     .slice(0, 3)
     .map((item, index) => {
-      const symbols = item.relatedSymbols.length > 0 ? item.relatedSymbols.join(",") : "-";
+      const symbols = item.relatedSymbols.length > 0 ? item.relatedSymbols.slice(0, 6).join(",") : "-";
       return `${index + 1}. [${truncate(item.headline, 88)}](${item.url})\n   相关标的：\`${symbols}\``;
     })
     .join("\n\n");
@@ -218,7 +228,7 @@ export function renderDailyReportDiscordPayload(
 
   const catalystValue = [
     insights?.themeChain && insights.themeChain.length > 0
-      ? `**🚀 核心逻辑链**：${insights.themeChain.join(" → ")}`
+      ? `**🚀 核心逻辑链**：${insights.themeChain.join(" ➔ ")}`
       : null,
     insights?.beneficiarySectors && insights.beneficiarySectors.length > 0
       ? `**🟢 核心受益方向**：${insights.beneficiarySectors.join(" | ")}`
@@ -228,61 +238,133 @@ export function renderDailyReportDiscordPayload(
     .filter(Boolean)
     .join("\n\n") || "暂无新闻数据";
 
+  const investmentCardValue = (() => {
+    if (!featured) return "暂无符合条件的 Top 5 标的。";
+    const killLabel =
+      featured.killSwitchStatus === "PASSED"
+        ? "熔断 PASSED 🟢"
+        : `熔断 BLOCKED ⛔（${featured.killSwitchReason ?? "-"}）`;
+    const d = featured.details;
+    const lines = [
+      `**${featured.name}** (\`${featured.symbol}\`) · Final Compass **${featured.finalCompassScore}/100** · ${killLabel}`,
+      "",
+      `**📊 五维质量卡 (${featured.qualityScore}/50)**`,
+      `└─ Mom ${featured.momentumScore}/15 · Trend ${featured.trendScore}/10 · Fund ${featured.fundamentalScore}/25`,
+      `└─ Moat ${d.moatScore ?? 0}/5 ${d.moatSource === "llm" ? "(LLM)" : "(兜底)"}`,
+    ];
+    if (typeof d.moatReason === "string" && d.moatReason) {
+      lines.push(`🧠 ${d.moatReason}`);
+    }
+    if (insights?.featuredQuality) {
+      lines.push(`💡 ${insights.featuredQuality}`);
+    }
+    if (execution) {
+      const v = execution.valuation;
+      const src = d.pwfvSource === "analyst-consensus" ? "分析师共识" : "动量兜底";
+      lines.push(
+        "",
+        `**🎯 6-12M PWFV (MoS ${d.pwfvScore ?? 0}/10)**`,
+        `🐻 \`$${v.bear.toFixed(2)}\` | ⚖ \`$${v.base.toFixed(2)}\` (${src}) | 🚀 \`$${v.bull.toFixed(2)}\``,
+        `加权公允价 **$${v.weightedFair.toFixed(2)}** · 安全边际 **${signedPercent(v.safetyMargin)}**`,
+      );
+    }
+    if (typeof d.tradingTarget60d === "number" && typeof d.tradingStopLoss === "number") {
+      lines.push(
+        "",
+        `**⚡ 60D Trading Target (RRR ${d.rrrScore ?? 0}/10)**`,
+        `🎯 \`$${d.tradingTarget60d.toFixed(2)}\` · 🔴 止损 \`$${d.tradingStopLoss.toFixed(2)}\` · R:R **${typeof d.rewardRiskRatio === "number" ? d.rewardRiskRatio.toFixed(2) : "N/A"}**`,
+      );
+    }
+    return lines.join("\n");
+  })();
+
+  const fields: NonNullable<DiscordEmbed["fields"]> = [
+    {
+      name: "📊 市场状态",
+      value: fitField(
+        [
+          `MSS：**${input.marketMetric.mss}/100**`,
+          `流动性 ${input.marketMetric.creditScore ?? "N/A"}/25 · 风险偏好 ${input.marketMetric.pcrScore ?? "N/A"}/25 · 宽度 ${input.marketMetric.breadthScore ?? "N/A"}/25 · 尾部 ${input.marketMetric.skewScore ?? "N/A"}/25`,
+          `置信度：${Math.round(input.marketMetric.confidence * 100)}%`,
+        ].join("\n"),
+      ),
+      inline: false,
+    },
+    {
+      name: "🔄 行业资金罗盘 Top 3",
+      value: fitField(topSectors || "暂无行业评分"),
+      inline: false,
+    },
+    {
+      name: "📰 今日新闻催化",
+      value: fitField(catalystValue),
+      inline: false,
+    },
+    {
+      name: "🚀 强势股票池 Top 5（按 R:R 排序）",
+      value: fitField(topStocks || "暂无股票评分"),
+      inline: false,
+    },
+    {
+      name: "⭐ Investment Card 深度研究卡",
+      value: fitField(investmentCardValue),
+      inline: false,
+    },
+  ];
+
+  if (execution) {
+    const positionCap = positionCapPercent(execution.signalConfidence, execution.rewardRiskRatio);
+    fields.push({
+      name: `🎯 Execution Compass (${execution.symbol})`,
+      value: fitField(
+        [
+          `**信号置信度**：${execution.signalConfidence} ${starsFromScore(execution.signalConfidence)} · ${signalLabel(execution.signalConfidence)} · 仓位上限 **${positionCap.toFixed(1)}%**`,
+          `**60D 期望**：预期收益 ${signedPercent(execution.expectedReturn60d)} · 预期波动 ${(execution.expectedVolatility60d * 100).toFixed(1)}% · **R:R ${execution.rewardRiskRatio.toFixed(2)}**`,
+          `🟢 **Golden Buy Zone**：\`$${execution.goldenBuyLow.toFixed(2)} - $${execution.goldenBuyHigh.toFixed(2)}\``,
+          `🟢 **单次进场**：股价缩量回踩 GBZ + Selling Pressure < 35% + 右侧阳线企稳时按仓位上限建仓`,
+          `🔴 **动态止损**：\`$${execution.stopLoss.toFixed(2)}\` (2×ATR14)`,
+          `🔵 **移动止盈**：达 \`$${execution.valuation.weightedFair.toFixed(2)}\` 减 1/3 并提止损至成本价 \`$${execution.currentPrice.toFixed(2)}\`；破 EMA20 全清`,
+        ].join("\n"),
+      ),
+      inline: false,
+    });
+  }
+
+  fields.push(
+    {
+      name: "📌 Portfolio Monitor 状态追踪",
+      value: fitField(changes || "暂无状态变化"),
+      inline: false,
+    },
+    {
+      name: errorSymbols.length > 0 ? "🟡 数据质量" : "🟢 数据质量",
+      value: fitField(
+        errorSymbols.length > 0
+          ? `局部缺失：${errorSymbols.slice(0, 10).join(", ")}`
+          : "所有核心行情源正常",
+      ),
+      inline: false,
+    },
+  );
+
   return {
     content: `🧭 **${report.title}**`,
     embeds: [
       {
-        title: `${icon} Market Compass 每日简报`,
+        title: `${icon} Market Compass 6.1 每日简报`,
         description: [
-          `**${label}** | MSS **${input.marketMetric.mss}/100** | Top: ${input.stockScores
-            .slice(0, 5)
-            .map((stock) => stock.symbol)
+          `**${label}** | MSS **${input.marketMetric.mss}/100** | Top: ${displayTop5
+            .map((item) => item.stock.symbol)
             .join(", ")}`,
           "",
           insights?.marketNarrative ? `> 💡 **AI 市场解读**：${insights.marketNarrative}` : null,
           insights?.marketNarrative ? "" : null,
-          "市场环境 → 资金方向 → 强势资产 → 执行纪律",
+          "市场环境 ➔ 资金方向 ➔ 强势资产 ➔ 公司价值 ➔ 合理价格 ➔ 执行纪律",
         ]
           .filter((line) => line !== null)
           .join("\n"),
         color: regimeColor(input.marketMetric.mss),
-        fields: [
-          {
-            name: "📊 市场状态",
-            value: [
-              `MSS：**${input.marketMetric.mss}/100**`,
-              `置信度：${Math.round(input.marketMetric.confidence * 100)}%`,
-              `信用代理：${input.marketMetric.creditScore ?? "缺失"}/25`,
-              `市场宽度：${input.marketMetric.breadthScore ?? "缺失"}/25`,
-            ].join("  |  "),
-            inline: false,
-          },
-          {
-            name: "🔄 行业资金罗盘 Top 3",
-            value: topSectors || "暂无行业评分",
-            inline: false,
-          },
-          {
-            name: "📰 今日新闻催化",
-            value: catalystValue,
-            inline: false,
-          },
-          {
-            name: "🚀 强势股票池 Top 5",
-            value: topStocks || "暂无股票评分",
-            inline: false,
-          },
-          {
-            name: "📌 股票状态追踪",
-            value: changes || "暂无状态变化",
-            inline: false,
-          },
-          {
-            name: errorSymbols.length > 0 ? "🟡 数据质量" : "🟢 数据质量",
-            value: errorSymbols.length > 0 ? `局部缺失：${errorSymbols.join(", ")}` : "所有核心行情源正常",
-            inline: false,
-          },
-        ],
+        fields,
         footer: {
           text: "仅供量化数据与模型演示，不构成投资建议。",
         },

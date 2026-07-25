@@ -1,95 +1,25 @@
 import type { FundamentalSnapshot } from "@/lib/data-sources/fmp";
-import {
-  chaikinMoneyFlow,
-  highestHigh,
-  latest,
-  percentChange,
-  percentileRank,
-  pocketPivot,
-  positionScore,
-  simpleMovingAverage,
-} from "@/lib/scoring/indicators";
-import type { DailyBar, Instrument, SectorScore, StockScore, WatchlistStatus } from "@/lib/types/market";
+import { computeEnvironment } from "@/lib/scoring/environment";
+import { computeExecution } from "@/lib/scoring/execution";
+import { evaluateKillSwitch } from "@/lib/scoring/killSwitch";
+import { latest } from "@/lib/scoring/indicators";
+import { scoreStockQuality } from "@/lib/scoring/stockQuality";
+import { computePwfv, computeTradingTarget } from "@/lib/scoring/valuation";
+import type {
+  DailyBar,
+  Instrument,
+  KillSwitchStatus,
+  MarketMetric,
+  StockScore,
+  WatchlistStatus,
+} from "@/lib/types/market";
+
+type ScoreDetails = StockScore["details"];
 
 type StockCandidate = {
   instrument: Instrument;
   bars: DailyBar[];
   fundamentals?: FundamentalSnapshot;
-};
-
-const scoreTrend = (bars: DailyBar[]): number => {
-  const closes = bars.map((bar) => bar.close);
-  const close = closes[closes.length - 1];
-  const ma20 = simpleMovingAverage(closes, 20);
-  const ma50 = simpleMovingAverage(closes, 50);
-  const ma200 = simpleMovingAverage(closes, 200);
-  const high52w = highestHigh(bars, Math.min(252, bars.length));
-
-  let score = 0;
-  if (ma20 != null && ma50 != null && ma200 != null && close > ma20 && ma20 > ma50 && ma50 > ma200) {
-    score += 12;
-  }
-  if (high52w != null && close >= high52w * 0.85) {
-    score += 8;
-  }
-  return score;
-};
-
-const scoreFundamentals = (fundamentals?: FundamentalSnapshot): number => {
-  if (!fundamentals) {
-    return 0;
-  }
-
-  // 一票否决：若分析师大幅下调 EPS，该项直接归 0 分
-  if (fundamentals.epsRevisionRate != null && fundamentals.epsRevisionRate < -0.1) {
-    return 0;
-  }
-
-  let score = 0;
-  // 分析师预期修正（核心）：过去30天 EPS Revision
-  if (fundamentals.epsRevisionRate != null && fundamentals.epsRevisionRate > 0.1) {
-    score += 10;
-  }
-  
-  // 远期营收增速：NTM Revenue YoY
-  if (fundamentals.revenueGrowth != null && fundamentals.revenueGrowth > 0.2) {
-    score += 7;
-  }
-  
-  // 历史盈利与质量：最新 Q 营收增速且毛利率高
-  if (fundamentals.revenueGrowth != null && fundamentals.grossMargin != null) {
-    if (fundamentals.revenueGrowth > 0.2 && fundamentals.grossMargin > 0.4) {
-      score += 8;
-    }
-  }
-  return score;
-};
-
-const scoreAccumulation = (bars: DailyBar[]): number => {
-  const lastBar = latest(bars);
-  if (!lastBar) {
-    return 0;
-  }
-
-  const pos = positionScore(lastBar);
-  // 防派发：若长上影派发明显，该项直接归 0 分
-  // closing in bottom 40% of range with high volume is distribution
-  if (pos < 0.4) {
-    return 0;
-  }
-
-  let score = 0;
-  // 短期口袋支点或强势企稳
-  if (pos >= 0.7 && pocketPivot(bars)) {
-    score += 7;
-  }
-
-  // 资金净流入
-  const cmf = chaikinMoneyFlow(bars, 20);
-  if (cmf != null && cmf > 0.05) {
-    score += 8;
-  }
-  return score;
 };
 
 const statusForRank = (rank: number, totalScore: number): WatchlistStatus => {
@@ -99,63 +29,183 @@ const statusForRank = (rank: number, totalScore: number): WatchlistStatus => {
   return "DOWNGRADED";
 };
 
+/**
+ * v3 白皮书 · 终极决策引擎（Final Compass Score）
+ * = 股票质量 50 (Momentum 15 + Trend 10 + Fundamental 25)
+ * + 估值赔率 20 (PWFV MoS 10 + 60D RRR 10)
+ * + 市场环境 15 (MSS 5 + Breadth 5 + Credit 5)
+ * + 执行买点 15 (GBZ 位置 8 + Selling Pressure 4 + 止损比 3)
+ *
+ * 评分前先跑 Kill Switch，命中任一条 → finalCompassScore=0，killSwitchStatus=BLOCKED。
+ */
 export function scoreStocks(
   candidates: StockCandidate[],
-  sectorScores: SectorScore[],
+  marketMetric: MarketMetric | null,
 ): StockScore[] {
-  const returns21 = candidates.map((candidate) =>
-    percentChange(candidate.bars.map((bar) => bar.close), 21) ?? 0,
+  const qualityMap = scoreStockQuality(
+    candidates.map((c) => ({
+      symbol: c.instrument.symbol,
+      bars: c.bars,
+      fundamentals: c.fundamentals,
+    })),
   );
-  const returns63 = candidates.map((candidate) =>
-    percentChange(candidate.bars.map((bar) => bar.close), 63) ?? 0,
-  );
-  const returns252 = candidates.map((candidate) =>
-    percentChange(candidate.bars.map((bar) => bar.close), 252) ?? 0,
-  );
-  const topSectors = new Set(sectorScores.slice(0, 3).map((sector) => sector.name));
 
-  const raw = candidates.map((candidate, index) => {
-    const rps63 = percentileRank(returns63[index], returns63);
-    const rps21 = percentileRank(returns21[index], returns21);
-    const rps252 = percentileRank(returns252[index], returns252);
-    const weightedRps = 0.5 * rps63 + 0.3 * rps21 + 0.2 * rps252;
-    const rpsScore = (weightedRps >= 90 ? 15 : Math.round((weightedRps / 90) * 15)) + (rps21 > rps63 ? 10 : 0);
-    const trendScore = scoreTrend(candidate.bars);
-    const sectorScore = candidate.instrument.sector && topSectors.has(candidate.instrument.sector) ? 15 : 0;
-    const fundamentalScore = scoreFundamentals(candidate.fundamentals);
-    const accumulationScore = scoreAccumulation(candidate.bars);
-    const totalScore = rpsScore + trendScore + sectorScore + fundamentalScore + accumulationScore;
+  // 市场环境对所有股票相同（全市场共享）
+  const env = marketMetric ? computeEnvironment(marketMetric) : null;
+  const envTotal = env?.score ?? 0;
+
+  const raw = candidates.map((candidate) => {
+    const symbol = candidate.instrument.symbol;
+    const kill = evaluateKillSwitch(candidate.bars, candidate.fundamentals);
+    const quality = qualityMap.get(symbol);
+    const lastBar = latest(candidate.bars);
+
+    if (!quality || !lastBar) {
+      const details: ScoreDetails = {};
+      return {
+        symbol,
+        name: candidate.instrument.name,
+        sector: candidate.instrument.sector ?? "Unknown",
+        finalCompassScore: 0,
+        qualityScore: 0,
+        momentumScore: 0,
+        trendScore: 0,
+        fundamentalScore: 0,
+        valuationScore: 0,
+        environmentScore: envTotal,
+        executionScore: 0,
+        killSwitchStatus: "BLOCKED" as KillSwitchStatus,
+        killSwitchReason: "K 线或质量数据缺失",
+        rank: 0,
+        status: "DOWNGRADED" as WatchlistStatus,
+        details,
+      };
+    }
+
+    if (!kill.passed) {
+      const details: ScoreDetails = { killReason: kill.reason };
+      return {
+        symbol,
+        name: candidate.instrument.name,
+        sector: candidate.instrument.sector ?? "Unknown",
+        finalCompassScore: 0,
+        qualityScore: 0,
+        momentumScore: 0,
+        trendScore: 0,
+        fundamentalScore: 0,
+        valuationScore: 0,
+        environmentScore: envTotal,
+        executionScore: 0,
+        killSwitchStatus: "BLOCKED" as KillSwitchStatus,
+        killSwitchReason: kill.reason,
+        rank: 0,
+        status: "DOWNGRADED" as WatchlistStatus,
+        details,
+      };
+    }
+
+    // Valuation 20：只有 Top 段（有 analyst target）能得高分，其余按 fallback 动量兜底
+    const closes = candidate.bars.map((b) => b.close);
+    const momentum20d =
+      closes.length >= 21
+        ? (closes[closes.length - 1] - closes[closes.length - 21]) / closes[closes.length - 21]
+        : null;
+    const pwfv = computePwfv(
+      lastBar.close,
+      candidate.fundamentals?.analystTargetPrice ?? null,
+      momentum20d,
+    );
+    const target = computeTradingTarget(candidate.bars, lastBar.close);
+    const valuationScore = pwfv.score + (target?.score ?? 0);
+
+    // Execution 15
+    const execution = computeExecution(candidate.bars);
+
+    const finalCompassScore =
+      quality.total + valuationScore + envTotal + execution.score;
+
+    const details: ScoreDetails = {
+        // Momentum
+        rps21: quality.momentum.rps21,
+        rps63: quality.momentum.rps63,
+        rps252: quality.momentum.rps252,
+        weightedRps: quality.momentum.weightedRps,
+        acceleration: quality.momentum.acceleration,
+        eventRatio: quality.momentum.eventRatio,
+        // Trend
+        stackedMa: quality.trend.stackedMa,
+        proximityToHigh: quality.trend.proximityToHigh,
+        upDayRatio63: quality.trend.upDayRatio63,
+        drawdown3m: quality.trend.drawdown3m,
+        // Fundamental
+        hasFundamentalData: quality.fundamental.hasData,
+        fundamentalVetoed: quality.fundamental.vetoed,
+        epsRevision: quality.fundamental.epsRevision,
+        revenueGrowth: quality.fundamental.revenueGrowth,
+        grossMargin: quality.fundamental.grossMargin,
+        roic: quality.fundamental.roic,
+        growthScore: quality.fundamental.growthScore,
+        profitScore: quality.fundamental.profitScore,
+        revisionScore: quality.fundamental.revisionScore,
+        moatScore: quality.fundamental.moatScore,
+        moatReason: quality.fundamental.moatReason,
+        moatSource: quality.fundamental.moatSource,
+        // Valuation
+        pwfvBear: pwfv.bear,
+        pwfvBase: pwfv.base,
+        pwfvBull: pwfv.bull,
+        pwfvFair: pwfv.weightedFair,
+        pwfvSafetyMargin: pwfv.safetyMargin,
+        pwfvSource: pwfv.source,
+        pwfvScore: pwfv.score,
+        tradingTarget60d: target?.target ?? null,
+        tradingStopLoss: target?.stopLoss ?? null,
+        rewardRiskRatio: target?.rewardRiskRatio ?? null,
+        rrrScore: target?.score ?? 0,
+        // Environment
+        envMss: env?.mssScore ?? 0,
+        envBreadth: env?.breadthScore ?? 0,
+        envCredit: env?.creditScore ?? 0,
+        // Execution
+        gbzZoneScore: execution.gbzZoneScore,
+        sellingPressureScore: execution.sellingPressureScore,
+        stopRatioScore: execution.stopRatioScore,
+        distanceToGbz: execution.distanceToGbz,
+        sellingPressure20d: execution.sellingPressure20d,
+        stopLossRatio: execution.stopLossRatio,
+    };
 
     return {
-      symbol: candidate.instrument.symbol,
+      symbol,
       name: candidate.instrument.name,
       sector: candidate.instrument.sector ?? "Unknown",
-      totalScore,
-      rpsScore,
-      trendScore,
-      sectorScore,
-      fundamentalScore,
-      accumulationScore,
+      finalCompassScore,
+      qualityScore: quality.total,
+      momentumScore: quality.momentum.score,
+      trendScore: quality.trend.score,
+      fundamentalScore: quality.fundamental.score,
+      valuationScore,
+      environmentScore: envTotal,
+      executionScore: execution.score,
+      killSwitchStatus: "PASSED" as KillSwitchStatus,
+      killSwitchReason: null as string | null,
       rank: 0,
       status: "WATCH" as WatchlistStatus,
-      details: {
-        rps21: Math.round(rps21),
-        rps63: Math.round(rps63),
-        rps252: Math.round(rps252),
-        weightedRps: Math.round(weightedRps),
-        hasFundamentalData: Boolean(candidate.fundamentals),
-      },
+      details,
     };
   });
 
   return raw
-    .sort((a, b) => b.totalScore - a.totalScore)
+    .sort((a, b) => b.finalCompassScore - a.finalCompassScore)
     .map((item, index) => {
       const rank = index + 1;
       return {
         ...item,
         rank,
-        status: statusForRank(rank, item.totalScore),
+        status:
+          item.killSwitchStatus === "BLOCKED"
+            ? ("DOWNGRADED" as WatchlistStatus)
+            : statusForRank(rank, item.finalCompassScore),
       };
     });
 }
