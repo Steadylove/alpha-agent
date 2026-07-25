@@ -6,6 +6,7 @@ import { stockUniverse as fallbackUniverse } from "@/lib/fixtures/universe";
 import { buildZhBlurb, formatIndustryLabel } from "@/lib/i18n/gicsZh";
 import { percentChange, percentileRank } from "@/lib/scoring/indicators";
 import { BASE_RPS_THRESHOLD, passesBaseRps, type RpsQuad } from "@/lib/scoring/rpsPlaybooks";
+import { generateAlphaAnalysis } from "@/lib/data-sources/deepseekAlphaAnalyst";
 import type { DailyBar, Instrument } from "@/lib/types/market";
 
 /**
@@ -26,6 +27,8 @@ export type ScreenerRow = {
   rps: Record<(typeof RPS_WINDOWS)[number], number>;
   rpsAvg: number;
   minRps: number;
+  /** AI Alpha 分析报告 */
+  alphaAnalysis?: string;
 };
 
 export type ScreenerResult = {
@@ -126,17 +129,54 @@ export async function runAlphaScreenerJob(): Promise<ScreenerResult> {
   eliteBase.sort((a, b) => b.minRps - a.minRps || b.rpsAvg - a.rpsAvg);
 
   // FMP 仅用于补全英文 sector/industry，再转中文（简介不使用英文长描述）
+  // 并且并发请求 AI 深度分析
   {
     const queue = [...eliteBase];
+    // 使用少量并发避免触发限制
     const workers = Array.from({ length: Math.min(3, queue.length || 1) }, async () => {
       while (queue.length > 0) {
         const row = queue.shift();
         if (!row) return;
-        const profile = await fetchFmpProfile(row.symbol);
-        if (!profile) continue;
-        if (profile.sector) row.sector = profile.sector;
-        if (profile.industry) row.industry = profile.industry;
+
+        // 1. 行业信息
+        try {
+          const profile = await fetchFmpProfile(row.symbol);
+          if (profile) {
+            if (profile.sector) row.sector = profile.sector;
+            if (profile.industry) row.industry = profile.industry;
+          }
+        } catch (e) {
+          console.error(`fetchFmpProfile failed for ${row.symbol}`, e);
+        }
         applyZhFields(row);
+
+        // 2. AI 深度分析
+        try {
+          const bars = barsBySymbol.get(row.symbol) ?? [];
+          let currentPrice = 0;
+          let volumeChange: number | undefined;
+          
+          if (bars.length > 0) {
+            // 假设最后一条是最新数据
+            const lastBar = bars[bars.length - 1];
+            currentPrice = lastBar.close;
+            if (bars.length >= 2) {
+              const prevBar = bars[bars.length - 2];
+              if (prevBar.volume && lastBar.volume) {
+                volumeChange = (lastBar.volume - prevBar.volume) / prevBar.volume;
+              }
+            }
+          }
+          
+          if (currentPrice > 0) {
+            const analysis = await generateAlphaAnalysis(row, currentPrice, volumeChange);
+            if (analysis) {
+              row.alphaAnalysis = analysis;
+            }
+          }
+        } catch (e) {
+          console.error(`generateAlphaAnalysis failed for ${row.symbol}`, e);
+        }
       }
     });
     await Promise.all(workers);
