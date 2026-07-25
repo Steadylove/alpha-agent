@@ -98,7 +98,13 @@ function applyZhFields(row: ScreenerRow) {
   row.blurb = buildZhBlurb(row.name, row.sector, row.industry);
 }
 
-export async function runAlphaScreenerJob(): Promise<ScreenerResult> {
+type AlphaScreenerJobOptions = {
+  skipAi?: boolean;
+};
+
+export async function runAlphaScreenerJob(
+  options: AlphaScreenerJobOptions = {},
+): Promise<ScreenerResult> {
   const generatedAt = new Date();
 
   const sp500 = await fetchSp500Universe();
@@ -178,7 +184,7 @@ export async function runAlphaScreenerJob(): Promise<ScreenerResult> {
         applyZhFields(row);
 
         // 2. AI 深度分析 (仅对 elite 执行，避免新高太多耗尽 token)
-        if (eliteBase.includes(row)) {
+        if (!options.skipAi && eliteBase.includes(row)) {
           try {
             console.log(`Analyzing AI for ${row.symbol}`);
             const bars = barsBySymbol.get(row.symbol) ?? [];

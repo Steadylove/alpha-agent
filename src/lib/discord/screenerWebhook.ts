@@ -9,6 +9,24 @@ type DiscordEmbed = {
   color?: number;
 };
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function withDiscordRetry(action: () => Promise<void>, label: string): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      await action();
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt === 3) break;
+      console.warn(`${label} failed, retrying (${attempt}/3)`, error);
+      await sleep(1500 * attempt);
+    }
+  }
+  throw lastError;
+}
+
 function postJson(webhookUrl: string, payload: object): Promise<void> {
   return new Promise((resolve, reject) => {
     const url = new URL(webhookUrl);
@@ -128,16 +146,21 @@ export async function sendAlphaScreenerToDiscord(
   };
 
   // 发送多图消息
-  await postMultipart(
-    webhookUrl,
-    {
-      content: result.elite.length === 0 && result.newHighs.length === 0 ? `今日无符合条件的标的` : "",
-      embeds: [eliteEmbed, newHighsEmbed],
-    },
-    [
-      { filename: "elite.png", bytes: elitePng, contentType: "image/png" },
-      { filename: "newhighs.png", bytes: newHighsPng, contentType: "image/png" }
-    ],
+  await withDiscordRetry(
+    () =>
+      postMultipart(
+        webhookUrl,
+        {
+          content:
+            result.elite.length === 0 && result.newHighs.length === 0 ? `今日无符合条件的标的` : "",
+          embeds: [eliteEmbed, newHighsEmbed],
+        },
+        [
+          { filename: "elite.png", bytes: elitePng, contentType: "image/png" },
+          { filename: "newhighs.png", bytes: newHighsPng, contentType: "image/png" },
+        ],
+      ),
+    "Discord image push",
   );
 
   // 3. 发送 AI 分析（仅精英池，每股单独卡片）
@@ -158,7 +181,7 @@ export async function sendAlphaScreenerToDiscord(
 
   // Discord 每条消息的 embeds 总大小限制为 6000；逐条发送更稳。
   for (const embed of analysisEmbeds) {
-    await new Promise((r) => setTimeout(r, 1000));
-    await postJson(webhookUrl, { embeds: [embed] });
+    await sleep(1000);
+    await withDiscordRetry(() => postJson(webhookUrl, { embeds: [embed] }), "Discord AI push");
   }
 }
