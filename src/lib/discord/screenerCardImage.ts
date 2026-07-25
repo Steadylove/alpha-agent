@@ -44,15 +44,35 @@ function esc(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
+function displayWidth(s: string): number {
+  return Array.from(s).reduce((sum, ch) => (ch.charCodeAt(0) > 127 ? sum + 2 : sum + 1), 0);
+}
+
+function truncateLabel(s: string, maxWidth = 28): string {
+  const text = s.trim();
+  if (displayWidth(text) <= maxWidth) return text;
+
+  let out = "";
+  let width = 0;
+  for (const ch of text) {
+    const w = ch.charCodeAt(0) > 127 ? 2 : 1;
+    if (width + w > maxWidth - 1) break;
+    out += ch;
+    width += w;
+  }
+  return `${out.trimEnd()}…`;
+}
+
 function rowSvg(row: ScreenerRow, index: number, y: number): string {
   const bg = index % 2 === 0 ? C.rowEven : C.rowOdd;
   const rankStr = String(index + 1).padStart(2, "0");
+  const industryLabel = truncateLabel(row.industryLabel);
 
   return `
   <rect x="0" y="${y}" width="${WIDTH}" height="${ROW_H}" fill="${bg}" />
   <text x="${COL.rank}" y="${y + 34}" font-size="14" fill="${C.rank}" text-anchor="middle" font-family="${MONO}">${rankStr}</text>
   <text x="${COL.symbol}" y="${y + 35}" font-size="18" font-weight="bold" fill="${C.symbol}" font-family="${MONO}">${esc(row.symbol)}</text>
-  <text x="${COL.industry}" y="${y + 34}" font-size="14" fill="${C.industry}" font-family="${FONT}">${esc(row.industryLabel)}</text>
+  <text x="${COL.industry}" y="${y + 34}" font-size="14" fill="${C.industry}" font-family="${FONT}">${esc(industryLabel)}</text>
 
   <text x="${COL.rps20}" y="${y + 35}" font-size="18" font-weight="bold" fill="${C.rpsVal}" text-anchor="end" font-family="${MONO}">${Math.round(row.rps[20])}</text>
   <text x="${COL.rps50}" y="${y + 35}" font-size="18" font-weight="bold" fill="${C.rpsVal}" text-anchor="end" font-family="${MONO}">${Math.round(row.rps[50])}</text>

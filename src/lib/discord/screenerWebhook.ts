@@ -1,7 +1,6 @@
 import { request } from "node:https";
 import { renderScreenerCardPng } from "@/lib/discord/screenerCardImage";
-import type { ScreenerResult, ScreenerRow } from "@/lib/jobs/alphaScreener";
-import { BASE_RPS_THRESHOLD } from "@/lib/scoring/rpsPlaybooks";
+import type { ScreenerResult } from "@/lib/jobs/alphaScreener";
 
 type DiscordEmbed = {
   title?: string;
@@ -146,8 +145,8 @@ export async function sendAlphaScreenerToDiscord(
   for (const row of result.elite) {
     if (row.alphaAnalysis) {
       let desc = row.alphaAnalysis;
-      if (desc.length > 4000) {
-        desc = desc.slice(0, 4000) + "...";
+      if (desc.length > 3500) {
+        desc = desc.slice(0, 3500) + "...";
       }
       analysisEmbeds.push({
         title: `⚡ Alpha 深度推演: ${row.symbol}`,
@@ -157,12 +156,9 @@ export async function sendAlphaScreenerToDiscord(
     }
   }
 
-  // 批量发送 embed，每条消息最多 10 个 embed
-  for (let i = 0; i < analysisEmbeds.length; i += 10) {
-    const chunk = analysisEmbeds.slice(i, i + 10);
-    if (chunk.length > 0) {
-      await new Promise(r => setTimeout(r, 1000));
-      await postJson(webhookUrl, { embeds: chunk });
-    }
+  // Discord 每条消息的 embeds 总大小限制为 6000；逐条发送更稳。
+  for (const embed of analysisEmbeds) {
+    await new Promise((r) => setTimeout(r, 1000));
+    await postJson(webhookUrl, { embeds: [embed] });
   }
 }
