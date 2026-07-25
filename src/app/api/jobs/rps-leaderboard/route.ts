@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { runRpsLeaderboardJob } from "@/lib/jobs/rpsLeaderboard";
 
-export const maxDuration = 600;
+export const maxDuration = 300;
 
 export async function POST(request: Request) {
   const secret = request.headers.get("x-cron-secret");
