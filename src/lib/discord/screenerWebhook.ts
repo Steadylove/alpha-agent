@@ -43,19 +43,28 @@ function postJson(webhookUrl: string, payload: object): Promise<void> {
 function postMultipart(
   webhookUrl: string,
   payload: object,
-  file: { filename: string; bytes: Buffer; contentType: string },
+  files: Array<{ filename: string; bytes: Buffer; contentType: string }>,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const url = new URL(webhookUrl);
     const boundary = `----mc${Date.now().toString(16)}`;
-    const jsonPart = Buffer.from(
+    
+    const parts: Buffer[] = [];
+    parts.push(Buffer.from(
       `--${boundary}\r\nContent-Disposition: form-data; name="payload_json"\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(payload)}\r\n`,
-    );
-    const fileHead = Buffer.from(
-      `--${boundary}\r\nContent-Disposition: form-data; name="files[0]"; filename="${file.filename}"\r\nContent-Type: ${file.contentType}\r\n\r\n`,
-    );
-    const fileTail = Buffer.from(`\r\n--${boundary}--\r\n`);
-    const body = Buffer.concat([jsonPart, fileHead, file.bytes, fileTail]);
+    ));
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      parts.push(Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="files[${i}]"; filename="${file.filename}"\r\nContent-Type: ${file.contentType}\r\n\r\n`,
+      ));
+      parts.push(file.bytes);
+      parts.push(Buffer.from(`\r\n`));
+    }
+    parts.push(Buffer.from(`--${boundary}--\r\n`));
+
+    const body = Buffer.concat(parts);
 
     const req = request(
       {
@@ -87,29 +96,52 @@ function postMultipart(
   });
 }
 
-/** 每日推送：先发总览图片，随后发送各股 AI 深度分析 */
+/** 每日推送：发两张总览图片 (精英池 + 新高池)，随后发送精英池各股 AI 深度分析 */
 export async function sendAlphaScreenerToDiscord(
   webhookUrl: string,
   result: ScreenerResult,
 ): Promise<void> {
-  const png = await renderScreenerCardPng(result);
-  const filename = "screener.png";
-  const imageEmbed: DiscordEmbed = {
+  const dateStr = result.generatedAt.toISOString().slice(0, 10);
+  
+  // 1. 发送精英池图片
+  const elitePng = await renderScreenerCardPng(
+    result,
+    result.elite,
+    "强势股精英池",
+    `${dateStr} // RPS > ${result.baseThreshold} // ROWS: ${result.elite.length}`
+  );
+  
+  // 2. 发送新高池图片
+  const newHighsPng = await renderScreenerCardPng(
+    result,
+    result.newHighs,
+    "盘中新高(趋势发现)",
+    `${dateStr} // 252日新高 // ROWS: ${result.newHighs.length}`
+  );
+
+  const eliteEmbed: DiscordEmbed = {
     color: 0x131722,
-    image: { url: `attachment://${filename}` },
+    image: { url: `attachment://elite.png` },
+  };
+  const newHighsEmbed: DiscordEmbed = {
+    color: 0x131722,
+    image: { url: `attachment://newhighs.png` },
   };
 
-  // 1. 发送图片总览
+  // 发送多图消息
   await postMultipart(
     webhookUrl,
     {
-      content: result.elite.length === 0 ? `今日无命中（RPS > ${BASE_RPS_THRESHOLD}）` : "",
-      embeds: [imageEmbed],
+      content: result.elite.length === 0 && result.newHighs.length === 0 ? `今日无符合条件的标的` : "",
+      embeds: [eliteEmbed, newHighsEmbed],
     },
-    { filename, bytes: png, contentType: "image/png" },
+    [
+      { filename: "elite.png", bytes: elitePng, contentType: "image/png" },
+      { filename: "newhighs.png", bytes: newHighsPng, contentType: "image/png" }
+    ],
   );
 
-  // 2. 发送 AI 分析（每股单独卡片）
+  // 3. 发送 AI 分析（仅精英池，每股单独卡片）
   const analysisEmbeds: DiscordEmbed[] = [];
   for (const row of result.elite) {
     if (row.alphaAnalysis) {

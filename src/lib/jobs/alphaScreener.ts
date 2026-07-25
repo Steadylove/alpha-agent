@@ -37,6 +37,7 @@ export type ScreenerResult = {
   rankedSize: number;
   baseThreshold: number;
   elite: ScreenerRow[];
+  newHighs: ScreenerRow[];
   dailyFetchErrors: number;
 };
 
@@ -79,6 +80,19 @@ function toRpsQuad(rps: Record<(typeof RPS_WINDOWS)[number], number>): RpsQuad {
   };
 }
 
+function isNewHigh(bars: DailyBar[], lookback = 252): boolean {
+  if (bars.length < 2) return false;
+  const currentHigh = bars[bars.length - 1].high;
+  const startIdx = Math.max(0, bars.length - 1 - lookback);
+  let maxPreviousHigh = -Infinity;
+  for (let i = startIdx; i < bars.length - 1; i++) {
+    if (bars[i].high > maxPreviousHigh) {
+      maxPreviousHigh = bars[i].high;
+    }
+  }
+  return currentHigh > maxPreviousHigh;
+}
+
 function applyZhFields(row: ScreenerRow) {
   row.industryLabel = formatIndustryLabel(row.sector, row.industry);
   row.blurb = buildZhBlurb(row.name, row.sector, row.industry);
@@ -103,10 +117,17 @@ export async function runAlphaScreenerJob(): Promise<ScreenerResult> {
   const rpsMap = computeMultiRps(dailyCandidates);
 
   const eliteBase: ScreenerRow[] = [];
-  for (const { symbol } of dailyCandidates) {
+  const newHighsBase: ScreenerRow[] = [];
+  const allTargetRows = new Map<string, ScreenerRow>();
+
+  for (const { symbol, bars } of dailyCandidates) {
     const rps = rpsMap.get(symbol);
     if (!rps) continue;
-    if (!passesBaseRps(toRpsQuad(rps))) continue;
+    
+    const isElite = passesBaseRps(toRpsQuad(rps));
+    const isBreakout = isNewHigh(bars, 252);
+
+    if (!isElite && !isBreakout) continue;
 
     const inst = instrumentBySymbol.get(symbol);
     const name = inst?.name ?? symbol;
@@ -123,15 +144,20 @@ export async function runAlphaScreenerJob(): Promise<ScreenerResult> {
       rpsAvg: RPS_WINDOWS.reduce((sum, w) => sum + rps[w], 0) / RPS_WINDOWS.length,
       minRps: Math.min(rps[20], rps[50], rps[120], rps[250]),
     };
-    eliteBase.push(row);
+    
+    allTargetRows.set(symbol, row);
+
+    if (isElite) eliteBase.push(row);
+    if (isBreakout) newHighsBase.push(row);
   }
 
   eliteBase.sort((a, b) => b.minRps - a.minRps || b.rpsAvg - a.rpsAvg);
+  newHighsBase.sort((a, b) => b.rpsAvg - a.rpsAvg);
 
   // FMP 仅用于补全英文 sector/industry，再转中文（简介不使用英文长描述）
   // 并且并发请求 AI 深度分析
   {
-    const queue = [...eliteBase];
+    const queue = Array.from(allTargetRows.values());
     // 使用少量并发避免触发限制
     const workers = Array.from({ length: Math.min(3, queue.length || 1) }, async () => {
       while (queue.length > 0) {
@@ -140,6 +166,7 @@ export async function runAlphaScreenerJob(): Promise<ScreenerResult> {
 
         // 1. 行业信息
         try {
+          // console.log(`Fetching FMP for ${row.symbol}`);
           const profile = await fetchFmpProfile(row.symbol);
           if (profile) {
             if (profile.sector) row.sector = profile.sector;
@@ -150,36 +177,40 @@ export async function runAlphaScreenerJob(): Promise<ScreenerResult> {
         }
         applyZhFields(row);
 
-        // 2. AI 深度分析
-        try {
-          const bars = barsBySymbol.get(row.symbol) ?? [];
-          let currentPrice = 0;
-          let volumeChange: number | undefined;
-          
-          if (bars.length > 0) {
-            // 假设最后一条是最新数据
-            const lastBar = bars[bars.length - 1];
-            currentPrice = lastBar.close;
-            if (bars.length >= 2) {
-              const prevBar = bars[bars.length - 2];
-              if (prevBar.volume && lastBar.volume) {
-                volumeChange = (lastBar.volume - prevBar.volume) / prevBar.volume;
+        // 2. AI 深度分析 (仅对 elite 执行，避免新高太多耗尽 token)
+        if (eliteBase.includes(row)) {
+          try {
+            console.log(`Analyzing AI for ${row.symbol}`);
+            const bars = barsBySymbol.get(row.symbol) ?? [];
+            let currentPrice = 0;
+            let volumeChange: number | undefined;
+            
+            if (bars.length > 0) {
+              const lastBar = bars[bars.length - 1];
+              currentPrice = lastBar.close;
+              if (bars.length >= 2) {
+                const prevBar = bars[bars.length - 2];
+                if (prevBar.volume && lastBar.volume) {
+                  volumeChange = (lastBar.volume - prevBar.volume) / prevBar.volume;
+                }
               }
             }
-          }
-          
-          if (currentPrice > 0) {
-            const analysis = await generateAlphaAnalysis(row, currentPrice, volumeChange);
-            if (analysis) {
-              row.alphaAnalysis = analysis;
+            
+            if (currentPrice > 0) {
+              const analysis = await generateAlphaAnalysis(row, currentPrice, volumeChange);
+              if (analysis) {
+                row.alphaAnalysis = analysis;
+              }
             }
+            console.log(`Finished AI for ${row.symbol}`);
+          } catch (e) {
+            console.error(`generateAlphaAnalysis failed for ${row.symbol}`, e);
           }
-        } catch (e) {
-          console.error(`generateAlphaAnalysis failed for ${row.symbol}`, e);
         }
       }
     });
     await Promise.all(workers);
+    console.log("All workers finished");
   }
 
   const result: ScreenerResult = {
@@ -188,6 +219,7 @@ export async function runAlphaScreenerJob(): Promise<ScreenerResult> {
     rankedSize: dailyCandidates.length,
     baseThreshold: BASE_RPS_THRESHOLD,
     elite: eliteBase,
+    newHighs: newHighsBase,
     dailyFetchErrors: Object.keys(dailyErrors).length,
   };
 
@@ -202,6 +234,7 @@ export async function runAlphaScreenerJob(): Promise<ScreenerResult> {
       buckets: {
         baseThreshold: result.baseThreshold,
         elite: result.elite,
+        newHighs: result.newHighs,
       },
     },
     create: {
@@ -212,6 +245,7 @@ export async function runAlphaScreenerJob(): Promise<ScreenerResult> {
       buckets: {
         baseThreshold: result.baseThreshold,
         elite: result.elite,
+        newHighs: result.newHighs,
       },
     },
   });

@@ -63,11 +63,14 @@ function rowSvg(row: ScreenerRow, index: number, y: number): string {
 }
 
 /** 高清深色 PNG：仅数据，无品牌 */
-export async function renderScreenerCardPng(result: ScreenerResult): Promise<Buffer> {
-  const rows = result.elite;
+export async function renderScreenerCardPng(
+  result: ScreenerResult,
+  rows: ScreenerRow[],
+  title: string,
+  subtitleInfo: string,
+): Promise<Buffer> {
   const height = HEADER_H + Math.max(rows.length, 1) * ROW_H;
 
-  const date = result.generatedAt.toISOString().slice(0, 10);
   const body =
     rows.length === 0
       ? `<text x="${WIDTH / 2}" y="${HEADER_H + 60}" font-size="16" fill="${C.subtitle}" text-anchor="middle" font-family="${FONT}">今日无命中</text>`
@@ -87,8 +90,8 @@ export async function renderScreenerCardPng(result: ScreenerResult): Promise<Buf
 
   const titleSvg = `
   <text x="32" y="44" font-size="22" font-weight="bold" fill="${C.title}" font-family="${MONO}">MARKET COMPASS</text>
-  <text x="230" y="42" font-size="14" fill="${C.subtitle}" font-family="${FONT}">强势股扫描</text>
-  <text x="${WIDTH - 32}" y="43" font-size="14" fill="${C.subtitle}" text-anchor="end" font-family="${MONO}">${date} // RPS &gt; ${result.baseThreshold} // ROWS: ${rows.length}</text>
+  <text x="230" y="42" font-size="14" fill="${C.subtitle}" font-family="${FONT}">${title}</text>
+  <text x="${WIDTH - 32}" y="43" font-size="14" fill="${C.subtitle}" text-anchor="end" font-family="${MONO}">${subtitleInfo}</text>
   `;
 
   const svg = `<?xml version="1.0" encoding="UTF-8"?>

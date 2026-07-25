@@ -8,27 +8,31 @@ export type ScreenerPageData = ScreenerResult & {
 type StoredBuckets = {
   baseThreshold?: number;
   elite?: ScreenerRow[];
+  newHighs?: ScreenerRow[];
 };
 
 function parseBuckets(raw: unknown): {
   baseThreshold: number;
   elite: ScreenerRow[];
+  newHighs: ScreenerRow[];
 } {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return { baseThreshold: BASE_RPS_THRESHOLD, elite: [] };
+    return { baseThreshold: BASE_RPS_THRESHOLD, elite: [], newHighs: [] };
   }
   const stored = raw as StoredBuckets;
-  const elite = (Array.isArray(stored.elite) ? stored.elite : []).map((row) => ({
+  const parseRow = (row: any) => ({
     ...row,
     industryLabel:
       row.industryLabel ??
       [row.sector, row.industry].filter(Boolean).join("｜") ??
       "行业未知",
     blurb: row.blurb ?? row.name,
-  }));
+  });
+  
   return {
     baseThreshold: stored.baseThreshold ?? BASE_RPS_THRESHOLD,
-    elite,
+    elite: (Array.isArray(stored.elite) ? stored.elite : []).map(parseRow),
+    newHighs: (Array.isArray(stored.newHighs) ? stored.newHighs : []).map(parseRow),
   };
 }
 
@@ -51,6 +55,7 @@ export async function getLatestScreenerData(): Promise<ScreenerPageData | null> 
     rankedSize: row.universeSize,
     baseThreshold: parsed.baseThreshold,
     elite: parsed.elite,
+    newHighs: parsed.newHighs,
     dailyFetchErrors: row.dailyFetchErrors,
   };
 }
