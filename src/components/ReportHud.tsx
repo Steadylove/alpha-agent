@@ -120,14 +120,16 @@ function FactorBar({
 function ClickPopover({
   trigger,
   children,
+  fullWidth = true,
 }: {
   trigger: ReactNode;
   children: ReactNode;
+  fullWidth?: boolean;
 }) {
   return (
     <Popover position="bottom-start" withArrow shadow="md" width={320} radius="md">
       <Popover.Target>
-        <UnstyledButton className="w-full">{trigger}</UnstyledButton>
+        <UnstyledButton className={fullWidth ? "w-full" : undefined}>{trigger}</UnstyledButton>
       </Popover.Target>
       <Popover.Dropdown>{children}</Popover.Dropdown>
     </Popover>
@@ -152,10 +154,23 @@ export function ReportHud({
   const sectorMax = Math.max(...topSectors.map((s) => s.score), 100);
 
   return (
-    <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
-      <Card title="Market Regime · 点击环形/因子看公式">
-        <Group align="flex-start" wrap="nowrap" gap="lg">
+    <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="lg">
+      <Card
+        title={
+          <Stack gap={2}>
+            <Text size="sm" fw={700} c="gray.1">
+              Market Regime
+            </Text>
+            <Text size="xs" c="dimmed">
+              点击环形图/因子查看公式
+            </Text>
+          </Stack>
+        }
+      >
+        <div className="grid gap-5 md:grid-cols-[128px_1fr]">
+          <div className="flex flex-col items-center justify-start gap-2">
           <ClickPopover
+            fullWidth={false}
             trigger={
               <RingProgress
                 size={120}
@@ -224,29 +239,44 @@ export function ReportHud({
               </Text>
             </Stack>
           </ClickPopover>
+            <Text size="sm" fw={600} c={`${meta.color}.4`}>
+              {meta.label}
+            </Text>
+            <Text size="xs" c="dimmed">
+              置信度 {Math.round((marketMetric?.confidence ?? 0) * 100)}%
+            </Text>
+          </div>
+
           <Stack gap="xs" style={{ flex: 1, minWidth: 0 }}>
-            <Group gap="xs">
-              <Text size="sm" fw={500} c={`${meta.color}.4`}>
-                {meta.label}
-              </Text>
-              <Text size="xs" c="dimmed">
-                置信度 {Math.round((marketMetric?.confidence ?? 0) * 100)}%
-              </Text>
-            </Group>
             {FACTORS.map((f) => (
               <FactorBar key={f.key} factor={f} score={marketMetric?.[f.key] ?? null} />
             ))}
           </Stack>
-        </Group>
+        </div>
       </Card>
 
-      <Card title="Sector & Alpha （点击 Sector 看 RS 公式）">
+      <Card
+        title={
+          <Stack gap={2}>
+            <Text size="sm" fw={700} c="gray.1">
+              Sector & Alpha
+            </Text>
+            <Text size="xs" c="dimmed">
+              点击 Sector 查看 RS 公式
+            </Text>
+          </Stack>
+        }
+      >
         <Stack gap="md">
           <Stack gap={6}>
             <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
-              🔄 Sector Top 3
+              Sector Top 3
             </Text>
-            {topSectors.map((sector, idx) => {
+            {topSectors.length === 0 ? (
+              <Text size="sm" c="dimmed" py={8}>
+                暂无板块数据。
+              </Text>
+            ) : topSectors.map((sector, idx) => {
               const medal = idx === 0 ? "🥇" : idx === 1 ? "🥈" : "🥉";
               return (
                 <ClickPopover
@@ -312,9 +342,13 @@ export function ReportHud({
 
           <Stack gap={4}>
             <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
-              🚀 Alpha Top 5
+              Alpha Top 5
             </Text>
-            {topStocks.map((stock) => (
+            {topStocks.length === 0 ? (
+              <Text size="sm" c="dimmed" py={8}>
+                暂无 Alpha 股票数据。
+              </Text>
+            ) : topStocks.map((stock) => (
               <Link
                 key={stock.symbol}
                 href={`/stock/${stock.symbol}`}

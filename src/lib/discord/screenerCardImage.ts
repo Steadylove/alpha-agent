@@ -15,6 +15,10 @@ const C = {
   bg: "#131722",
   rowEven: "#131722",
   rowOdd: "#181C25",
+  overlapRow: "#13231F",
+  overlapLine: "#26A69A",
+  overlapBadgeBg: "#1F3B34",
+  overlapBadgeText: "#7EE7D2",
   border: "#2A2E39",
   title: "#D1D4DC",
   subtitle: "#787B86",
@@ -63,15 +67,21 @@ function truncateLabel(s: string, maxWidth = 28): string {
   return `${out.trimEnd()}…`;
 }
 
-function rowSvg(row: ScreenerRow, index: number, y: number): string {
-  const bg = index % 2 === 0 ? C.rowEven : C.rowOdd;
+function rowSvg(row: ScreenerRow, index: number, y: number, isOverlap: boolean): string {
+  const bg = isOverlap ? C.overlapRow : index % 2 === 0 ? C.rowEven : C.rowOdd;
   const rankStr = String(index + 1).padStart(2, "0");
   const industryLabel = truncateLabel(row.industryLabel);
+  const overlapBadge = isOverlap
+    ? `<rect x="156" y="${y + 18}" width="42" height="20" rx="4" fill="${C.overlapBadgeBg}" stroke="${C.overlapLine}" stroke-width="1"/>
+  <text x="177" y="${y + 32}" font-size="10" font-weight="700" fill="${C.overlapBadgeText}" text-anchor="middle" font-family="${MONO}">BOTH</text>`
+    : "";
 
   return `
   <rect x="0" y="${y}" width="${WIDTH}" height="${ROW_H}" fill="${bg}" />
+  ${isOverlap ? `<rect x="0" y="${y}" width="4" height="${ROW_H}" fill="${C.overlapLine}" />` : ""}
   <text x="${COL.rank}" y="${y + 34}" font-size="14" fill="${C.rank}" text-anchor="middle" font-family="${MONO}">${rankStr}</text>
   <text x="${COL.symbol}" y="${y + 35}" font-size="18" font-weight="bold" fill="${C.symbol}" font-family="${MONO}">${esc(row.symbol)}</text>
+  ${overlapBadge}
   <text x="${COL.industry}" y="${y + 34}" font-size="14" fill="${C.industry}" font-family="${FONT}">${esc(industryLabel)}</text>
 
   <text x="${COL.rps20}" y="${y + 35}" font-size="18" font-weight="bold" fill="${C.rpsVal}" text-anchor="end" font-family="${MONO}">${Math.round(row.rps[20])}</text>
@@ -88,13 +98,18 @@ export async function renderScreenerCardPng(
   rows: ScreenerRow[],
   title: string,
   subtitleInfo: string,
+  options: { overlapSymbols?: Set<string> } = {},
 ): Promise<Buffer> {
   const height = HEADER_H + Math.max(rows.length, 1) * ROW_H;
 
   const body =
     rows.length === 0
       ? `<text x="${WIDTH / 2}" y="${HEADER_H + 60}" font-size="16" fill="${C.subtitle}" text-anchor="middle" font-family="${FONT}">今日无命中</text>`
-      : rows.map((row, i) => rowSvg(row, i, HEADER_H + i * ROW_H)).join("\n");
+      : rows
+          .map((row, i) =>
+            rowSvg(row, i, HEADER_H + i * ROW_H, options.overlapSymbols?.has(row.symbol) ?? false),
+          )
+          .join("\n");
 
   const colHeaders = `
   <rect x="0" y="70" width="${WIDTH}" height="40" fill="${C.rowEven}" />

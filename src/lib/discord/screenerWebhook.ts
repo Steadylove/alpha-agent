@@ -119,13 +119,18 @@ export async function sendAlphaScreenerToDiscord(
   result: ScreenerResult,
 ): Promise<void> {
   const dateStr = result.generatedAt.toISOString().slice(0, 10);
+  const eliteSymbols = new Set(result.elite.map((row) => row.symbol));
+  const overlapSymbols = new Set(
+    result.newHighs.filter((row) => eliteSymbols.has(row.symbol)).map((row) => row.symbol),
+  );
   
   // 1. 发送精英池图片
   const elitePng = await renderScreenerCardPng(
     result,
     result.elite,
     "强势股精英池",
-    `${dateStr} // RPS > ${result.baseThreshold} // ROWS: ${result.elite.length}`
+    `${dateStr} // RPS > ${result.baseThreshold} // ROWS: ${result.elite.length} // BOTH: ${overlapSymbols.size}`,
+    { overlapSymbols },
   );
   
   // 2. 发送新高池图片
@@ -133,7 +138,8 @@ export async function sendAlphaScreenerToDiscord(
     result,
     result.newHighs,
     "盘中新高(趋势发现)",
-    `${dateStr} // 252日新高 // ROWS: ${result.newHighs.length}`
+    `${dateStr} // 252日新高 // ROWS: ${result.newHighs.length} // BOTH: ${overlapSymbols.size}`,
+    { overlapSymbols },
   );
 
   const eliteEmbed: DiscordEmbed = {
