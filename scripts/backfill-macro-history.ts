@@ -20,6 +20,8 @@ import type { DailyBar, InstrumentType } from "@/lib/types/market";
 
 type MacroTarget = {
   symbol: string;
+  /** 数据源侧的代码。仅当与入库 symbol 不同时才需要，如 DXY 在 Yahoo 上是 DX-Y.NYB。 */
+  fetchSymbol?: string;
   name: string;
   type: InstrumentType;
   /** yahoo=ETF 行情；cboe=波动率指数全历史 CSV */
@@ -32,6 +34,7 @@ const MACRO_TARGETS: MacroTarget[] = [
   { symbol: "RSP", name: "Invesco S&P 500 Equal Weight ETF", type: "ETF", source: "yahoo", role: "F5 等权广度" },
   { symbol: "TLT", name: "iShares 20+ Year Treasury Bond ETF", type: "ETF", source: "yahoo", role: "F3 长债避险" },
   { symbol: "UUP", name: "Invesco DB US Dollar Index Bullish Fund", type: "ETF", source: "yahoo", role: "F3 美元代理" },
+  { symbol: "DXY", fetchSymbol: "DX-Y.NYB", name: "ICE US Dollar Index", type: "INDEX", source: "yahoo", role: "F3 美元指数" },
   { symbol: "GLD", name: "SPDR Gold Shares", type: "ETF", source: "yahoo", role: "F3 黄金避险" },
   { symbol: "IEI", name: "iShares 3-7 Year Treasury Bond ETF", type: "ETF", source: "yahoo", role: "F4 中期国债" },
   { symbol: "HYG", name: "iShares iBoxx High Yield Corporate Bond ETF", type: "ETF", source: "yahoo", role: "F4 高收益债" },
@@ -48,7 +51,7 @@ async function fetchHistory(target: MacroTarget): Promise<DailyBar[]> {
   if (target.source === "cboe") {
     return fetchCboeVolIndexHistory(target.symbol as CboeVolIndex);
   }
-  return fetchYahooDailyBars(target.symbol, { years: HISTORY_YEARS });
+  return fetchYahooDailyBars(target.fetchSymbol ?? target.symbol, { years: HISTORY_YEARS });
 }
 
 async function backfillOne(target: MacroTarget) {
