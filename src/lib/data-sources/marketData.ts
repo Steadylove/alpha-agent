@@ -5,7 +5,8 @@ import type { DailyBar } from "@/lib/types/market";
 export async function fetchDailyBars(symbol: string): Promise<DailyBar[]> {
   const errors: string[] = [];
 
-  for (const fetcher of [fetchStooqDailyBars, fetchYahooDailyBars]) {
+  // Yahoo 优先：Stooq 已对本服务返回 HTML 反爬页，放在首位会让每个标的都先白等一次失败。
+  for (const fetcher of [fetchYahooDailyBars, fetchStooqDailyBars]) {
     try {
       const bars = await fetcher(symbol);
       if (bars.length > 0) {
