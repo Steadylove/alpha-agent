@@ -3,6 +3,7 @@
 import { Card } from "@/components/Card";
 import type { StockPanelData, StockPanelRow } from "@/lib/dashboard/stockPanel";
 import { Alert, Stack, Text, Tooltip, UnstyledButton } from "@mantine/core";
+import Link from "next/link";
 import { useState } from "react";
 
 const POS = "#089981";
@@ -293,7 +294,12 @@ function PanelRow({ row }: { row: StockPanelRow }) {
   return (
     <tr className="border-t border-zinc-800/60">
       <td className="py-2 pr-3">
-        <div className="font-medium text-zinc-100">{row.symbol}</div>
+        <Link
+          href={`/depth/${row.symbol}`}
+          className="font-medium text-zinc-100 underline decoration-zinc-700 underline-offset-2 transition-colors hover:decoration-zinc-400"
+        >
+          {row.symbol}
+        </Link>
         <div className="max-w-[9rem] truncate text-xs text-zinc-500">{row.name}</div>
       </td>
       <td className="py-2 pr-3">
