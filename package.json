@@ -12,7 +12,9 @@
     "prisma:generate": "prisma generate",
     "screener:push": "npx --yes tsx scripts/push-daily-screener.ts",
     "backfill:macro": "npx --yes tsx scripts/backfill-macro-history.ts",
+    "backfill:rotation": "npx --yes tsx scripts/backfill-rotation-history.ts",
     "calibrate:mpr": "npx --yes tsx scripts/calibrate-mpr.ts",
+    "calibrate:rotation": "npx --yes tsx scripts/calibrate-rotation.ts",
     "compare:mpr": "npx --yes tsx scripts/compare-mpr-tradingview.ts"
   },
   "keywords": [],
