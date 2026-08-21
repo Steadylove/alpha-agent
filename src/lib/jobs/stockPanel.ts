@@ -1,16 +1,30 @@
 import { getPrisma } from "@/lib/db/prisma";
 import { computeDipZone } from "@/lib/scoring/dipZone";
+import { computeLogMacdSeries } from "@/lib/scoring/logMacd";
 import { isRsAccelerating, relativeRsSeries } from "@/lib/scoring/relativeRs";
 import { ROTATION_UNIVERSE } from "@/lib/scoring/rotationUniverse";
+import {
+  type SectorClockDay,
+  computeSectorClockSeries,
+  sectorStanding,
+} from "@/lib/scoring/sectorClock";
+import {
+  type SectorClockId,
+  SECTOR_UNIVERSE,
+  mapSectorToClock,
+} from "@/lib/scoring/sectorUniverse";
 import { atrSeries, emaSeries, smaOfNullable } from "@/lib/scoring/series";
 import { computeStockRegimeSeries } from "@/lib/scoring/stockRegime";
+import { computeStockRisk } from "@/lib/scoring/stockRisk";
 import { computeStockStageSeries, institutionalVwap } from "@/lib/scoring/stockStage";
+import { computeTacticalGuide } from "@/lib/scoring/tacticalGuide";
 
 /**
- * 每日重算个股深度面板：趋势打分、形态阶段、Hurst / VCP / 资金态、低吸支撑带。
+ * 每日重算个股深度面板：趋势打分、形态阶段、Hurst / VCP / 资金态、低吸支撑带、
+ * SLS 行业站位、双仓位风控、战术指令。
  *
- * 与 rotationRadar 一样全历史重算——筑底天数、EMA576、Hurst 都要连续递推，
- * 且只回写一个窗口的每日状态，让底层日线的回补修正能自愈。
+ * 与 rotationRadar 一样全历史重算——筑底天数、EMA576、Hurst 与风控仓位状态
+ * 都要连续递推，且只回写一个窗口的每日状态，让底层日线的回补修正能自愈。
  */
 
 /** 相对强度的基准。Pine 用 SP:SPX，我们只有 SPY，两者日收益率几乎同步。 */
@@ -25,6 +39,7 @@ export type StockPanelJobResult = {
   symbolsEvaluated: number;
   symbolsSkipped: string[];
   rowsWritten: number;
+  sectorRowsWritten: number;
 };
 
 type PanelBar = {
@@ -85,7 +100,8 @@ export async function runStockPanelJob(): Promise<StockPanelJobResult> {
 
   try {
     const symbols = ROTATION_UNIVERSE.map((t) => t.symbol);
-    const bySymbol = await loadBars([...symbols, BENCHMARK_SYMBOL]);
+    const sectorSymbols = SECTOR_UNIVERSE.map((s) => s.symbol);
+    const bySymbol = await loadBars([...symbols, ...sectorSymbols, BENCHMARK_SYMBOL]);
 
     const benchBars = bySymbol.get(BENCHMARK_SYMBOL);
     if (!benchBars || benchBars.length < MIN_BARS) {
@@ -97,6 +113,31 @@ export async function runStockPanelJob(): Promise<StockPanelJobResult> {
     const phases = await prisma.macroPhaseState.findMany({ select: { date: true, pathId: true } });
     const pathByDate = new Map(
       phases.map((p) => [p.date.toISOString().slice(0, 10), p.pathId]),
+    );
+
+    // SLS 时钟跑在基准的交易日轴上；ETF 未上市的日期填 null，Pine 会把它记 0 分
+    const sectorCloses = {} as Record<SectorClockId, (number | null)[]>;
+    for (const etf of SECTOR_UNIVERSE) {
+      const closeByDate = new Map((bySymbol.get(etf.symbol) ?? []).map((b) => [b.date, b.close]));
+      sectorCloses[etf.id] = benchBars.map((b) => closeByDate.get(b.date) ?? null);
+    }
+    const clockSeries = computeSectorClockSeries({
+      sectorCloses,
+      benchmarkCloses: benchBars.map((b) => b.close),
+    });
+    const clockByDate = new Map<string, SectorClockDay>(
+      benchBars.map((b, i) => [b.date, clockSeries[i]]),
+    );
+
+    const instruments = await prisma.instrument.findMany({
+      where: { symbol: { in: symbols } },
+      select: { symbol: true, sector: true, type: true },
+    });
+    // ETF 没有 GICS 行业归属（FMP 一律返回 Financial Services），不参与行业时钟排名
+    const clockIdBySymbol = new Map<string, SectorClockId>(
+      instruments
+        .filter((i) => i.type !== "ETF" && i.sector)
+        .map((i) => [i.symbol, mapSectorToClock(i.sector)]),
     );
 
     const rows: {
@@ -122,6 +163,23 @@ export async function runStockPanelJob(): Promise<StockPanelJobResult> {
       dipLow: number | null;
       dipHigh: number | null;
       dipResistance: number | null;
+      sectorId: string | null;
+      sectorRank: number | null;
+      sectorStatus: string | null;
+      buy1Signal: boolean;
+      buy2Signal: boolean;
+      smoothedRsi: number | null;
+      buy1Entry: number | null;
+      buy1Stop: number | null;
+      buy1Trail: number | null;
+      buy1Locked: boolean;
+      buy2Entry: number | null;
+      buy2Stop: number | null;
+      buy2Trail: number | null;
+      buy2Locked: boolean;
+      tacticalAction: string;
+      tacticalTone: string;
+      tacticalLayer: string;
     }[] = [];
     const skipped: string[] = [];
     let latestDate: string | null = null;
@@ -146,6 +204,13 @@ export async function runStockPanelJob(): Promise<StockPanelJobResult> {
       const rs = relativeRsSeries(closes, bench);
       const stages = computeStockStageSeries(bars, rs);
       const regimes = computeStockRegimeSeries(bars);
+
+      const macd = computeLogMacdSeries(bars);
+      const buy1 = macd.map((d) => d.buy1);
+      const buy2 = macd.map((d) => d.buy2);
+      const { days: risk } = computeStockRisk(bars, buy1, buy2);
+
+      const clockId = clockIdBySymbol.get(symbol) ?? null;
 
       const ema20 = emaSeries(closes, 20);
       const ema50 = emaSeries(closes, 50);
@@ -180,6 +245,20 @@ export async function runStockPanelJob(): Promise<StockPanelJobResult> {
           ema169: ema169[i],
         });
 
+        const clockDay = clockByDate.get(bars[i].date);
+        const standing = clockId && clockDay ? sectorStanding(clockDay, clockId) : null;
+
+        const r = risk[i];
+        const tactical = computeTacticalGuide({
+          // 排除本根刚开的仓位，否则第 2 层「买点触发」永远够不着，见 tacticalGuide.ts
+          holding: r.heldBeforeThisBar,
+          buy1: buy1[i],
+          buy2: buy2[i],
+          rsiOk: r.rsiOk,
+          pathId: pathByDate.get(bars[i].date) ?? 0,
+          stage: stage.stage,
+        });
+
         rows.push({
           date: toDate(bars[i].date),
           symbol,
@@ -203,6 +282,23 @@ export async function runStockPanelJob(): Promise<StockPanelJobResult> {
           dipLow: zone.kind === "range" ? zone.low : null,
           dipHigh: zone.kind === "range" ? zone.high : null,
           dipResistance: zone.kind === "avoid" ? zone.resistance : null,
+          sectorId: clockId,
+          sectorRank: standing?.rank ?? null,
+          sectorStatus: standing?.status ?? null,
+          buy1Signal: buy1[i],
+          buy2Signal: buy2[i],
+          smoothedRsi: r.smoothedRsi,
+          buy1Entry: r.buy1Slot.entryPrice,
+          buy1Stop: r.buy1Slot.stopLossLevel,
+          buy1Trail: r.buy1Slot.trailLevel,
+          buy1Locked: r.buy1Slot.breakevenLocked,
+          buy2Entry: r.buy2Slot.entryPrice,
+          buy2Stop: r.buy2Slot.stopLossLevel,
+          buy2Trail: r.buy2Slot.trailLevel,
+          buy2Locked: r.buy2Slot.breakevenLocked,
+          tacticalAction: tactical.action,
+          tacticalTone: tactical.tone,
+          tacticalLayer: tactical.layer,
         });
       }
     }
@@ -211,12 +307,49 @@ export async function runStockPanelJob(): Promise<StockPanelJobResult> {
       throw new Error("无可用标的，请先执行 npm run backfill:rotation");
     }
 
-    // 先删后插：逐条 upsert 在 Neon 上会撞事务超时，这里只有两条语句。
+    const sectorRows: {
+      date: Date;
+      sectorId: string;
+      symbol: string;
+      sls: number;
+      mom21: number;
+      rank: number;
+      isTop3: boolean;
+      isBottoming: boolean;
+    }[] = [];
+    for (let i = Math.max(0, benchBars.length - UPSERT_DAYS); i < benchBars.length; i += 1) {
+      const day = clockSeries[i];
+      for (const etf of SECTOR_UNIVERSE) {
+        const standing = sectorStanding(day, etf.id);
+        sectorRows.push({
+          date: toDate(benchBars[i].date),
+          sectorId: etf.id,
+          symbol: etf.symbol,
+          sls: standing.sls,
+          mom21: standing.mom21,
+          rank: standing.rank,
+          isTop3: day.top3.includes(etf.id),
+          isBottoming: day.bottoming.includes(etf.id),
+        });
+      }
+    }
+
+    // 先删后插：逐条 upsert 在 Neon 上会撞事务超时，这里只有四条语句。
     const windowStart = rows.reduce((min, r) => (r.date < min ? r.date : min), rows[0].date);
-    await prisma.$transaction([
-      prisma.stockPanelState.deleteMany({ where: { date: { gte: windowStart } } }),
-      prisma.stockPanelState.createMany({ data: rows }),
-    ]);
+    const sectorWindowStart = sectorRows.reduce(
+      (min, r) => (r.date < min ? r.date : min),
+      sectorRows[0].date,
+    );
+    await prisma.$transaction(
+      [
+        prisma.stockPanelState.deleteMany({ where: { date: { gte: windowStart } } }),
+        prisma.stockPanelState.createMany({ data: rows }),
+        prisma.sectorClockState.deleteMany({ where: { date: { gte: sectorWindowStart } } }),
+        prisma.sectorClockState.createMany({ data: sectorRows }),
+      ],
+      // 六千余行 × 40 列，Neon 上要八九秒，默认 5s 不够
+      { timeout: 60_000 },
+    );
     rowsWritten = rows.length;
 
     const finishedAt = new Date();
@@ -227,8 +360,13 @@ export async function runStockPanelJob(): Promise<StockPanelJobResult> {
         startedAt,
         finishedAt,
         durationMs: finishedAt.getTime() - startedAt.getTime(),
-        recordsWritten: rowsWritten,
-        details: { latestDate, symbolsEvaluated: symbols.length - skipped.length, symbolsSkipped: skipped },
+        recordsWritten: rowsWritten + sectorRows.length,
+        details: {
+          latestDate,
+          symbolsEvaluated: symbols.length - skipped.length,
+          symbolsSkipped: skipped,
+          sectorRowsWritten: sectorRows.length,
+        },
       },
     });
 
@@ -237,6 +375,7 @@ export async function runStockPanelJob(): Promise<StockPanelJobResult> {
       symbolsEvaluated: symbols.length - skipped.length,
       symbolsSkipped: skipped,
       rowsWritten,
+      sectorRowsWritten: sectorRows.length,
     };
   } catch (error) {
     const finishedAt = new Date();

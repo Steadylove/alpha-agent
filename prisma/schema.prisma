@@ -173,11 +173,59 @@ model StockPanelState {
   /// 仅 Stage D 有值，标出上方压制的 VWAP90
   dipResistance Float?
 
+  /// SLS 时钟档位（TECH/FIN/...），ETF 无行业归属时为 null
+  sectorId     String?
+  /// 该行业在 11 档里的名次，1 最强
+  sectorRank   Int?
+  /// leader / bottoming / neutral / outflow
+  sectorStatus String?
+
+  buy1Signal  Boolean
+  buy2Signal  Boolean
+  /// sma(RSI14, 14)，风控入场闸门读的就是它
+  smoothedRsi Float?
+
+  /// 一买槽与二买槽相互独立，可同时持有
+  buy1Entry  Float?
+  buy1Stop   Float?
+  buy1Trail  Float?
+  buy1Locked Boolean
+  buy2Entry  Float?
+  buy2Stop   Float?
+  buy2Trail  Float?
+  buy2Locked Boolean
+
+  /// 仲裁引擎出口
+  tacticalAction String
+  tacticalTone   String
+  tacticalLayer  String
+
   createdAt DateTime @default(now())
 
   @@unique([date, symbol])
   @@index([date])
   @@index([symbol, date])
+}
+
+/// SLS 3.0 行业时钟的每日快照，一个行业一天一行。
+model SectorClockState {
+  id          String   @id @default(cuid())
+  date        DateTime
+  /// TECH / FIN / HEALTH / ...
+  sectorId    String
+  symbol      String
+  /// 63 日绝对涨幅比率
+  sls         Float
+  /// 相对基准的 21 日比率差
+  mom21       Float
+  rank        Int
+  isTop3      Boolean
+  isBottoming Boolean
+
+  createdAt DateTime @default(now())
+
+  @@unique([date, sectorId])
+  @@index([date])
 }
 
 model RotationTrade {
