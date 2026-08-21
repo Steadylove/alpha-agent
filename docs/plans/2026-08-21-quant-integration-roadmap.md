@@ -485,11 +485,124 @@ Stage A 占四成偏高,但这是标的池的问题不是闸门的问题:这 40 
 
 - **SLS 3.0 行业生命周期时钟(Pine 第 6 节,123 行):** 需要 XLK/XLF/XLE 等 11 只
   行业 ETF 的日线。数据源没有障碍(Yahoo 就有),纯粹是回填与实现的工作量,
-  可作为 Phase 5b 单独做。
+  可作为 Phase 5b 单独做。→ **已于 Phase 5b 交付。**
 - **12M 动态估值引擎(Pine 第 9~10 节,116 行):** 依赖 `request.financial()` 取
   EPS/营收/流通股/做空比例。当前项目没有接基本面数据源,这是**新增外部依赖**,
   需要先定数据源(FMP / Alpha Vantage / 其他)才能动。`upside_pct` 只影响
   `is_dip_active` 这个仲裁标志,不影响已交付的低吸带计算本身。
+  → **数据源判断有误,项目里其实已经接了 FMP,见下方 Phase 5c。**
+
+---
+
+### Phase 5b/5d/5e · 行业时钟、个股风控、战术仲裁 ✅ 已完成(2026-08-21)
+
+至此 MarketCompass Pine 的第 4、5、6、7、8、11、12、13、14、15 节全部落地,
+只剩第 9~10 节的估值引擎(Phase 5c)。
+
+**交付物:**
+- `src/lib/scoring/sectorUniverse.ts` —— 11 只 SPDR 行业 ETF + 行业名映射链
+- `src/lib/scoring/sectorClock.ts` —— SLS 3.0 时钟(Pine 第 6 节)
+- `src/lib/scoring/stockRisk.ts` —— 双仓位动态风控(Pine 第 14 节)
+- `src/lib/scoring/tacticalGuide.ts` —— 战术指令仲裁(Pine 第 15 节)
+- `series.ts` 补 `rsiSeries`(Wilder RMA 口径)
+- `scripts/backfill-sectors.ts`(`npm run backfill:sectors`)
+- `SectorClockState` 表 + `StockPanelState` 加 18 列
+- `/depth` 面板加「SLS 行业时钟」卡片与「行业时钟」「战术指令」两列
+- 71 条新测试,累计 266 条全绿
+
+**job 实测:** 6300 行个股 + 1980 行行业,17 秒。批量事务超时上调到 60s
+——多了 18 列之后默认 5s 不够。
+
+#### 个股风控与轮动风控是两套,不要混用
+
+| | 轮动雷达 `rotationTrade.ts` | 个股面板 `stockRisk.ts` |
+| --- | --- | --- |
+| 仓位槽 | 单槽,一买二买抢同一个 | 双槽,各自独立持有 |
+| 移动止盈 | 固定 3×ATR 吊灯 | 三级收紧 5.5 → 3.8 → 2.8 ×ATR |
+| ATR 口径 | ATR14 | `sma(ATR14, 14)` |
+| 入场闸门 | RS >= 30(Phase 3 校准后加的) | `sma(RSI14, 14) > 30`(Pine 原有) |
+
+#### 校准发现:仲裁引擎第 2 层在 Pine 里是死码
+
+Pine 的风控段(第 14 节)跑在仲裁段(第 15 节)**之前**。点火当根第 14 节就把
+`entryPrice1 := close` 填上了,等第 15 节判 `not na(entryPrice1)` 时已经算「持仓」,
+于是第 1 层永远抢在第 2 层前面。而第 2 层的注释明写着「空仓状态下出现信号」,
+意图与实现相反。
+
+全历史 771 次点火的去向:
+
+| | 次数 |
+| --- | --- |
+| 被 RSI 闸拦下 | 47 |
+| 点火前已有持仓(本就该走第 1 层) | 140 |
+| **点火前空仓(本该走第 2 层,实际 0 次)** | **584** |
+
+**处置(用户拍板:修正)。** 与 Path 0 兜底、Stage C 死闸那两次不同,这次死掉的是
+建仓时刻那三条最可操作的指令,包括 Path 2/4 下的「严禁抄底接飞刀」。
+实现上给仓位槽加 `openedThisBar` 标记,仲裁读 `heldBeforeThisBar`
+(排除本根刚开的仓位),比「取前一根持仓状态」更精确——离场当根也不会误判成持仓。
+修正后 180 天窗口内第 2 层触发 35 次。
+
+#### ETF 不参与行业时钟排名
+
+行业归属取自 FMP 的 GICS 分类,映射规则照搬 Pine 第 248~271 行的字符串匹配链。
+但 FMP 对 QQQ / GLD / IBIT 一律返回 `Financial Services`,套进匹配链会被归到金融档;
+Pine 的 `syminfo.sector` 对 ETF 返回空,走兜底归到信息科技档。两个都不对——
+ETF 本就没有 GICS 行业。**处置:`type === "ETF"` 的标的跳过排名,面板显示「—」。**
+映射函数本身保留 Pine 原样的兜底行为。
+
+XLC 与 XLRE 分别成立于 2018-06 与 2015-10,更早的历史里这两档记 0 分、排名垫底,
+这是 Pine `na` 兜底的原样行为。
+
+#### 当日分布(180 天窗口,6300 个 bar-day)
+
+| 战术指令 | 占比 | | 仲裁层 | 占比 |
+| --- | --- | --- | --- | --- |
+| wait_defensive 全面防御 | 35.98% | | regime 形态层 | 85.22% |
+| wait_dip 回踩低吸 | 25.22% | | holding 持仓层 | 14.22% |
+| breakout_follow 突破追买 | 13.81% | | signal 点火层 | 0.56% |
+| hold_defend 收紧防守 | 8.51% | | | |
+| wait_avoid 禁止介入 | 5.37% | | **行业站位** | |
+| hold_derisk 锁利降险 | 4.32% | | leader 领涨主线 | 37.29% |
+| range_trade 区间套利 | 3.79% | | outflow 资金流出 | 34.41% |
+| hold_ride 顺势主升 | 1.40% | | neutral 中性轮动 | 18.27% |
+| accumulate 左侧分批 | 1.05% | | bottoming 潜伏筑底 | 4.32% |
+| enter_standard 标准建仓 | 0.29% | | (ETF 不参与) | 5.71% |
+| enter_frozen 冻结不接 | 0.25% | | | |
+| enter_light 轻仓试错 | 0.02% | | | |
+
+---
+
+### Phase 5c · 12M 动态估值引擎(Pine 第 9~10 节)· 待做
+
+前面判断「没有基本面数据源」是错的——项目里 `src/lib/data-sources/fmp.ts`
+早就接了 FMP,`FMP_API_KEY` 也配着。所以这块没有外部依赖障碍。
+
+**还需要的基本面字段**(括号内为 FMP 对应端点):
+
+| Pine 变量 | 含义 | 来源 |
+| --- | --- | --- |
+| `eps_ttm` | 摊薄 EPS TTM | `income-statement` quarter × 4 求和 |
+| `rev_ttm` | 营收 TTM | 同上,现有 `fetchFmpIncomeBasics` 已拉这个端点 |
+| `shares_val` | 流通股 | 同上的 `weightedAverageShsOutDil` |
+| `mkt_cap_b` | 市值(十亿) | `profile` 或 `market-capitalization` |
+| `eps_q_yoy` | 单季 EPS 同比 | `income-statement` quarter × 5 |
+| `wallstreet_target_avg` | 分析师共识价 | 现有 `fetchFmpDeepFundamentals` 已拉 |
+| `analyst_estimates_cnt` | 分析师家数 | `price-target-summary`,现有代码未拉 |
+
+**还需要的价量派生量**(全部可算,无外部依赖):
+`ema850`、`peak_rs_60`、`perfTicker252`、`currentTfAlpha`(= `0.6*alpha1 + 0.4*alpha2`),
+用于 `is_in_long_downtrend` 与 `is_hyper_momentum` 两个开关。
+`macro_mult` 直接读已落库的 `MacroPhaseState.fsmState`,不用重算。
+
+**一个必须先拍的设计点:** 面板里其他所有指标都是全历史逐日序列,
+但 FMP 给的是**当期**基本面,要复原「2019 年某天的 EPS TTM 是多少」得拉全部季报历史
+并按公告日对齐(还要处理财报重述)。因此估值引擎**只能算最新一天**,
+与其余字段的「全序列」形态不一致,落库与面板都要为此单开一条路径。
+
+**影响面:** `upside_pct` 只喂 `is_dip_active` 这一个仲裁标志(Pine 第 587 行),
+不参与已交付的低吸带、形态闸、风控与战术指令计算。也就是说不做这块,
+现有面板的所有结论都不受影响。
 
 ---
 
