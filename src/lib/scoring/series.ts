@@ -74,6 +74,45 @@ export function lowestSeries(values: number[], length: number): (number | null)[
   return out;
 }
 
+/** 与 ta.rma 一致（Wilder 平滑）：SMA 播种，其后 alpha = 1/length 递推。 */
+export function rmaSeries(values: number[], length: number): (number | null)[] {
+  const out: (number | null)[] = new Array(values.length).fill(null);
+  if (values.length < length) return out;
+
+  let seed = 0;
+  for (let j = 0; j < length; j += 1) seed += values[j];
+  let prev = seed / length;
+  out[length - 1] = prev;
+
+  const alpha = 1 / length;
+  for (let i = length; i < values.length; i += 1) {
+    prev = alpha * values[i] + (1 - alpha) * prev;
+    out[i] = prev;
+  }
+  return out;
+}
+
+/** 与 ta.tr(true) 一致：首根退化为 high - low。 */
+export function trueRangeSeries(bars: { high: number; low: number; close: number }[]): number[] {
+  return bars.map((bar, i) => {
+    if (i === 0) return bar.high - bar.low;
+    const prevClose = bars[i - 1].close;
+    return Math.max(
+      bar.high - bar.low,
+      Math.abs(bar.high - prevClose),
+      Math.abs(bar.low - prevClose),
+    );
+  });
+}
+
+/** 与 ta.atr 一致：真实波幅的 Wilder 平滑。 */
+export function atrSeries(
+  bars: { high: number; low: number; close: number }[],
+  length: number,
+): (number | null)[] {
+  return rmaSeries(trueRangeSeries(bars), length);
+}
+
 /**
  * 与 ta.cross 一致：crossover 或 crossunder。
  * crossover 为 a > b 且 a[1] <= b[1]；crossunder 为 a < b 且 a[1] >= b[1]。

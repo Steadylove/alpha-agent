@@ -1,7 +1,10 @@
 import {
+  atrSeries,
   barsSinceSeries,
   crossSeries,
   emaSeries,
+  rmaSeries,
+  trueRangeSeries,
   highestSeries,
   lowestSeries,
   percentRankSeries,
@@ -63,6 +66,64 @@ describe("series primitives", () => {
   it("percentRankSeries: 相等的值计入分子（<= 而非 <）", () => {
     // 窗口 [5,5,5]，当前 5 -> 3/3*100 = 100
     expect(percentRankSeries([5, 5, 5, 5], 3)[3]).toBeCloseTo(100, 10);
+  });
+});
+
+describe("rmaSeries", () => {
+  it("首个值为 SMA 播种，其后按 alpha = 1/length 递推", () => {
+    const out = rmaSeries([1, 2, 3, 10], 3);
+    expect(out.slice(0, 2)).toEqual([null, null]);
+    expect(out[2]).toBeCloseTo(2, 10);
+    // 2 + (10 - 2) / 3
+    expect(out[3]).toBeCloseTo(2 + 8 / 3, 10);
+  });
+
+  it("恒定序列的 RMA 恒等于该常数", () => {
+    for (const v of rmaSeries(new Array(20).fill(7), 5).slice(4)) {
+      expect(v).toBeCloseTo(7, 10);
+    }
+  });
+
+  it("比同长度 EMA 更平滑（alpha 更小）", () => {
+    const spike = [...new Array(10).fill(1), 100];
+    const rma = rmaSeries(spike, 5).at(-1)!;
+    const ema = emaSeries(spike, 5).at(-1)!;
+    expect(rma).toBeLessThan(ema);
+  });
+
+  it("长度不足时全为 null", () => {
+    expect(rmaSeries([1, 2], 5)).toEqual([null, null]);
+  });
+});
+
+describe("trueRangeSeries / atrSeries", () => {
+  const bars = [
+    { high: 10, low: 8, close: 9 },
+    { high: 12, low: 9, close: 11 },
+    { high: 11, low: 7, close: 8 },
+  ];
+
+  it("首根真实波幅退化为 high - low", () => {
+    expect(trueRangeSeries(bars)[0]).toBe(2);
+  });
+
+  it("真实波幅取三者最大：本根振幅、与昨收的上下跳空", () => {
+    // 第 2 根：max(12-9, |12-9|, |9-9|) = 3
+    expect(trueRangeSeries(bars)[1]).toBe(3);
+    // 第 3 根：max(11-7, |11-11|, |7-11|) = 4
+    expect(trueRangeSeries(bars)[2]).toBe(4);
+  });
+
+  it("ATR 是真实波幅的 Wilder 平滑", () => {
+    const tr = trueRangeSeries(bars);
+    expect(atrSeries(bars, 3)).toEqual(rmaSeries(tr, 3));
+  });
+
+  it("ATR 恒为非负", () => {
+    const out = atrSeries(bars, 2);
+    for (const v of out) {
+      if (v != null) expect(v).toBeGreaterThanOrEqual(0);
+    }
   });
 });
 
