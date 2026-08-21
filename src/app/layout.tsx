@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Providers } from "@/app/providers";
 import { ColorSchemeScript } from "@mantine/core";
-import { Compass, LayoutDashboard, LineChart, FileText, Activity, Settings, BookOpen, Crosshair, Radar, Repeat } from "lucide-react";
+import { Compass, LayoutDashboard, LineChart, FileText, Activity, Settings, BookOpen, Crosshair, Radar, Repeat, Microscope } from "lucide-react";
 
 export const metadata: Metadata = {
   title: "Market Compass",
@@ -15,6 +15,7 @@ const navItems = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
   { href: "/mpr", label: "Radar", icon: Radar },
   { href: "/rotation", label: "Rotation", icon: Repeat },
+  { href: "/depth", label: "Depth", icon: Microscope },
   { href: "/screener", label: "Screener", icon: Crosshair },
   { href: "/stocks", label: "Universe", icon: LineChart },
   { href: "/reports", label: "Reports", icon: FileText },
