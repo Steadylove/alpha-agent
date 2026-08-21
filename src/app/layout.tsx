@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Providers } from "@/app/providers";
 import { ColorSchemeScript } from "@mantine/core";
-import { Compass, LayoutDashboard, FileText, Activity, Settings, Crosshair, Radar, Repeat, Microscope } from "lucide-react";
+import { Compass, LayoutDashboard, FileText, Crosshair, Radar, Repeat, Microscope } from "lucide-react";
 
 export const metadata: Metadata = {
   title: "Market Compass",
@@ -19,12 +19,14 @@ const primaryNav = [
   { href: "/depth", label: "Depth", icon: Microscope },
 ];
 
-/** Discord 推送的内容镜像与运维入口。 */
+/**
+ * Discord 推送的内容镜像。
+ *
+ * /jobs 与 /settings 是运维后台，路由保留但不进导航，直接输 URL 访问。
+ */
 const secondaryNav = [
   { href: "/screener", label: "Screener", icon: Crosshair },
   { href: "/reports", label: "Reports", icon: FileText },
-  { href: "/jobs", label: "Runs", icon: Activity },
-  { href: "/settings", label: "Config", icon: Settings },
 ];
 
 export default function RootLayout({ children }: { children: ReactNode }) {
