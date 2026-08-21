@@ -1,4 +1,5 @@
 import { ROTATION_UNIVERSE } from "@/lib/scoring/rotationUniverse";
+import { SECTOR_UNIVERSE } from "@/lib/scoring/sectorUniverse";
 
 /** StockPanelState 落库的字段子集，加上标的名。 */
 export type StockPanelRow = {
@@ -23,6 +24,35 @@ export type StockPanelRow = {
   dipLow: number | null;
   dipHigh: number | null;
   dipResistance: number | null;
+  sectorId: string | null;
+  sectorName: string | null;
+  sectorRank: number | null;
+  sectorStatus: string | null;
+  buy1Signal: boolean;
+  buy2Signal: boolean;
+  smoothedRsi: number | null;
+  buy1Entry: number | null;
+  buy1Stop: number | null;
+  buy1Trail: number | null;
+  buy1Locked: boolean;
+  buy2Entry: number | null;
+  buy2Stop: number | null;
+  buy2Trail: number | null;
+  buy2Locked: boolean;
+  tacticalAction: string;
+  tacticalTone: string;
+  tacticalLayer: string;
+};
+
+export type SectorClockRow = {
+  sectorId: string;
+  symbol: string;
+  name: string;
+  sls: number;
+  mom21: number;
+  rank: number;
+  isTop3: boolean;
+  isBottoming: boolean;
 };
 
 export type StockPanelData = {
@@ -30,6 +60,8 @@ export type StockPanelData = {
   rows: StockPanelRow[];
   /** 各形态阶段的当日标的数，按 A→B→W→E→D→C 排列。 */
   stageCounts: { stage: string; count: number }[];
+  /** SLS 3.0 行业时钟，按名次升序。 */
+  sectorClock: SectorClockRow[];
   /** 样本不足被跳过的标的（EMA576 需要至少 900 根日线）。 */
   skippedSymbols: string[];
   universeSize: number;
@@ -49,6 +81,7 @@ export async function getStockPanelData(): Promise<StockPanelData> {
     latestDate: null,
     rows: [],
     stageCounts: [],
+    sectorClock: [],
     skippedSymbols: [],
     universeSize,
   };
@@ -61,8 +94,12 @@ export async function getStockPanelData(): Promise<StockPanelData> {
   const newest = await prisma.stockPanelState.findFirst({ orderBy: { date: "desc" } });
   if (!newest) return empty;
 
-  const states = await prisma.stockPanelState.findMany({ where: { date: newest.date } });
+  const [states, clock] = await Promise.all([
+    prisma.stockPanelState.findMany({ where: { date: newest.date } }),
+    prisma.sectorClockState.findMany({ where: { date: newest.date }, orderBy: { rank: "asc" } }),
+  ]);
   const nameBySymbol = new Map(ROTATION_UNIVERSE.map((t) => [t.symbol, t.name]));
+  const sectorNameById = new Map(SECTOR_UNIVERSE.map((s) => [s.id as string, s.name]));
 
   const rows: StockPanelRow[] = states
     .map((s) => ({
@@ -87,6 +124,24 @@ export async function getStockPanelData(): Promise<StockPanelData> {
       dipLow: s.dipLow,
       dipHigh: s.dipHigh,
       dipResistance: s.dipResistance,
+      sectorId: s.sectorId,
+      sectorName: s.sectorId ? (sectorNameById.get(s.sectorId) ?? null) : null,
+      sectorRank: s.sectorRank,
+      sectorStatus: s.sectorStatus,
+      buy1Signal: s.buy1Signal,
+      buy2Signal: s.buy2Signal,
+      smoothedRsi: s.smoothedRsi,
+      buy1Entry: s.buy1Entry,
+      buy1Stop: s.buy1Stop,
+      buy1Trail: s.buy1Trail,
+      buy1Locked: s.buy1Locked,
+      buy2Entry: s.buy2Entry,
+      buy2Stop: s.buy2Stop,
+      buy2Trail: s.buy2Trail,
+      buy2Locked: s.buy2Locked,
+      tacticalAction: s.tacticalAction,
+      tacticalTone: s.tacticalTone,
+      tacticalLayer: s.tacticalLayer,
     }))
     .sort((a, b) => b.rs - a.rs);
 
@@ -99,6 +154,16 @@ export async function getStockPanelData(): Promise<StockPanelData> {
     latestDate: newest.date.toISOString().slice(0, 10),
     rows,
     stageCounts,
+    sectorClock: clock.map((c) => ({
+      sectorId: c.sectorId,
+      symbol: c.symbol,
+      name: sectorNameById.get(c.sectorId) ?? c.sectorId,
+      sls: c.sls,
+      mom21: c.mom21,
+      rank: c.rank,
+      isTop3: c.isTop3,
+      isBottoming: c.isBottoming,
+    })),
     skippedSymbols: ROTATION_UNIVERSE.filter(
       (t) => !states.some((s) => s.symbol === t.symbol),
     ).map((t) => t.symbol),
