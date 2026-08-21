@@ -16,8 +16,15 @@ export type RotationTradeParams = {
   minRs: number;
 };
 
-/** 校准结论：RS<30 区间 20/60 日超额均显著为负，45 是兼顾信号量与超额的取值。 */
-export const DEFAULT_TRADE_PARAMS: RotationTradeParams = { minRs: 45 };
+/**
+ * 交易层回测结论：30 是唯一让胜率、均值、盈亏比三项同时改善的档位
+ * （629 笔 52.8%/+7.07%/2.47 → 508 笔 53.7%/+7.24%/2.70）。
+ *
+ * 注意不要往上加：RS>=45 会砍掉 69% 的成交而均值反降到 +6.32%。
+ * 信号层看裸前向收益时低 RS 显得更糟，但 4×ATR 止损已经处理了同一个问题，
+ * 闸门与止损是替代关系，叠太狠只是白丢样本。
+ */
+export const DEFAULT_TRADE_PARAMS: RotationTradeParams = { minRs: 30 };
 
 const ATR_LENGTH = 14;
 const ATR_SMOOTH = 14;
