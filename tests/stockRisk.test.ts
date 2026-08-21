@@ -221,6 +221,43 @@ describe("离场", () => {
   });
 });
 
+describe("openedThisBar 与 heldBeforeThisBar", () => {
+  it("开仓当根标记 openedThisBar，次根清掉", () => {
+    const bars = baseBars();
+    const { days } = computeStockRisk(bars, signalAt(120, 60), noSignals(120), NO_RSI);
+    expect(days[60].buy1Slot.openedThisBar).toBe(true);
+    expect(days[61].buy1Slot.openedThisBar).toBe(false);
+    expect(days[61].buy1Slot.entryPrice).not.toBeNull();
+  });
+
+  it("开仓当根 holding 为真但 heldBeforeThisBar 为假", () => {
+    const bars = baseBars();
+    const { days } = computeStockRisk(bars, signalAt(120, 60), noSignals(120), NO_RSI);
+    expect(days[60].holding).toBe(true);
+    expect(days[60].heldBeforeThisBar).toBe(false);
+    expect(days[61].heldBeforeThisBar).toBe(true);
+  });
+
+  it("另一槽早已持仓时，新开仓当根 heldBeforeThisBar 仍为真", () => {
+    const bars = baseBars();
+    const { days } = computeStockRisk(bars, signalAt(120, 60), signalAt(120, 90), NO_RSI);
+    expect(days[90].buy2Slot.openedThisBar).toBe(true);
+    expect(days[90].heldBeforeThisBar).toBe(true);
+  });
+
+  it("离场当根两者都为假", () => {
+    const bars = baseBars(100);
+    for (let i = 61; i < 100; i += 1) {
+      const c = bars[60].close * 0.5;
+      bars[i] = { high: c * 1.01, low: c * 0.99, close: c };
+    }
+    const { days, closed } = computeStockRisk(bars, signalAt(100, 60), noSignals(100), NO_RSI);
+    const exitAt = closed[0].exitIndex;
+    expect(days[exitAt].holding).toBe(false);
+    expect(days[exitAt].heldBeforeThisBar).toBe(false);
+  });
+});
+
 describe("边界", () => {
   it("空输入返回空结果", () => {
     expect(computeStockRisk([], [], [])).toEqual({ days: [], closed: [] });

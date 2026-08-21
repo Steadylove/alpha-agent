@@ -67,6 +67,14 @@ export interface RiskSlot {
   highestHigh: number | null;
   maxProfitPct: number | null;
   breakevenLocked: boolean;
+  /**
+   * 该槽是否在当根刚开仓。
+   *
+   * 仲裁引擎要区分「本根刚建仓」和「早已持仓」：Pine 的风控段跑在仲裁段之前，
+   * 点火当根就把开仓价填上了，导致仲裁的第 2 层（买点触发）永远够不着。
+   * 见 `tacticalGuide.ts`。
+   */
+  openedThisBar: boolean;
 }
 
 export interface StockRiskDay {
@@ -75,8 +83,10 @@ export interface StockRiskDay {
   /** 平滑 RSI，预热期为 null */
   smoothedRsi: number | null;
   rsiOk: boolean;
-  /** 当日任一槽有持仓 */
+  /** 当日任一槽有持仓（含本根刚开的） */
   holding: boolean;
+  /** 本根开仓之前就已持仓。仲裁引擎判「持仓优先」时读的是这个。 */
+  heldBeforeThisBar: boolean;
 }
 
 export interface ClosedRiskTrade {
@@ -98,6 +108,7 @@ const emptySlot = (): RiskSlot => ({
   highestHigh: null,
   maxProfitPct: null,
   breakevenLocked: false,
+  openedThisBar: false,
 });
 
 const snapshot = (s: RiskSlot): RiskSlot => ({ ...s });
@@ -139,6 +150,7 @@ export function computeStockRisk(
 
     for (const key of ["buy1", "buy2"] as const) {
       const slot = slots[key];
+      slot.openedThisBar = false;
 
       // 1. 开仓：该槽必须为空，且 ATR 已预热
       if (signals[key] && slot.entryPrice == null && rsiOk && a != null) {
@@ -148,6 +160,7 @@ export function computeStockRisk(
         slot.highestHigh = bar.high;
         slot.maxProfitPct = 0;
         slot.breakevenLocked = false;
+        slot.openedThisBar = true;
         entryIndex[key] = i;
       }
 
@@ -213,6 +226,9 @@ export function computeStockRisk(
       smoothedRsi,
       rsiOk,
       holding: slots.buy1.entryPrice != null || slots.buy2.entryPrice != null,
+      heldBeforeThisBar:
+        (slots.buy1.entryPrice != null && !slots.buy1.openedThisBar) ||
+        (slots.buy2.entryPrice != null && !slots.buy2.openedThisBar),
     });
   }
 
