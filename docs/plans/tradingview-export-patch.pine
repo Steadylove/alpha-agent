@@ -1,0 +1,61 @@
+// =============================================================================
+// MPR 对拍导出补丁
+// =============================================================================
+//
+// 用途：把 MPR 的中间量导出成 CSV，用于验证 TypeScript 移植是否忠实。
+// 这段代码只在对拍期间使用，不影响 MPR 本身的任何计算逻辑。
+//
+// ---------------------------------------------------------------------------
+// 使用步骤
+// ---------------------------------------------------------------------------
+//
+// 1. 在 TradingView 里【复制一份】MPR 指标（不要改原件）：
+//    Pine 编辑器 -> 打开 "Market Phase Radar (MPR) [V2 状态拓扑对齐版]"
+//    -> 另存为 "MPR 导出版"
+//
+// 2. 把本文件从 ↓↓↓ 开始的内容粘贴到该副本的【最末尾】。
+//
+// 3. 【重要】把图表切换到 SPY、日线（1D）。
+//
+//    为什么必须是 SPY：源码第 185 行用 request.security(syminfo.tickerid, "D", ...)
+//    在【当前图表标的】的时间轴上求值。函数内部的数据虽然都是显式 request.security
+//    拉的（SPY/VIX/TLT...），但 lead_persist 是跨 bar 递推的状态变量，
+//    它按哪个标的的交易日历推进，取决于图表标的。
+//    我们的 TypeScript 实现对齐到 SPY 日历，所以图表也必须是 SPY，否则 persist 计数对不上。
+//
+// 4. 【重要】向左滚动图表，直到加载出 2010 年之前的数据。
+//    TradingView 是懒加载，不滚到底导出的就只有最近几年。
+//
+// 5. 导出：图表右上角「...」-> 导出图表数据 -> 选 CSV -> 下载。
+//
+// 6. 把下载的 CSV 放到项目的 tmp/mpr-tradingview.csv（该目录已在 .gitignore 内）。
+//
+// ---------------------------------------------------------------------------
+// 如果导出的 CSV 里没有 exp_* 列
+// ---------------------------------------------------------------------------
+//
+// 把下面每行末尾的 `, display=display.data_window` 整段删掉，
+// 然后把指标第 2 行的 overlay=true 改成 overlay=false，重新导出。
+// （直接plot到叠加图上会因为 0~100 的量纲把价格坐标轴压扁，所以要关掉 overlay）
+//
+// =============================================================================
+// ↓↓↓ 从这里开始复制 ↓↓↓
+// =============================================================================
+
+// ===== MPR 对拍导出（验证完成后请删除本段）=====
+plot(f1_D,           "exp_f1",           display=display.data_window)
+plot(f2_D,           "exp_f2",           display=display.data_window)
+plot(f3_D,           "exp_f3",           display=display.data_window)
+plot(f4_D,           "exp_f4",           display=display.data_window)
+plot(f5_D,           "exp_f5",           display=display.data_window)
+plot(path_id_D,      "exp_path_id",      display=display.data_window)
+plot(fsm_state_D,    "exp_fsm_state",    display=display.data_window)
+plot(spy_dmg_D,      "exp_spy_damage",   display=display.data_window)
+plot(lead_gap_D,     "exp_lead_gap",     display=display.data_window)
+plot(lead_persist_D, "exp_lead_persist", display=display.data_window)
+plot(lead_q_D,       "exp_lead_quality", display=display.data_window)
+plot(p_5d_down_D,    "exp_prob_5d_down", display=display.data_window)
+plot(mkt_risk_D,     "exp_risk_score",   display=display.data_window)
+plot(trans_vel_D,    "exp_trans_vel",    display=display.data_window)
+plot(term_D,         "exp_raw_term",     display=display.data_window)
+plot(cred_D,         "exp_raw_cred",     display=display.data_window)
