@@ -206,6 +206,84 @@ function SectorCell({ row }: { row: StockPanelRow }) {
   );
 }
 
+const VALUATION_MODE_LABEL: Record<string, string> = {
+  leader_mean_reversion: "龙头均值修复",
+  bear_conservative: "空头保守 PE22",
+  ps_revaluation: "高 PE 营收重估",
+  high_pe_expansion: "高 PE 动态扩展",
+  peg_growth: "PEG 高成长",
+  momentum_expansion: "动能估值扩张",
+  trillion_baseline_pe: "万亿基准 PE30",
+  steady_growth_pe: "稳健成长基准 PE",
+  dynamic_ps: "动态 PS",
+  anti_inversion: "防倒挂托底",
+  trillion_cap: "万亿体量压制",
+  structural_floor: "结构性兜底",
+  technical_fallback: "技术兜底",
+};
+
+const ARCHETYPE_LABEL: Record<string, string> = {
+  value_trend: "价值 / 趋势配置",
+  tech_only: "纯技术博弈（禁长线）",
+  high_beta_growth: "高弹性成长（轻仓）",
+  growth_premium: "成长动能溢价",
+  distribution: "高位派发（仅日内）",
+};
+
+/** 目标价并非独立于现价推导出来的模式，标灰以示区别。 */
+const PRICE_ANCHORED_MODES = new Set([
+  "anti_inversion",
+  "technical_fallback",
+  "structural_floor",
+  "trillion_cap",
+  "ps_revaluation",
+  "dynamic_ps",
+]);
+
+function ValuationCell({ row }: { row: StockPanelRow }) {
+  const v = row.valuation;
+  if (!v) return <span className="text-xs text-zinc-600">—</span>;
+
+  const anchored = PRICE_ANCHORED_MODES.has(v.mode);
+  const tip = (
+    <div className="max-w-xs text-xs">
+      <div className="font-semibold">
+        {VALUATION_MODE_LABEL[v.mode] ?? v.mode} → {money(v.primaryTarget)}
+      </div>
+      <div className="mt-1 text-zinc-400">{ARCHETYPE_LABEL[v.archetype] ?? v.archetype}</div>
+      <div className="mt-1 font-mono text-zinc-300">
+        {v.currentPe != null ? `PE ${v.currentPe.toFixed(1)}` : "无 EPS"}
+        {v.marketCapB != null ? ` · 市值 ${v.marketCapB.toFixed(0)}B` : ""}
+      </div>
+      {!v.hasFundamentals ? (
+        <div className="mt-1 text-amber-400">无基本面数据，目标价只是价格外推</div>
+      ) : anchored ? (
+        <div className="mt-1 text-amber-400">该模式锚定现价，不是独立估值</div>
+      ) : null}
+      {v.consensusSmoothed ? (
+        <div className="mt-1 text-zinc-400">与分析师共识分歧超 25%，已取五五开</div>
+      ) : null}
+      {v.isInLongDowntrend ? <div className="mt-1 text-zinc-400">处于长期下行</div> : null}
+      {v.isHyperMomentum ? <div className="mt-1 text-zinc-400">超级动能</div> : null}
+    </div>
+  );
+
+  const color = !v.hasFundamentals ? "#71717a" : v.upsidePct >= 0 ? POS : NEG;
+  return (
+    <Tooltip label={tip} multiline>
+      <span className="cursor-help">
+        <span className="font-mono text-xs" style={{ color }}>
+          {v.upsidePct >= 0 ? "+" : ""}
+          {v.upsidePct.toFixed(0)}%
+        </span>
+        <span className="ml-1 text-xs text-zinc-600">
+          {v.hasFundamentals ? (anchored ? "≈" : "") : "?"}
+        </span>
+      </span>
+    </Tooltip>
+  );
+}
+
 function PanelRow({ row }: { row: StockPanelRow }) {
   return (
     <tr className="border-t border-zinc-800/60">
@@ -256,6 +334,9 @@ function PanelRow({ row }: { row: StockPanelRow }) {
       </td>
       <td className="py-2 pr-3">
         <DipCell row={row} />
+      </td>
+      <td className="py-2 pr-3 text-right">
+        <ValuationCell row={row} />
       </td>
       <td className="py-2">
         <TacticalCell row={row} />
@@ -362,6 +443,7 @@ export function StockPanelBoard({ data }: { data: StockPanelData }) {
                 <th className="pb-2 pr-3 text-left font-normal">资金</th>
                 <th className="pb-2 pr-3 text-left font-normal">行业时钟</th>
                 <th className="pb-2 pr-3 text-left font-normal">低吸支撑带</th>
+                <th className="pb-2 pr-3 text-right font-normal">12M 空间</th>
                 <th className="pb-2 text-left font-normal">战术指令</th>
               </tr>
             </thead>
@@ -376,6 +458,14 @@ export function StockPanelBoard({ data }: { data: StockPanelData }) {
         {data.skippedSymbols.length > 0 ? (
           <Text size="xs" c="dimmed" mt="sm">
             上市不足 900 根日线、EMA576 无法预热，未纳入计算：{data.skippedSymbols.join("、")}
+          </Text>
+        ) : null}
+
+        {data.fundamentalsCoverage < data.rows.length ? (
+          <Text size="xs" c="dimmed" mt="xs">
+            12M 空间：{data.fundamentalsCoverage}/{data.rows.length} 只拿到真实基本面，
+            其余标 <code>?</code> 的只是价格外推。FMP 免费额度 250 次/天、每只刷新需 4 次调用，
+            基本面按周缓存刷新，覆盖率会随额度逐日补齐。
           </Text>
         ) : null}
       </Card>
@@ -427,6 +517,25 @@ export function StockPanelBoard({ data }: { data: StockPanelData }) {
             独立仓位槽可同时持有，硬止损 4×ATR，移动止损随浮盈三级收紧
             （5.5 → 20% 后 3.8 → 40% 后 2.8），浮盈 10% 上移硬止损至成本 ×1.01 锁保本。
             ATR 用的是 <code>sma(ATR14, 14)</code>，入场闸门是 <code>sma(RSI14, 14) &gt; 30</code>。
+          </Text>
+          <Text size="xs" c="dimmed">
+            <strong className="text-zinc-300">12M 空间</strong> 是估值引擎目标价相对现价的百分比。
+            标 <code>?</code> 表示拿不到基本面、目标价纯由价格外推；标 <code>≈</code> 表示走的分支
+            锚定现价而非独立估值。悬停可见所用模型、PE 与标的基因。
+          </Text>
+          <Text size="xs" c="dimmed">
+            <strong className="text-zinc-300">这个目标价不要当估值用。</strong>级联里五条分支有四条
+            在代数上等于「现价 × 固定系数」：两个 PS 模型写作
+            <code>rev/shares × (close ÷ rev/shares) × k</code>，营收与股本完全约掉；
+            两个 PE 扩展分支在未撞封顶时同样退化成 <code>close × k</code>。
+            真正独立于现价的只有 PEG 与市值基准 PE 两条。末尾的「防倒挂」还会把强势标的
+            强行顶到现价 ×1.22。它更接近动能强度的价格投影。
+          </Text>
+          <Text size="xs" c="dimmed">
+            <strong className="text-zinc-300">Pine 里的低吸激活标志没有实际作用。</strong>
+            <code>is_dip_active</code>（上行空间 ≥ 15% 且非 Path 4）在 Pine 全文只出现在
+            第 589 行的一个背景色表达式里，不进仲裁、不进风控、不改低吸带价位。
+            当前口径下它在 35 只里亮 32 只，本也不具备区分度，因此面板不单独展示。
           </Text>
           <Text size="xs" c="dimmed">
             标的池是轮动雷达那 40 只，为 2026 年选定，<strong className="text-zinc-300">幸存者偏差很重</strong>

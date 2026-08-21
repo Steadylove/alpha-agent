@@ -207,6 +207,56 @@ model StockPanelState {
   @@index([symbol, date])
 }
 
+/// FMP 季度基本面快照，供 12M 估值引擎使用。
+///
+/// 季报一年只变四次，而 FMP 免费额度按天计，因此按周刷新、每天从这里读。
+/// `fetchedAt` 用于判断是否过期。
+model StockFundamentals {
+  id                String   @id @default(cuid())
+  symbol            String   @unique
+  epsTtm            Float?
+  revTtm            Float?
+  sharesOutstanding Float?
+  marketCap         Float?
+  epsQYoY           Float?
+  analystTarget     Float?
+  analystCount      Int      @default(0)
+  fetchedAt         DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// 12M 估值引擎的每日快照。
+///
+/// 与面板其余字段不同，这张表只有最新一天：基本面是当期值，
+/// 复原历史某日的 EPS TTM 需要按公告日对齐全部季报并处理财报重述，
+/// 而 `upsidePct` 只服务当日的低吸仲裁，没有历史序列的用途。
+model StockValuation {
+  id                String   @id @default(cuid())
+  date              DateTime
+  symbol            String
+  close             Float
+  primaryTarget     Float
+  upsidePct         Float
+  mode              String
+  consensusSmoothed Boolean
+  archetype         String
+  currentPe         Float?
+  calculatedPe      Float?
+  marketCapB        Float?
+  isDipActive       Boolean
+  /// 门槛判定的中间量，便于面板解释目标价为何是这个数
+  isInLongDowntrend Boolean
+  isHyperMomentum   Boolean
+  tfAlpha           Float?
+
+  createdAt DateTime @default(now())
+
+  @@unique([date, symbol])
+  @@index([date])
+}
+
 /// SLS 3.0 行业时钟的每日快照，一个行业一天一行。
 model SectorClockState {
   id          String   @id @default(cuid())
