@@ -339,7 +339,21 @@ RS>=60 那格的 +15.13pp 样本只有 38 个,不能当真。
   +7%/笔的绝对水平肯定虚高。横向比较受影响较小,绝对收益不可当真。
   回测未计手续费与滑点。
 
-**待做:** 信号与持仓落库 + 每日 job、轮动看板页面、`E_macro(Path)` 接 MPR。
+#### 落库与展示(已完成)
+
+- `RotationState`(每标的每日状态,回写 180 天窗口)与 `RotationTrade`(已平仓台账,全量重写)
+- `src/lib/jobs/rotationRadar.ts` + `POST /api/jobs/rotation-radar`(fail-closed 鉴权)
+- `src/lib/dashboard/rotation.ts` —— 读快照,三个查询并发发出(串行会多两个 Neon 往返)
+- `src/components/RotationBoard.tsx` —— 全口径 NAV + 持仓表
+- `src/components/RotationSignals.tsx` —— 近 30 日点火,低于闸门的标「已过滤」
+- `src/app/rotation/page.tsx`,导航加 Rotation 入口
+
+**实测:** job 11.8s(39 只标的,CRWV 样本不足跳过),写 7020 条日状态 + 508 笔台账,
+重跑幂等。落库的 508 笔与 RS≥30 回测结果完全一致,可作交叉校验。
+页面热态 0.65s,与 MPR 页(0.58s)持平。
+
+**待做:** `E_macro(Path)` 接 MPR —— 目前仓位是 `RS_i / ΣRS_j` 的相对分配,
+尚未乘以宏观总敞口系数。
 
 **验收门槛:** 给定一段历史行情和一笔模拟建仓,止损价逐日演进与手算一致。
 
