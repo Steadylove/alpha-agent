@@ -106,6 +106,46 @@ model MacroPhaseState {
   @@index([date])
 }
 
+model RotationState {
+  id              String   @id @default(cuid())
+  date            DateTime
+  symbol          String
+  close           Float
+  rs              Float
+  /// 0 空仓 / 1 一买 / 2 二买
+  sigType         Int
+  buy1            Boolean
+  buy2            Boolean
+  entryPrice      Float?
+  stopLevel       Float?
+  trailLevel      Float?
+  effectiveStop   Float?
+  floatPnlPct     Float
+  maxPnlPct       Float
+  breakevenLocked Boolean
+  createdAt       DateTime @default(now())
+
+  @@unique([date, symbol])
+  @@index([date])
+  @@index([symbol, date])
+}
+
+model RotationTrade {
+  id         String   @id @default(cuid())
+  symbol     String
+  sigType    Int
+  entryDate  DateTime
+  entryPrice Float
+  exitDate   DateTime
+  exitPrice  Float
+  pnlPct     Float
+  barsHeld   Int
+  createdAt  DateTime @default(now())
+
+  @@unique([symbol, entryDate])
+  @@index([exitDate])
+}
+
 model SectorScore {
   id           String   @id @default(cuid())
   date         DateTime
