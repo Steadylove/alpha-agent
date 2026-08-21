@@ -5,6 +5,7 @@ import {
   emaSeries,
   obvSeries,
   rmaSeries,
+  rsiSeries,
   stdevSeries,
   trueRangeSeries,
   highestSeries,
@@ -100,6 +101,48 @@ describe("obvSeries", () => {
   it("单边上涨时等于成交量累计", () => {
     const out = obvSeries([1, 2, 3, 4], [10, 20, 30, 40]);
     expect(out.at(-1)).toBe(90);
+  });
+});
+
+describe("rsiSeries", () => {
+  it("只涨不跌时为 100", () => {
+    const out = rsiSeries([1, 2, 3, 4, 5, 6, 7, 8], 3);
+    expect(out.at(-1)).toBe(100);
+  });
+
+  it("只跌不涨时为 0", () => {
+    const out = rsiSeries([8, 7, 6, 5, 4, 3, 2, 1], 3);
+    expect(out.at(-1)).toBe(0);
+  });
+
+  it("涨跌等幅交替时在 50 附近上下摆动", () => {
+    // Wilder 平滑给近端更高权重，所以涨日略高于 50、跌日略低，不会精确收敛
+    const values = Array.from({ length: 200 }, (_, i) => (i % 2 === 0 ? 100 : 101));
+    const out = rsiSeries(values, 14);
+    const onUpDay = out[199]!;
+    const onDownDay = out[198]!;
+    expect(onUpDay).toBeGreaterThan(50);
+    expect(onDownDay).toBeLessThan(50);
+    expect((onUpDay + onDownDay) / 2).toBeCloseTo(50, 1);
+  });
+
+  it("预热期为 null，第 length+1 根起有值", () => {
+    const out = rsiSeries([1, 2, 3, 4, 5, 6], 3);
+    expect(out.slice(0, 3)).toEqual([null, null, null]);
+    expect(out[3]).not.toBeNull();
+  });
+
+  it("恒定序列涨跌均为 0，按 ta.rsi 语义取 100", () => {
+    expect(rsiSeries(new Array(50).fill(100), 14).at(-1)).toBe(100);
+  });
+
+  it("输出恒在 0~100 之间", () => {
+    const values = Array.from({ length: 300 }, (_, i) => 100 + Math.sin(i / 5) * 10 + i * 0.05);
+    for (const v of rsiSeries(values, 14)) {
+      if (v == null) continue;
+      expect(v).toBeGreaterThanOrEqual(0);
+      expect(v).toBeLessThanOrEqual(100);
+    }
   });
 });
 

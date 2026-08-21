@@ -124,6 +124,33 @@ export function obvSeries(closes: number[], volumes: number[]): number[] {
   return out;
 }
 
+/**
+ * 与 ta.rsi 一致：涨跌幅各自走 Wilder RMA 后取 100 - 100/(1+RS)。
+ * 下行平均为 0（区间内只涨不跌）时定义为 100。
+ */
+export function rsiSeries(values: number[], length: number): (number | null)[] {
+  const gains: number[] = new Array(values.length).fill(0);
+  const losses: number[] = new Array(values.length).fill(0);
+  for (let i = 1; i < values.length; i += 1) {
+    const change = values[i] - values[i - 1];
+    gains[i] = Math.max(change, 0);
+    losses[i] = Math.max(-change, 0);
+  }
+
+  // 首根没有涨跌可言，RMA 从第二根起算，故整体后移一位
+  const avgGain = rmaSeries(gains.slice(1), length);
+  const avgLoss = rmaSeries(losses.slice(1), length);
+
+  const out: (number | null)[] = new Array(values.length).fill(null);
+  for (let i = 0; i < avgGain.length; i += 1) {
+    const g = avgGain[i];
+    const l = avgLoss[i];
+    if (g == null || l == null) continue;
+    out[i + 1] = l === 0 ? 100 : 100 - 100 / (1 + g / l);
+  }
+  return out;
+}
+
 /** 与 ta.rma 一致（Wilder 平滑）：SMA 播种，其后 alpha = 1/length 递推。 */
 export function rmaSeries(values: number[], length: number): (number | null)[] {
   const out: (number | null)[] = new Array(values.length).fill(null);
