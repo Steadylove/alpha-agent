@@ -77,6 +77,35 @@ model MarketMetric {
   @@unique([date])
 }
 
+/// MPR 宏观相变雷达的每日快照。
+/// 只存展示与事件检测需要的字段；sigma 分级可由 dom* 推出，transDepth 可由 pathId 推出，故不落库。
+model MacroPhaseState {
+  id              String   @id @default(cuid())
+  date            DateTime @unique
+  pathId          Int
+  fsmState        Int
+  marketRiskScore Float
+  prob5dDown      Float
+  f1              Float
+  f2              Float
+  f3              Float
+  f4              Float
+  f5              Float
+  rawTerm         Float
+  rawCred         Float
+  domVol          Float
+  domCred         Float
+  domSpot         Float
+  spyDamage       Float
+  leadGap         Float
+  leadPersist     Int
+  leadQuality     Float
+  transVel        Float
+  createdAt       DateTime @default(now())
+
+  @@index([date])
+}
+
 model SectorScore {
   id           String   @id @default(cuid())
   date         DateTime
