@@ -1,7 +1,7 @@
 "use client";
 
 import { Card } from "@/components/Card";
-import type { MacroPhaseSnapshot } from "@/lib/dashboard/mpr";
+import type { MprHistoryPoint } from "@/lib/dashboard/mpr";
 import { Group, Stack, Text } from "@mantine/core";
 import { useState } from "react";
 
@@ -22,7 +22,31 @@ const PATH_LABEL: Record<number, string> = {
   4: "P4 破位确认",
 };
 
-export function MprTimeline({ history }: { history: MacroPhaseSnapshot[] }) {
+/**
+ * 把 SPY 收盘映射成柱区内的 polyline 点。
+ *
+ * 用窗口内的最值做归一化，只保留形状——这条线是用来对齐路径色带的时点的，
+ * 不是给人读价位的，所以刻意不画 Y 轴。
+ */
+function spyPolyline(history: MprHistoryPoint[]): string | null {
+  const closes = history.map((d) => d.spyClose);
+  if (closes.some((c) => c == null)) return null;
+
+  const values = closes as number[];
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  if (max <= min) return null;
+
+  return values
+    .map((close, i) => {
+      const x = history.length === 1 ? 50 : (i / (history.length - 1)) * 100;
+      const y = 92 - ((close - min) / (max - min)) * 84;
+      return `${x.toFixed(3)},${y.toFixed(3)}`;
+    })
+    .join(" ");
+}
+
+export function MprTimeline({ history }: { history: MprHistoryPoint[] }) {
   const [hovered, setHovered] = useState<number | null>(null);
 
   if (history.length === 0) return null;
@@ -30,6 +54,7 @@ export function MprTimeline({ history }: { history: MacroPhaseSnapshot[] }) {
   const active = hovered == null ? history[history.length - 1] : history[hovered];
   const counts = new Map<number, number>();
   for (const day of history) counts.set(day.pathId, (counts.get(day.pathId) ?? 0) + 1);
+  const spyPoints = spyPolyline(history);
 
   return (
     <Card
@@ -39,7 +64,7 @@ export function MprTimeline({ history }: { history: MacroPhaseSnapshot[] }) {
             路径与风险分历史
           </Text>
           <Text size="xs" c="dimmed">
-            近 {history.length} 个交易日 · 柱高为风险分，颜色为传导路径
+            近 {history.length} 个交易日 · 柱高为风险分，颜色为传导路径，白线为 SPY 走势
           </Text>
         </Stack>
       }
@@ -54,23 +79,48 @@ export function MprTimeline({ history }: { history: MacroPhaseSnapshot[] }) {
           <Text size="xs" ff="monospace" c="gray.3">
             Risk {active.marketRiskScore.toFixed(0)}
           </Text>
+          {active.spyClose != null ? (
+            <Text size="xs" ff="monospace" c="dimmed">
+              SPY {active.spyClose.toFixed(2)}
+            </Text>
+          ) : null}
         </Group>
       }
     >
       <Stack gap="sm">
         <div
-          className="flex h-24 items-end gap-px"
+          className="relative flex h-24 items-end gap-px"
           onMouseLeave={() => setHovered(null)}
           role="img"
-          aria-label="MPR 路径与风险分历史"
+          aria-label="MPR 路径与风险分历史，叠加 SPY 收盘走势"
         >
+          {spyPoints ? (
+            <svg
+              className="pointer-events-none absolute inset-0 h-full w-full"
+              viewBox="0 0 100 100"
+              preserveAspectRatio="none"
+              aria-hidden
+            >
+              <polyline
+                points={spyPoints}
+                fill="none"
+                stroke="#e4e4e7"
+                strokeOpacity={0.8}
+                strokeWidth={0.6}
+                vectorEffect="non-scaling-stroke"
+              />
+            </svg>
+          ) : null}
           {history.map((day, index) => (
             <button
               key={day.date}
               type="button"
               onMouseEnter={() => setHovered(index)}
               onFocus={() => setHovered(index)}
-              title={`${day.date} · ${PATH_LABEL[day.pathId]} · Risk ${day.marketRiskScore.toFixed(0)}`}
+              title={
+                `${day.date} · ${PATH_LABEL[day.pathId]} · Risk ${day.marketRiskScore.toFixed(0)}` +
+                (day.spyClose != null ? ` · SPY ${day.spyClose.toFixed(2)}` : "")
+              }
               className="min-w-0 flex-1 cursor-default rounded-sm p-0 transition-opacity hover:opacity-100"
               style={{
                 height: `${Math.max(4, day.marketRiskScore)}%`,
@@ -110,6 +160,13 @@ export function MprTimeline({ history }: { history: MacroPhaseSnapshot[] }) {
             );
           })}
         </Group>
+
+        {spyPoints ? (
+          <Text size="xs" c="dimmed">
+            白线是同期 SPY 收盘，按窗口最值归一化、只表形状不表价位。叠上它是为了看清路径判定的时点——
+            校准显示 P4 更像是价格已经跌下去之后的确认，而非领先信号，照它减仓往往落在阶段低点附近。
+          </Text>
+        ) : null}
       </Stack>
     </Card>
   );

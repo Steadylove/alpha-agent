@@ -180,7 +180,13 @@ export function RotationBoard({ data }: { data: RotationData }) {
                   <th className="pb-2 pr-3 text-right font-normal">现价</th>
                   <th className="pb-2 pr-3 text-right font-normal">浮盈</th>
                   <th className="pb-2 pr-3 text-right font-normal">净值拉动</th>
-                  <th className="pb-2 pr-3 text-right font-normal">RS</th>
+                  <th className="pb-2 pr-3 text-right font-normal">
+                    <Tooltip label="四周期加权的绝对涨幅强度，不设基准。与深度面板的「相对 RS」是两套算法，数值不可互比。">
+                      <span className="cursor-help border-b border-dotted border-zinc-600">
+                        动能 RS
+                      </span>
+                    </Tooltip>
+                  </th>
                   <th className="pb-2 text-right font-normal">止损</th>
                 </tr>
               </thead>

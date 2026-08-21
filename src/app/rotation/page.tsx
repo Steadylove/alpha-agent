@@ -1,4 +1,5 @@
 import { RotationBoard } from "@/components/RotationBoard";
+import { RotationNavCurve } from "@/components/RotationNavCurve";
 import { RotationSignals } from "@/components/RotationSignals";
 import { getRotationData } from "@/lib/dashboard/rotation";
 
@@ -15,6 +16,8 @@ export default async function RotationPage() {
       </div>
 
       <RotationBoard data={data} />
+
+      <RotationNavCurve curve={data.navCurve} maxDrawdownPct={data.maxDrawdownPct} />
 
       {data.latestDate ? <RotationSignals signals={data.recentSignals} /> : null}
     </div>

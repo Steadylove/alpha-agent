@@ -24,10 +24,13 @@ export type MacroPhaseSnapshot = {
   transVel: number;
 };
 
+/** 时间轴用的一天：MPR 快照加上当日 SPY 收盘，便于看路径判定是否滞后于价格。 */
+export type MprHistoryPoint = MacroPhaseSnapshot & { spyClose: number | null };
+
 export type MprData = {
   latest: MacroPhaseSnapshot | null;
   /** 近端历史，最新的在最后。 */
-  history: MacroPhaseSnapshot[];
+  history: MprHistoryPoint[];
   /** 宏观日线缺失的标的，非空时说明还没跑 npm run backfill:macro。 */
   missingSymbols: string[];
 };
@@ -63,9 +66,20 @@ export async function getMprData(): Promise<MprData> {
     return { latest: null, history: [], missingSymbols: MPR_SYMBOLS.filter((s) => !found.has(s)) };
   }
 
+  // 路径色带单看是孤立的，叠上 SPY 才能判断它领先还是滞后于价格。
+  const spyBars = await prisma.dailyBar.findMany({
+    where: {
+      instrument: { symbol: "SPY" },
+      date: { gte: rows[rows.length - 1].date, lte: rows[0].date },
+    },
+    select: { date: true, close: true },
+  });
+  const spyByDate = new Map(spyBars.map((b) => [b.date.toISOString().slice(0, 10), b.close]));
+
   const history = rows
     .map((row) => ({
       date: row.date.toISOString().slice(0, 10),
+      spyClose: spyByDate.get(row.date.toISOString().slice(0, 10)) ?? null,
       pathId: row.pathId,
       fsmState: row.fsmState,
       marketRiskScore: row.marketRiskScore,

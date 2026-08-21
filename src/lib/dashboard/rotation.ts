@@ -39,6 +39,16 @@ export type RotationStats = {
   winRatePct: number;
 };
 
+/** 净值曲线上的一天。 */
+export type NavPoint = {
+  date: string;
+  /** 净值（%）=（已落袋累计 + 当日未平仓浮盈）/ 8 个等权仓位。 */
+  navPct: number;
+  /** 相对历史最高净值的回撤（%，非正数）。 */
+  drawdownPct: number;
+  holdings: number;
+};
+
 export type RotationData = {
   latestDate: string | null;
   holdings: RotationHolding[];
@@ -46,6 +56,10 @@ export type RotationData = {
   all: RotationHolding[];
   recentSignals: RecentSignal[];
   stats: RotationStats;
+  /** 年初至今的逐日净值，8 仓等权口径，与 stats.totalNavPct 不同尺度。 */
+  navCurve: NavPoint[];
+  /** 净值曲线上的最大回撤（%，非正数）。 */
+  maxDrawdownPct: number;
   universeSize: number;
   /** 样本不足被跳过的标的。 */
   skippedSymbols: string[];
@@ -61,6 +75,67 @@ export type RotationData = {
 /** 与 Pine 的 avg_slots 一致：把单票收益摊薄到组合口径的除数。 */
 const AVG_SLOTS = 8;
 const RECENT_SIGNAL_DAYS = 30;
+
+/**
+ * 把逐日的个股快照与已平仓记录还原成组合净值曲线。
+ *
+ * 全程按 AVG_SLOTS 个等权仓位记账：已落袋和未平仓的单票收益都除以 8。
+ * 这里刻意不沿用 stats.openNavPct 的 RS 满仓加权——那个口径把权重只分配给
+ * 当日持仓，持仓从 8 只掉到 2 只时每只的权重会从 12% 跳到 50%，
+ * 拉成时间序列后一只 +180% 的浮盈能把净值顶到 +187% 再砸回来，
+ * 得到的「回撤」是持仓数变化的假象而非真实亏损。
+ *
+ * 代价是曲线末点与看板顶部的「全口径 YTD」不相等：后者的已落袋按 8 仓摊薄、
+ * 浮盈却按满仓加权，两半本就不同尺度。
+ */
+function buildNavCurve(
+  states: { date: Date; rs: number; sigType: number; floatPnlPct: number }[],
+  closedTrades: { exitDate: Date; pnlPct: number }[],
+): { navCurve: NavPoint[]; maxDrawdownPct: number } {
+  if (states.length === 0) return { navCurve: [], maxDrawdownPct: 0 };
+
+  const byDate = new Map<number, typeof states>();
+  for (const s of states) {
+    const key = s.date.getTime();
+    const bucket = byDate.get(key);
+    if (bucket) bucket.push(s);
+    else byDate.set(key, [s]);
+  }
+
+  const exits = [...closedTrades].sort((a, b) => a.exitDate.getTime() - b.exitDate.getTime());
+  let exitIdx = 0;
+  let closedCum = 0;
+  let peak = 0;
+  let maxDrawdownPct = 0;
+
+  const navCurve: NavPoint[] = [];
+  for (const key of [...byDate.keys()].sort((a, b) => a - b)) {
+    // 平仓当日这只票仍带着最终浮盈留在持仓快照里，收益要从次日才转入已落袋，
+    // 否则平仓那天会被浮盈与已落袋各记一次。
+    while (exitIdx < exits.length && exits[exitIdx].exitDate.getTime() < key) {
+      closedCum += exits[exitIdx].pnlPct;
+      exitIdx += 1;
+    }
+
+    const day = byDate.get(key)!;
+    const active = day.filter((s) => s.sigType > 0);
+    const openSum = active.reduce((sum, s) => sum + s.floatPnlPct, 0);
+
+    const navPct = (closedCum + openSum) / AVG_SLOTS;
+    peak = Math.max(peak, navPct);
+    const drawdownPct = navPct - peak;
+    maxDrawdownPct = Math.min(maxDrawdownPct, drawdownPct);
+
+    navCurve.push({
+      date: new Date(key).toISOString().slice(0, 10),
+      navPct,
+      drawdownPct,
+      holdings: active.length,
+    });
+  }
+
+  return { navCurve, maxDrawdownPct };
+}
 
 const EMPTY_STATS: RotationStats = {
   closedPnlSum: 0,
@@ -85,6 +160,8 @@ export async function getRotationData(): Promise<RotationData> {
     all: [],
     recentSignals: [],
     stats: EMPTY_STATS,
+    navCurve: [],
+    maxDrawdownPct: 0,
     universeSize,
     skippedSymbols: [],
     macroExposure: null,
@@ -103,12 +180,12 @@ export async function getRotationData(): Promise<RotationData> {
   const since = new Date(latestDate);
   since.setUTCDate(since.getUTCDate() - RECENT_SIGNAL_DAYS);
 
-  // 三个查询都只依赖 latestDate，串行发到 Neon 会多花两个往返。
-  const [rows, closedThisYear, signalRows, macroLatest] = await Promise.all([
+  // 这些查询都只依赖 latestDate，串行发到 Neon 会多花几个往返。
+  const [rows, closedThisYear, signalRows, macroLatest, ytdStates] = await Promise.all([
     prisma.rotationState.findMany({ where: { date: latestDate } }),
     prisma.rotationTrade.findMany({
       where: { exitDate: { gte: yearStart } },
-      select: { pnlPct: true },
+      select: { exitDate: true, pnlPct: true },
     }),
     prisma.rotationState.findMany({
       where: { date: { gte: since }, OR: [{ buy1: true }, { buy2: true }] },
@@ -118,6 +195,11 @@ export async function getRotationData(): Promise<RotationData> {
     prisma.macroPhaseState.findFirst({
       orderBy: { date: "desc" },
       select: { pathId: true },
+    }),
+    prisma.rotationState.findMany({
+      where: { date: { gte: yearStart } },
+      select: { date: true, rs: true, sigType: true, floatPnlPct: true },
+      orderBy: { date: "asc" },
     }),
   ]);
 
@@ -152,6 +234,8 @@ export async function getRotationData(): Promise<RotationData> {
   const openNavPct = holdings.reduce((sum, h) => sum + h.navContribPct, 0);
   const closedNavPct = closedPnlSum / AVG_SLOTS;
 
+  const { navCurve, maxDrawdownPct } = buildNavCurve(ytdStates, closedThisYear);
+
   return {
     latestDate: latestDate.toISOString().slice(0, 10),
     holdings,
@@ -163,6 +247,8 @@ export async function getRotationData(): Promise<RotationData> {
       rs: r.rs,
       close: r.close,
     })),
+    navCurve,
+    maxDrawdownPct,
     stats: {
       closedPnlSum,
       closedNavPct,

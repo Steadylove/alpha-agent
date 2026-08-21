@@ -2,18 +2,19 @@
 
 import { Card } from "@/components/Card";
 import type { StockPanelData, StockPanelRow } from "@/lib/dashboard/stockPanel";
-import { Alert, Badge, Group, Stack, Text, Tooltip } from "@mantine/core";
+import { Alert, Stack, Text, Tooltip, UnstyledButton } from "@mantine/core";
+import { useState } from "react";
 
 const POS = "#089981";
 const NEG = "#f23645";
 
 const STAGE_LABEL: Record<string, string> = {
-  A: "⚡ 黄金突破带",
-  B: "🎯 箱体蓄势",
-  C: "❌ 单日跳空",
-  D: "📉 趋势衰减",
-  E: "🕳️ 混沌筑底",
-  W: "📊 高波震荡",
+  A: "黄金突破带",
+  B: "箱体蓄势",
+  C: "单日跳空",
+  D: "趋势衰减",
+  E: "混沌筑底",
+  W: "高波震荡",
 };
 
 const STAGE_COLOR: Record<string, string> = {
@@ -31,25 +32,22 @@ const TIER_LABEL: Record<string, string> = {
   T3: "T3 发射井",
 };
 
-const HURST_LABEL: Record<string, string> = {
-  trending: "🟢 强趋势",
-  reverting: "🔄 均值回归",
-  random: "⚖️ 随机",
+/** 只有偏离基线的读数才值得占位；random / normal 一律不渲染。 */
+const HURST_TAG: Record<string, { text: string; color: string }> = {
+  trending: { text: "强趋势", color: "#089981" },
+  reverting: { text: "均值回归", color: "#f59e0b" },
 };
 
-const VOL_LABEL: Record<string, string> = {
-  vcp_nr7: "⚡ VCP+NR7 引爆",
-  nr7: "🎯 NR7 收缩",
-  vcp: "🌊 VCP 收敛",
-  inside_bar: "📦 孕线",
-  normal: "⚪ 正常",
+const VOL_TAG: Record<string, { text: string; color: string }> = {
+  vcp_nr7: { text: "VCP+NR7", color: "#a855f7" },
+  nr7: { text: "NR7", color: "#3b82f6" },
+  vcp: { text: "VCP", color: "#3b82f6" },
+  inside_bar: { text: "孕线", color: "#71717a" },
 };
 
-const FLOW_LABEL: Record<string, string> = {
-  pocket_pivot: "🔥 机构点火",
-  dry_up: "🌊 极度锁仓",
-  inflow: "🟢 净流入",
-  outflow: "🔴 净流出",
+const FLOW_TAG: Record<string, { text: string; color: string }> = {
+  pocket_pivot: { text: "机构点火", color: "#f23645" },
+  dry_up: { text: "极度锁仓", color: "#22c55e" },
 };
 
 const DIP_QUALITY_COLOR: Record<string, string> = {
@@ -61,10 +59,10 @@ const DIP_QUALITY_COLOR: Record<string, string> = {
 };
 
 const SECTOR_STATUS_LABEL: Record<string, string> = {
-  leader: "🔥 领涨主线",
-  bottoming: "🌱 潜伏筑底",
-  neutral: "⚖️ 中性轮动",
-  outflow: "❄️ 资金流出",
+  leader: "领涨主线",
+  bottoming: "潜伏筑底",
+  neutral: "中性轮动",
+  outflow: "资金流出",
 };
 
 const SECTOR_STATUS_COLOR: Record<string, string> = {
@@ -117,20 +115,105 @@ const LAYER_LABEL: Record<string, string> = {
   regime: "形态层",
 };
 
+/**
+ * 把 12 条战术指令按「该做什么」收成 4 组。
+ *
+ * 刻意不用 tacticalLayer 分组：那是推导来源（持仓/点火/形态），
+ * 回答的是「这条结论怎么来的」，而看板要先回答「今天该动手吗」。
+ */
+const ACTION_GROUPS = [
+  {
+    id: "hold",
+    label: "持仓防守",
+    hint: "已有仓位，按宏观路径调整止盈止损",
+    color: "#089981",
+    actions: ["hold_ride", "hold_defend", "hold_derisk"],
+  },
+  {
+    id: "enter",
+    label: "可以建仓",
+    hint: "点火或突破成型，风控放行",
+    color: "#a855f7",
+    actions: ["enter_standard", "enter_light", "breakout_follow"],
+  },
+  {
+    id: "stalk",
+    label: "条件埋伏",
+    hint: "不追高，等回踩或分批布局",
+    color: "#3b82f6",
+    actions: ["wait_dip", "accumulate", "range_trade"],
+  },
+  {
+    id: "avoid",
+    label: "明确回避",
+    hint: "宏观高危或趋势破位，禁止介入",
+    color: "#f23645",
+    actions: ["enter_frozen", "wait_defensive", "wait_avoid"],
+  },
+] as const;
+
+const GROUP_OF = new Map<string, string>(
+  ACTION_GROUPS.flatMap((g) => g.actions.map((a) => [a, g.id] as [string, string])),
+);
+
 const money = (v: number) => `$${v.toFixed(2)}`;
 const pct = (v: number, digits = 1) => `${v >= 0 ? "+" : ""}${v.toFixed(digits)}%`;
 
+function Tag({ text, color }: { text: string; color: string }) {
+  return (
+    <span
+      className="rounded px-1 py-px text-[10px] leading-tight"
+      style={{ color, background: `${color}1a` }}
+    >
+      {text}
+    </span>
+  );
+}
+
+/** 只渲染偏离基线的特征，随机分形态 / 正常波动这类无信息读数直接省略。 */
+function TraitsCell({ row }: { row: StockPanelRow }) {
+  const hurst = HURST_TAG[row.hurstReturnRegime];
+  const vol = VOL_TAG[row.volatilityPattern];
+  const flow = FLOW_TAG[row.moneyFlow];
+  const netFlow = row.moneyFlow === "inflow" ? POS : row.moneyFlow === "outflow" ? NEG : null;
+
+  if (!hurst && !vol && !flow && !netFlow) {
+    return <span className="text-xs text-zinc-700">—</span>;
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      {vol ? <Tag text={vol.text} color={vol.color} /> : null}
+      {flow ? <Tag text={flow.text} color={flow.color} /> : null}
+      {hurst ? (
+        <Tooltip label={`H=${row.hurstReturn.toFixed(3)}（Pine 价格口径 ${row.hurstPrice.toFixed(2)}）`}>
+          <span className="cursor-help">
+            <Tag text={hurst.text} color={hurst.color} />
+          </span>
+        </Tooltip>
+      ) : null}
+      {netFlow ? (
+        <Tooltip label={`当日量 / 50 日均量 = ${row.volumeRatio.toFixed(2)}`}>
+          <span className="cursor-help text-[10px]" style={{ color: netFlow }}>
+            {row.moneyFlow === "inflow" ? "▲" : "▼"}
+          </span>
+        </Tooltip>
+      ) : null}
+    </div>
+  );
+}
+
 function DipCell({ row }: { row: StockPanelRow }) {
   if (row.dipKind === "frozen") {
-    return <span className="text-xs text-red-400">🚨 大盘高危，低吸冻结</span>;
+    return <span className="text-xs text-red-400">大盘高危，冻结</span>;
   }
   if (row.dipKind === "overextended") {
-    return <span className="text-xs text-red-400">❌ 远离成本线</span>;
+    return <span className="text-xs text-red-400">远离成本线</span>;
   }
   if (row.dipKind === "avoid") {
     return (
       <span className="font-mono text-xs text-red-400">
-        📉 观望（压制 {money(row.dipResistance ?? 0)}）
+        观望（压制 {money(row.dipResistance ?? 0)}）
       </span>
     );
   }
@@ -145,7 +228,7 @@ function DipCell({ row }: { row: StockPanelRow }) {
   );
 }
 
-/** 持仓中的两条防线；空仓时返回 null。 */
+/** 持仓中的两条防线；空仓时返回空数组。 */
 function slotLines(row: StockPanelRow): string[] {
   const lines: string[] = [];
   if (row.buy1Entry != null) {
@@ -213,6 +296,12 @@ function PanelRow({ row }: { row: StockPanelRow }) {
         <div className="font-medium text-zinc-100">{row.symbol}</div>
         <div className="max-w-[9rem] truncate text-xs text-zinc-500">{row.name}</div>
       </td>
+      <td className="py-2 pr-3">
+        <TacticalCell row={row} />
+      </td>
+      <td className="py-2 pr-3">
+        <DipCell row={row} />
+      </td>
       <td className="py-2 pr-3 text-right font-mono text-zinc-300">{money(row.close)}</td>
       <td className="py-2 pr-3 text-right">
         <span className="font-mono text-sky-300">{row.rs.toFixed(0)}</span>
@@ -226,6 +315,12 @@ function PanelRow({ row }: { row: StockPanelRow }) {
         </Tooltip>
       </td>
       <td className="py-2 pr-3 text-right font-mono text-zinc-300">{row.trendScore}/10</td>
+      <td
+        className="py-2 pr-3 text-right font-mono text-xs"
+        style={{ color: row.distFrom52wHigh >= -3 ? POS : "#a1a1aa" }}
+      >
+        {pct(row.distFrom52wHigh)}
+      </td>
       <td className="py-2 pr-3">
         <div className="text-xs font-semibold" style={{ color: STAGE_COLOR[row.stage] }}>
           {STAGE_LABEL[row.stage] ?? row.stage}
@@ -234,31 +329,11 @@ function PanelRow({ row }: { row: StockPanelRow }) {
           <span className="cursor-help text-xs text-zinc-500">{TIER_LABEL[row.baseTier]}</span>
         </Tooltip>
       </td>
-      <td
-        className="py-2 pr-3 text-right font-mono text-xs"
-        style={{ color: row.distFrom52wHigh >= -3 ? POS : "#a1a1aa" }}
-      >
-        {pct(row.distFrom52wHigh)}
-      </td>
-      <td className="py-2 pr-3 text-xs text-zinc-300">
-        <Tooltip label={`H=${row.hurstReturn.toFixed(3)}（Pine 价格口径 ${row.hurstPrice.toFixed(2)}）`}>
-          <span className="cursor-help">{HURST_LABEL[row.hurstReturnRegime]}</span>
-        </Tooltip>
-      </td>
-      <td className="py-2 pr-3 text-xs text-zinc-300">{VOL_LABEL[row.volatilityPattern]}</td>
-      <td className="py-2 pr-3 text-xs text-zinc-300">
-        <Tooltip label={`当日量 / 50 日均量 = ${row.volumeRatio.toFixed(2)}`}>
-          <span className="cursor-help">{FLOW_LABEL[row.moneyFlow]}</span>
-        </Tooltip>
-      </td>
       <td className="py-2 pr-3">
         <SectorCell row={row} />
       </td>
-      <td className="py-2 pr-3">
-        <DipCell row={row} />
-      </td>
       <td className="py-2">
-        <TacticalCell row={row} />
+        <TraitsCell row={row} />
       </td>
     </tr>
   );
@@ -310,7 +385,47 @@ function SectorClockCard({ data }: { data: StockPanelData }) {
   );
 }
 
+function GroupPill({
+  label,
+  hint,
+  color,
+  count,
+  active,
+  onClick,
+}: {
+  label: string;
+  hint: string;
+  color: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Tooltip label={hint}>
+      <UnstyledButton
+        onClick={onClick}
+        className="rounded-md border px-3 py-2 text-left transition-colors"
+        style={{
+          borderColor: active ? color : "#27272a",
+          background: active ? `${color}14` : "transparent",
+        }}
+      >
+        <div className="flex items-baseline gap-2">
+          <span className="font-mono text-lg leading-none" style={{ color }}>
+            {count}
+          </span>
+          <span className="text-xs" style={{ color: active ? color : "#a1a1aa" }}>
+            {label}
+          </span>
+        </div>
+      </UnstyledButton>
+    </Tooltip>
+  );
+}
+
 export function StockPanelBoard({ data }: { data: StockPanelData }) {
+  const [activeGroup, setActiveGroup] = useState<string | null>(null);
+
   if (data.latestDate == null) {
     return (
       <Alert color="yellow" variant="light" title="尚无个股面板数据">
@@ -322,70 +437,128 @@ export function StockPanelBoard({ data }: { data: StockPanelData }) {
     );
   }
 
+  const groups = ACTION_GROUPS.map((g) => ({
+    ...g,
+    rows: data.rows.filter((r) => GROUP_OF.get(r.tacticalAction) === g.id),
+  }));
+  const ungrouped = data.rows.filter((r) => !GROUP_OF.has(r.tacticalAction));
+  const visible = groups.filter((g) => g.rows.length > 0 && (!activeGroup || g.id === activeGroup));
+
   return (
     <Stack gap="md">
-      <SectorClockCard data={data} />
-
       <Card
         title={
           <Stack gap={2}>
             <Text size="sm" fw={700} c="gray.1">
-              个股深度面板
+              今日战术分布
             </Text>
             <Text size="xs" c="dimmed">
-              {data.latestDate} · {data.rows.length}/{data.universeSize} 只 · 按 RS 降序
+              {data.latestDate} · {data.rows.length}/{data.universeSize} 只 · 点击筛选，组内按相对 RS 降序
             </Text>
           </Stack>
         }
       >
-        <Group gap="xs" mb="md">
-          {data.stageCounts.map((s) => (
-            <Badge key={s.stage} size="sm" variant="light" color="gray">
-              <span style={{ color: STAGE_COLOR[s.stage] }}>{STAGE_LABEL[s.stage]}</span>
-              <span className="ml-1 font-mono">{s.count}</span>
-            </Badge>
+        <div className="flex flex-wrap gap-2">
+          <GroupPill
+            label="全部"
+            hint="显示全部标的"
+            color="#a1a1aa"
+            count={data.rows.length}
+            active={activeGroup == null}
+            onClick={() => setActiveGroup(null)}
+          />
+          {groups.map((g) => (
+            <GroupPill
+              key={g.id}
+              label={g.label}
+              hint={g.hint}
+              color={g.color}
+              count={g.rows.length}
+              active={activeGroup === g.id}
+              onClick={() => setActiveGroup(activeGroup === g.id ? null : g.id)}
+            />
           ))}
-        </Group>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-xs text-zinc-500">
-                <th className="pb-2 pr-3 text-left font-normal">代码</th>
-                <th className="pb-2 pr-3 text-right font-normal">现价</th>
-                <th className="pb-2 pr-3 text-right font-normal">RS</th>
-                <th className="pb-2 pr-3 text-right font-normal">趋势分</th>
-                <th className="pb-2 pr-3 text-left font-normal">形态阶段</th>
-                <th className="pb-2 pr-3 text-right font-normal">距 52 周高</th>
-                <th className="pb-2 pr-3 text-left font-normal">分形态</th>
-                <th className="pb-2 pr-3 text-left font-normal">波动</th>
-                <th className="pb-2 pr-3 text-left font-normal">资金</th>
-                <th className="pb-2 pr-3 text-left font-normal">行业时钟</th>
-                <th className="pb-2 pr-3 text-left font-normal">低吸支撑带</th>
-                <th className="pb-2 text-left font-normal">战术指令</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.rows.map((row) => (
-                <PanelRow key={row.symbol} row={row} />
-              ))}
-            </tbody>
-          </table>
         </div>
-
-        {data.skippedSymbols.length > 0 ? (
-          <Text size="xs" c="dimmed" mt="sm">
-            上市不足 900 根日线、EMA576 无法预热，未纳入计算：{data.skippedSymbols.join("、")}
-          </Text>
-        ) : null}
       </Card>
+
+      {visible.map((g) => (
+        <Card
+          key={g.id}
+          title={
+            <div className="flex items-baseline gap-2">
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: g.color }} />
+              <Text size="sm" fw={700} c="gray.1">
+                {g.label}
+              </Text>
+              <Text size="xs" c="dimmed">
+                {g.hint} · {g.rows.length} 只
+              </Text>
+            </div>
+          }
+        >
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-zinc-500">
+                  <th className="pb-2 pr-3 text-left font-normal">代码</th>
+                  <th className="pb-2 pr-3 text-left font-normal">战术指令</th>
+                  <th className="pb-2 pr-3 text-left font-normal">低吸支撑带</th>
+                  <th className="pb-2 pr-3 text-right font-normal">现价</th>
+                  <th className="pb-2 pr-3 text-right font-normal">
+                    <Tooltip label="对标 SPY 的四周期加权相对强度。与轮动看板的「动能 RS」是两套算法，数值不可互比。">
+                      <span className="cursor-help border-b border-dotted border-zinc-600">
+                        相对 RS
+                      </span>
+                    </Tooltip>
+                  </th>
+                  <th className="pb-2 pr-3 text-right font-normal">趋势分</th>
+                  <th className="pb-2 pr-3 text-right font-normal">距 52 周高</th>
+                  <th className="pb-2 pr-3 text-left font-normal">形态阶段</th>
+                  <th className="pb-2 pr-3 text-left font-normal">行业时钟</th>
+                  <th className="pb-2 text-left font-normal">特征</th>
+                </tr>
+              </thead>
+              <tbody>
+                {g.rows.map((row) => (
+                  <PanelRow key={row.symbol} row={row} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      ))}
+
+      {ungrouped.length > 0 ? (
+        <Text size="xs" c="dimmed">
+          未归入战术分组的指令：{ungrouped.map((r) => `${r.symbol}(${r.tacticalAction})`).join("、")}
+        </Text>
+      ) : null}
+
+      <SectorClockCard data={data} />
+
+      {data.skippedSymbols.length > 0 ? (
+        <Text size="xs" c="dimmed">
+          上市不足 900 根日线、EMA576 无法预热，未纳入计算：{data.skippedSymbols.join("、")}
+        </Text>
+      ) : null}
 
       <Card title="口径说明">
         <Stack gap="xs">
           <Text size="xs" c="dimmed">
-            <strong className="text-zinc-300">RS</strong> 是对标 SPY 的四周期加权相对强度
-            （0.10/0.40/0.30/0.20 @ 21/63/126/252 日），1~99。这与轮动看板上的 RS
+            <strong className="text-zinc-300">战术指令</strong> 是全套系统的出口，三层仲裁、持仓优先：
+            有持仓只看宏观路径，空仓遇点火看路径决定放行/轻仓/冻结，其余情况由路径与形态共同决定。
+            悬停可见判定层、平滑 RSI 与当前两条防线的价位。上方四个分组按「今天该做什么」归并，
+            与判定层不是一回事。
+          </Text>
+          <Text size="xs" c="dimmed">
+            <strong className="text-zinc-300">相对 RS</strong> 是对标 SPY 的四周期加权相对强度
+            （0.10/0.40/0.30/0.20 @ 21/63/126/252 日），1~99。这与轮动看板上的「动能 RS」
             是两套不同算法——那边不设基准、只看绝对涨幅，两个数字不可互相比较。
+          </Text>
+          <Text size="xs" c="dimmed">
+            <strong className="text-zinc-300">特征</strong> 列只渲染偏离基线的读数。分形态判为「随机」
+            （当日约占 46%）、波动形态判为「正常」（约 20%）都不占位，净流入/流出压缩成 ▲▼，
+            只有机构点火与极度锁仓才给标签。三项合计的标签数因此减半，留下的才是真正偏离常态的信号。
           </Text>
           <Text size="xs" c="dimmed">
             <strong className="text-zinc-300">分形态</strong> 用 30 日 R/S 重标极差法。Pine
@@ -395,10 +568,10 @@ export function StockPanelBoard({ data }: { data: StockPanelData }) {
           </Text>
           <Text size="xs" c="dimmed">
             <strong className="text-zinc-300">距 52 周高</strong> 的基准是 Pine 的{" "}
-            <code>highest(close[1], 252)</code>，只排除当日。对稳步上涨的标的它就等于昨收，
-            所以这个数基本等于当日涨幅，p95 只有 +0.41%。Stage C 的 +18% 门槛因此要求单日跳空
-            18% 以上突破年内新高，10 万个 bar-day 里只触发 23 次，实际含义是「单日爆量跳空」
-            而非「高位延伸」。
+            <code>highest(close[1], 252)</code>，只排除当日。标的在年内高点下方时这个数如实反映距离；
+            一旦逼近或刷新高点，基准就退化成昨收，读数只剩当日涨幅——因此正值极小，p95 仅 +0.41%。
+            受影响的是 Stage C：它的 +18% 门槛等于要求单日跳空 18% 以上突破年内新高，
+            10 万个 bar-day 里只触发 23 次，实际含义是「单日爆量跳空」而非「高位延伸」。
           </Text>
           <Text size="xs" c="dimmed">
             <strong className="text-zinc-300">低吸支撑带</strong> 按形态阶段切换锚点：
@@ -410,11 +583,6 @@ export function StockPanelBoard({ data }: { data: StockPanelData }) {
             <strong className="text-zinc-300">行业时钟</strong> 的归属取自 FMP 的 GICS 分类，映射规则
             照搬 Pine 的字符串匹配链。QQQ / GLD / IBIT 这类 ETF 本就没有行业归属
             （FMP 一律返回 Financial Services），不参与排名，显示为「—」。
-          </Text>
-          <Text size="xs" c="dimmed">
-            <strong className="text-zinc-300">战术指令</strong> 是全套系统的出口，三层仲裁、持仓优先：
-            有持仓只看宏观路径，空仓遇点火看路径决定放行/轻仓/冻结，其余情况由路径与形态共同决定。
-            悬停可见判定层、平滑 RSI 与当前两条防线的价位。
           </Text>
           <Text size="xs" c="dimmed">
             <strong className="text-zinc-300">与 Pine 的一处偏离：</strong>Pine 的风控段跑在仲裁段之前，
