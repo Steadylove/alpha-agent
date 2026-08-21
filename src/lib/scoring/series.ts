@@ -75,6 +75,28 @@ export function lowestSeries(values: number[], length: number): (number | null)[
 }
 
 /**
+ * 对可能含 null 的序列取简单均线。窗口内出现 null 即返回 null，
+ * 与 Pine 中 `ta.sma` 遇到 na 的处理一致。
+ */
+export function smaOfNullable(values: (number | null)[], length: number): (number | null)[] {
+  const out: (number | null)[] = new Array(values.length).fill(null);
+  for (let i = length - 1; i < values.length; i += 1) {
+    let sum = 0;
+    let ok = true;
+    for (let j = i - length + 1; j <= i; j += 1) {
+      const v = values[j];
+      if (v == null) {
+        ok = false;
+        break;
+      }
+      sum += v;
+    }
+    if (ok) out[i] = sum / length;
+  }
+  return out;
+}
+
+/**
  * 与 ta.stdev 一致：Pine 的 biased 默认为 true，即**总体**标准差（除以 n）。
  * 用样本标准差（除以 n-1）会让挤压比率系统性偏大。
  */

@@ -6,7 +6,14 @@
  * 变量在这里就是日线序列本身。
  */
 
-import { atrSeries, emaSeries, highestSeries, smaSeries, stdevSeries } from "./series";
+import {
+  atrSeries,
+  emaSeries,
+  highestSeries,
+  smaOfNullable,
+  smaSeries,
+  stdevSeries,
+} from "./series";
 
 export type StockStage = "A" | "B" | "C" | "D" | "E" | "W";
 export type BaseTier = "T1" | "T2" | "T3";
@@ -29,25 +36,6 @@ export interface StockStageDay {
   baseDays: number;
   baseTier: BaseTier;
   stage: StockStage;
-}
-
-/** 窗口内含 na 即返回 null，与 Pine 的 ta.sma 对 na 的处理一致。 */
-function smaOfNullable(values: (number | null)[], length: number): (number | null)[] {
-  const out: (number | null)[] = new Array(values.length).fill(null);
-  for (let i = length - 1; i < values.length; i += 1) {
-    let sum = 0;
-    let ok = true;
-    for (let j = i - length + 1; j <= i; j += 1) {
-      const v = values[j];
-      if (v == null) {
-        ok = false;
-        break;
-      }
-      sum += v;
-    }
-    if (ok) out[i] = sum / length;
-  }
-  return out;
 }
 
 function trendScoreAt(

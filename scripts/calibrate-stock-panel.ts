@@ -4,7 +4,7 @@ import { getPrisma } from "@/lib/db/prisma";
 import { computeDipZone } from "@/lib/scoring/dipZone";
 import { relativeRsSeries } from "@/lib/scoring/relativeRs";
 import { ROTATION_UNIVERSE } from "@/lib/scoring/rotationUniverse";
-import { atrSeries, emaSeries, smaSeries } from "@/lib/scoring/series";
+import { atrSeries, emaSeries, smaOfNullable } from "@/lib/scoring/series";
 import { computeStockRegimeSeries, type RegimeBar } from "@/lib/scoring/stockRegime";
 import { computeStockStageSeries, institutionalVwap } from "@/lib/scoring/stockStage";
 
@@ -188,25 +188,6 @@ async function main() {
       `  作用于日收益率（教科书）  ${q(hRet, 0.05).toFixed(3)} / ${q(hRet, 0.5).toFixed(3)} / ${q(hRet, 0.95).toFixed(3)}`,
   );
 }
-
-function smaOfNullable(values: (number | null)[], length: number): (number | null)[] {
-  const out: (number | null)[] = new Array(values.length).fill(null);
-  for (let i = length - 1; i < values.length; i += 1) {
-    let sum = 0;
-    let ok = true;
-    for (let j = i - length + 1; j <= i; j += 1) {
-      const v = values[j];
-      if (v == null) {
-        ok = false;
-        break;
-      }
-      sum += v;
-    }
-    if (ok) out[i] = sum / length;
-  }
-  return out;
-}
-
 main()
   .catch((err) => {
     console.error(err);
