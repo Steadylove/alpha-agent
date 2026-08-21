@@ -42,23 +42,6 @@ export type StockPanelRow = {
   tacticalAction: string;
   tacticalTone: string;
   tacticalLayer: string;
-  valuation: StockValuationCell | null;
-};
-
-/** 12M 估值引擎的当日结论，基本面缺失时整块为 null。 */
-export type StockValuationCell = {
-  primaryTarget: number;
-  upsidePct: number;
-  mode: string;
-  consensusSmoothed: boolean;
-  archetype: string;
-  currentPe: number | null;
-  marketCapB: number | null;
-  isDipActive: boolean;
-  isInLongDowntrend: boolean;
-  isHyperMomentum: boolean;
-  /** 该结论是否建立在真实基本面之上 */
-  hasFundamentals: boolean;
 };
 
 export type SectorClockRow = {
@@ -79,8 +62,6 @@ export type StockPanelData = {
   stageCounts: { stage: string; count: number }[];
   /** SLS 3.0 行业时钟，按名次升序。 */
   sectorClock: SectorClockRow[];
-  /** 拿到真实基本面的标的数，其余的估值结论只是价格外推。 */
-  fundamentalsCoverage: number;
   /** 样本不足被跳过的标的（EMA576 需要至少 900 根日线）。 */
   skippedSymbols: string[];
   universeSize: number;
@@ -101,7 +82,6 @@ export async function getStockPanelData(): Promise<StockPanelData> {
     rows: [],
     stageCounts: [],
     sectorClock: [],
-    fundamentalsCoverage: 0,
     skippedSymbols: [],
     universeSize,
   };
@@ -114,34 +94,12 @@ export async function getStockPanelData(): Promise<StockPanelData> {
   const newest = await prisma.stockPanelState.findFirst({ orderBy: { date: "desc" } });
   if (!newest) return empty;
 
-  const [states, clock, valuations, fundamentals] = await Promise.all([
+  const [states, clock] = await Promise.all([
     prisma.stockPanelState.findMany({ where: { date: newest.date } }),
     prisma.sectorClockState.findMany({ where: { date: newest.date }, orderBy: { rank: "asc" } }),
-    prisma.stockValuation.findMany({ where: { date: newest.date } }),
-    prisma.stockFundamentals.findMany({ select: { symbol: true } }),
   ]);
   const nameBySymbol = new Map(ROTATION_UNIVERSE.map((t) => [t.symbol, t.name]));
   const sectorNameById = new Map(SECTOR_UNIVERSE.map((s) => [s.id as string, s.name]));
-  const withFundamentals = new Set(fundamentals.map((f) => f.symbol));
-  const valuationBySymbol = new Map(valuations.map((v) => [v.symbol, v]));
-
-  const toValuationCell = (symbol: string): StockValuationCell | null => {
-    const v = valuationBySymbol.get(symbol);
-    if (!v) return null;
-    return {
-      primaryTarget: v.primaryTarget,
-      upsidePct: v.upsidePct,
-      mode: v.mode,
-      consensusSmoothed: v.consensusSmoothed,
-      archetype: v.archetype,
-      currentPe: v.currentPe,
-      marketCapB: v.marketCapB,
-      isDipActive: v.isDipActive,
-      isInLongDowntrend: v.isInLongDowntrend,
-      isHyperMomentum: v.isHyperMomentum,
-      hasFundamentals: withFundamentals.has(symbol),
-    };
-  };
 
   const rows: StockPanelRow[] = states
     .map((s) => ({
@@ -184,7 +142,6 @@ export async function getStockPanelData(): Promise<StockPanelData> {
       tacticalAction: s.tacticalAction,
       tacticalTone: s.tacticalTone,
       tacticalLayer: s.tacticalLayer,
-      valuation: toValuationCell(s.symbol),
     }))
     .sort((a, b) => b.rs - a.rs);
 
@@ -207,7 +164,6 @@ export async function getStockPanelData(): Promise<StockPanelData> {
       isTop3: c.isTop3,
       isBottoming: c.isBottoming,
     })),
-    fundamentalsCoverage: rows.filter((r) => r.valuation?.hasFundamentals).length,
     skippedSymbols: ROTATION_UNIVERSE.filter(
       (t) => !states.some((s) => s.symbol === t.symbol),
     ).map((t) => t.symbol),
