@@ -1,3 +1,4 @@
+import { PATH_EXPOSURE, type PathExposure } from "@/lib/scoring/macroExposure";
 import { ROTATION_UNIVERSE } from "@/lib/scoring/rotationUniverse";
 
 /** RotationState 落库的字段子集。 */
@@ -48,6 +49,13 @@ export type RotationData = {
   universeSize: number;
   /** 样本不足被跳过的标的。 */
   skippedSymbols: string[];
+  /**
+   * MPR 给出的建议总敞口，仅作提示。
+   *
+   * 刻意不参与仓位计算：组合层回测（3927 日、已去除未来函数）显示照此机械减仓
+   * 会让收益/波动从 1.18 降到 0.95，得不偿失。详见 roadmap Phase 4。
+   */
+  macroExposure: (PathExposure & { pathId: number }) | null;
 };
 
 /** 与 Pine 的 avg_slots 一致：把单票收益摊薄到组合口径的除数。 */
@@ -79,6 +87,7 @@ export async function getRotationData(): Promise<RotationData> {
     stats: EMPTY_STATS,
     universeSize,
     skippedSymbols: [],
+    macroExposure: null,
   };
 
   if (!process.env.DATABASE_URL) return empty;
@@ -95,7 +104,7 @@ export async function getRotationData(): Promise<RotationData> {
   since.setUTCDate(since.getUTCDate() - RECENT_SIGNAL_DAYS);
 
   // 三个查询都只依赖 latestDate，串行发到 Neon 会多花两个往返。
-  const [rows, closedThisYear, signalRows] = await Promise.all([
+  const [rows, closedThisYear, signalRows, macroLatest] = await Promise.all([
     prisma.rotationState.findMany({ where: { date: latestDate } }),
     prisma.rotationTrade.findMany({
       where: { exitDate: { gte: yearStart } },
@@ -105,6 +114,10 @@ export async function getRotationData(): Promise<RotationData> {
       where: { date: { gte: since }, OR: [{ buy1: true }, { buy2: true }] },
       orderBy: { date: "desc" },
       select: { date: true, symbol: true, buy1: true, rs: true, close: true },
+    }),
+    prisma.macroPhaseState.findFirst({
+      orderBy: { date: "desc" },
+      select: { pathId: true },
     }),
   ]);
 
@@ -163,5 +176,9 @@ export async function getRotationData(): Promise<RotationData> {
     skippedSymbols: ROTATION_UNIVERSE.filter(
       (t) => !rows.some((r) => r.symbol === t.symbol),
     ).map((t) => t.symbol),
+    macroExposure:
+      macroLatest == null
+        ? null
+        : { pathId: macroLatest.pathId, ...(PATH_EXPOSURE[macroLatest.pathId] ?? PATH_EXPOSURE[4]) },
   };
 }

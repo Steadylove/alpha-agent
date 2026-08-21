@@ -127,6 +127,29 @@ export function RotationBoard({ data }: { data: RotationData }) {
           已落袋按历史平均满仓 8 只摊薄到组合口径（与 Pine 的 avg_slots 一致）。
           这是模型跟踪盘,非实盘记录。
         </Text>
+
+        {data.macroExposure ? (
+          <Alert color="gray" variant="light" mt="md">
+            <Stack gap={4}>
+              <Group gap="xs">
+                <Text size="xs" c="dimmed">
+                  MPR 建议总敞口（Path {data.macroExposure.pathId}）
+                </Text>
+                <Text size="xs" fw={700} c="gray.2" ff="monospace">
+                  {data.macroExposure.minPct}% ~ {data.macroExposure.maxPct}%
+                </Text>
+                <Text size="xs" c="dimmed">
+                  {data.macroExposure.stance}
+                </Text>
+              </Group>
+              <Text size="xs" c="dimmed">
+                仅作提示,上表仓位未按此缩放。3927 个交易日的组合回测（已去除未来函数）显示
+                照此机械减仓会把收益/波动从 1.18 降到 0.95——回撤确实从 39.4% 收窄到 19.3%,
+                但让出的收益更多。
+              </Text>
+            </Stack>
+          </Alert>
+        ) : null}
       </Card>
 
       <Card
