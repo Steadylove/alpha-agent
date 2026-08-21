@@ -186,6 +186,95 @@ export async function fetchFmpFundamentals(symbol: string): Promise<FundamentalS
   return { ...emptyFundamentals(symbol), ...basics, ...deep };
 }
 
+/**
+ * 12M 估值引擎要的基本面输入。
+ *
+ * 对应 MarketCompass Pine 第 9 节的 `request.financial()` 调用，逐项替换关系：
+ *
+ * | Pine | 这里 |
+ * | --- | --- |
+ * | `EARNINGS_PER_SHARE_DILUTED` TTM | 最近 4 个季度 `epsDiluted` 求和 |
+ * | `TOTAL_REVENUE` TTM | 最近 4 个季度 `revenue` 求和 |
+ * | `TOTAL_SHARES_OUTSTANDING` FQ | 最近一季 `weightedAverageShsOutDil` |
+ * | `MARKET_CAP` D | `profile.marketCap` |
+ * | `EARNINGS_PER_SHARE_DILUTED` FQ_YOY | 最近一季与去年同季 `epsDiluted` 的同比 |
+ * | `syminfo.target_price_average` | `price-target-consensus.targetConsensus` |
+ * | `syminfo.target_price_estimates` | `price-target-summary.lastQuarterCount` |
+ *
+ * 两处口径差异：股本用的是**摊薄加权平均**而非期末总股本（FMP 的季报口径），
+ * 分析师家数用的是**近一季**给出目标价的家数（Pine 那个是当期在覆盖的家数）。
+ * 前者只影响 PS 模型的每股营收，后者只用于 `>= 3` 这个开关，都不敏感。
+ */
+export type ValuationInputs = {
+  symbol: string;
+  epsTtm: number | null;
+  revTtm: number | null;
+  sharesOutstanding: number | null;
+  marketCap: number | null;
+  /** 单季 EPS 同比增速，去年同季为负时无意义、记 null */
+  epsQYoY: number | null;
+  analystTarget: number | null;
+  analystCount: number;
+};
+
+type FmpValuationIncomeRow = {
+  date?: string;
+  revenue?: number;
+  epsDiluted?: number;
+  weightedAverageShsOutDil?: number;
+};
+
+type FmpProfileMarketCapRow = { marketCap?: number };
+type FmpTargetSummaryRow = { lastQuarterCount?: number };
+
+const sumOrNull = (values: (number | undefined)[]): number | null =>
+  values.length === 0 || values.some((v) => v == null)
+    ? null
+    : values.reduce<number>((a, v) => a + v!, 0);
+
+export async function fetchFmpValuationInputs(symbol: string): Promise<ValuationInputs | null> {
+  const apiKey = process.env.FMP_API_KEY;
+  if (!apiKey) return null;
+
+  const q = encodeURIComponent(symbol);
+  const [income, profile, consensus, summary] = await Promise.all([
+    safeJson<FmpValuationIncomeRow[]>(
+      `${FMP_BASE}/income-statement?symbol=${q}&period=quarter&limit=5&apikey=${apiKey}`,
+    ),
+    safeJson<FmpProfileMarketCapRow[]>(`${FMP_BASE}/profile?symbol=${q}&apikey=${apiKey}`),
+    safeJson<FmpPriceTargetRow[]>(
+      `${FMP_BASE}/price-target-consensus?symbol=${q}&apikey=${apiKey}`,
+    ),
+    safeJson<FmpTargetSummaryRow[]>(
+      `${FMP_BASE}/price-target-summary?symbol=${q}&apikey=${apiKey}`,
+    ),
+  ]);
+
+  if (!income || income.length === 0) return null;
+
+  const last4 = income.slice(0, 4);
+  const epsTtm = last4.length === 4 ? sumOrNull(last4.map((r) => r.epsDiluted)) : null;
+  const revTtm = last4.length === 4 ? sumOrNull(last4.map((r) => r.revenue)) : null;
+
+  const epsLatest = income[0]?.epsDiluted;
+  const epsYearAgo = income[4]?.epsDiluted;
+  const epsQYoY =
+    epsLatest != null && epsYearAgo != null && epsYearAgo > 0
+      ? (epsLatest - epsYearAgo) / epsYearAgo
+      : null;
+
+  return {
+    symbol,
+    epsTtm,
+    revTtm,
+    sharesOutstanding: income[0]?.weightedAverageShsOutDil ?? null,
+    marketCap: profile?.[0]?.marketCap ?? null,
+    epsQYoY,
+    analystTarget: consensus?.[0]?.targetConsensus ?? null,
+    analystCount: summary?.[0]?.lastQuarterCount ?? 0,
+  };
+}
+
 export type CompanyProfile = {
   symbol: string;
   sector: string | null;
