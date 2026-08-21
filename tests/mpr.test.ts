@@ -161,3 +161,184 @@ describe("F2 阈值滤波", () => {
     expect(last.f2).toBeGreaterThan(45);
   });
 });
+
+/** 前段常态、后段全域崩塌的行情，用于触发高 Path。 */
+function makeCrashInput(days: number, crashFrom: number, seed = 42): MprInput[] {
+  const r = lcg(seed);
+  let spy = 100;
+  let rsp = 100;
+  let tlt = 100;
+  let dxy = 100;
+  let hyg = 100;
+  let iei = 100;
+
+  return Array.from({ length: days }, (_, i) => {
+    const crashing = i >= crashFrom;
+    spy *= 1 + (crashing ? -0.015 : (r() - 0.45) * 0.01);
+    rsp *= 1 + (crashing ? -0.018 : (r() - 0.45) * 0.01);
+    tlt *= 1 + (crashing ? 0.004 : (r() - 0.5) * 0.008);
+    dxy *= 1 + (crashing ? 0.002 : (r() - 0.5) * 0.004);
+    hyg *= 1 + (crashing ? -0.008 : (r() - 0.48) * 0.005);
+    iei *= 1 + (r() - 0.5) * 0.002;
+    const vix = crashing ? 28 + r() * 15 : 13 + r() * 4;
+
+    return {
+      date: new Date(Date.UTC(2020, 0, 1 + i)).toISOString().slice(0, 10),
+      spyClose: spy,
+      spyVolume: (crashing ? 160 : 70) * 1e6 + r() * 2e7,
+      rspClose: rsp,
+      tltClose: tlt,
+      dxyClose: dxy,
+      hygClose: hyg,
+      ieiClose: iei,
+      vixClose: vix,
+      vix9dClose: vix * (crashing ? 1.15 : 0.85 + r() * 0.1),
+      vix3mClose: vix * (crashing ? 0.95 : 1.1 + r() * 0.1),
+    };
+  });
+}
+
+describe("传导路径判定", () => {
+  it("全域崩塌行情最终进入 Path 4 破位确认", () => {
+    const last = computeMprSeries(makeCrashInput(400, 330)).at(-1)!;
+    expect(last.pathId).toBe(4);
+    expect(last.fsmState).toBe(3);
+    expect(last.transDepth).toBe(3);
+  });
+
+  it("Path 与 transDepth 一一对应", () => {
+    const depthByPath: Record<number, number> = { 0: 0, 1: 1, 2: 2, 3: 1, 4: 3 };
+    for (const day of computeMprSeries(makeCrashInput(400, 330))) {
+      expect(day.transDepth).toBe(depthByPath[day.pathId]);
+    }
+  });
+
+  it("Path 与 fsmState 一一对应", () => {
+    const stateByPath: Record<number, number> = { 0: 0, 1: 1, 2: 2, 3: 1, 4: 3 };
+    for (const day of computeMprSeries(makeCrashInput(400, 330))) {
+      expect(day.fsmState).toBe(stateByPath[day.pathId]);
+    }
+  });
+
+  it("各 Path 的定义条件在全序列成立", () => {
+    for (const day of [
+      ...computeMprSeries(makeCrashInput(400, 330)),
+      ...computeMprSeries(makeMarketInput(600)),
+    ]) {
+      // Path 2 的定义含 spyDamage < 60，破坏度过高时必须让位给 Path 4
+      if (day.pathId === 2) {
+        expect(day.spyDamage).toBeLessThan(60);
+        expect(day.sigmaSpot).toBeGreaterThanOrEqual(1);
+        expect(Math.max(day.sigmaVol, day.sigmaCred)).toBeGreaterThanOrEqual(1);
+      }
+      // Path 1 要求现货域完全平静
+      if (day.pathId === 1) {
+        expect(day.sigmaSpot).toBe(0);
+        expect(Math.max(day.sigmaVol, day.sigmaCred)).toBeGreaterThanOrEqual(1);
+      }
+      // Path 3 要求衍生品域与信用域都平静
+      if (day.pathId === 3) {
+        expect(day.sigmaVol).toBe(0);
+        expect(day.sigmaCred).toBe(0);
+        expect(day.sigmaSpot).toBeGreaterThanOrEqual(1);
+      }
+      // Path 4 要求破坏度达标
+      if (day.pathId === 4) {
+        expect(day.spyDamage).toBeGreaterThanOrEqual(70);
+      }
+    }
+  });
+
+  /**
+   * 原版 Pine 判定树的已知缺陷，这里用测试钉住，避免以后被误当成 bug「修掉」而破坏对拍。
+   *
+   * Path 0 是 else 兜底分支，不是「三域全静」。当 spyDamage 落在 [60, 70) 且三域有压力时：
+   *   - Path 4 不匹配（damage < 70 或未跌破 EMA50）
+   *   - Path 2 不匹配（要求 damage < 60）
+   *   - Path 1 不匹配（要求 sigmaSpot == 0）
+   *   - Path 3 不匹配（要求 vol 与 cred 均为 0）
+   * 于是掉进 else，被标记为「稳态自洽 · 建议敞口 80~100%」。
+   *
+   * 语义上这是错的：两个域顶格 + 大盘已回撤，不该建议满仓。
+   * 是否修正属于 Phase 2 的决策，Phase 1 只做忠实移植。
+   */
+  it("已知缺陷：Path 0 是兜底分支，可能在三域承压时被触发", () => {
+    const fallthrough = computeMprSeries(makeMarketInput(900, 7))
+      .slice(252)
+      .filter(
+        (d) =>
+          d.pathId === 0 && (d.sigmaVol > 0 || d.sigmaCred > 0 || d.sigmaSpot > 0),
+      );
+
+    // 这些样本存在本身就是缺陷的证据；若某天此断言失败，说明判定树被改动过
+    expect(fallthrough.length).toBeGreaterThan(0);
+    for (const day of fallthrough) {
+      expect(day.spyDamage).toBeGreaterThanOrEqual(60);
+    }
+  });
+
+  it("sigma 分级与三域压力值一致", () => {
+    for (const day of computeMprSeries(makeMarketInput(600))) {
+      const expectSigma = (stress: number, sigma: number) => {
+        if (stress >= 75) expect(sigma).toBe(2);
+        else if (stress >= 50) expect(sigma).toBe(1);
+        else expect(sigma).toBe(0);
+      };
+      expectSigma(day.domVol, day.sigmaVol);
+      expectSigma(day.domCred, day.sigmaCred);
+      expectSigma(day.domSpot, day.sigmaSpot);
+    }
+  });
+});
+
+describe("leadPersist 跨日状态递推", () => {
+  it("每日只能是前值 +1 或归零", () => {
+    for (const series of [computeMprSeries(makeCrashInput(400, 330)), computeMprSeries(makeMarketInput(600))]) {
+      for (let i = 1; i < series.length; i += 1) {
+        const cur = series[i].leadPersist;
+        const prev = series[i - 1].leadPersist;
+        expect(cur === prev + 1 || cur === 0).toBe(true);
+      }
+    }
+  });
+
+  it("递推条件成立时计数，不成立时清零", () => {
+    const series = computeMprSeries(makeMarketInput(600));
+    for (let i = 1; i < series.length; i += 1) {
+      const day = series[i];
+      const shouldCount = day.leadGap > 20 && day.spyDamage < 40;
+      if (shouldCount) {
+        expect(day.leadPersist).toBe(series[i - 1].leadPersist + 1);
+      } else {
+        expect(day.leadPersist).toBe(0);
+      }
+    }
+  });
+
+  it("leadPersist 为 0 时 leadQuality 必为 0（衰减因子归零）", () => {
+    for (const day of computeMprSeries(makeMarketInput(600))) {
+      if (day.leadPersist === 0) expect(day.leadQuality).toBe(0);
+    }
+  });
+
+  it("leadQuality 与 couplingRatio 恒非负", () => {
+    for (const day of computeMprSeries(makeCrashInput(400, 330))) {
+      expect(day.leadQuality).toBeGreaterThanOrEqual(0);
+      expect(day.couplingRatio).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("序列有状态：截断起点会改变 leadPersist（不可只喂最近 N 根）", () => {
+    const rows = makeMarketInput(600);
+    const full = computeMprSeries(rows);
+    const truncated = computeMprSeries(rows.slice(300));
+    const fullLast = full.at(-1)!;
+    const truncLast = truncated.at(-1)!;
+    expect(fullLast.date).toBe(truncLast.date);
+    // 至少有一个跨日状态量因起点不同而不同，说明确实是路径依赖的
+    const anyDiff = full
+      .slice(300)
+      .some((day, i) => day.leadPersist !== truncated[i].leadPersist || day.f1 !== truncated[i].f1);
+    expect(anyDiff).toBe(true);
+  });
+});
