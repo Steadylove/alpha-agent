@@ -75,6 +75,38 @@ export function lowestSeries(values: number[], length: number): (number | null)[
 }
 
 /**
+ * 与 ta.cross 一致：crossover 或 crossunder。
+ * crossover 为 a > b 且 a[1] <= b[1]；crossunder 为 a < b 且 a[1] >= b[1]。
+ * 任一操作数为 null 时记 false（Pine 中 na 参与比较结果为 false）。
+ */
+export function crossSeries(a: (number | null)[], b: (number | null)[]): boolean[] {
+  const out: boolean[] = new Array(a.length).fill(false);
+  for (let i = 1; i < a.length; i += 1) {
+    const cur = a[i];
+    const prev = a[i - 1];
+    const curB = b[i];
+    const prevB = b[i - 1];
+    if (cur == null || prev == null || curB == null || prevB == null) continue;
+    out[i] = (cur > curB && prev <= prevB) || (cur < curB && prev >= prevB);
+  }
+  return out;
+}
+
+/**
+ * 与 ta.barssince 一致：距上一次条件为真的 bar 数，当根为真时记 0。
+ * 从未为真时返回 null（对应 Pine 的 na，参与比较时结果为 false）。
+ */
+export function barsSinceSeries(cond: boolean[]): (number | null)[] {
+  const out: (number | null)[] = new Array(cond.length).fill(null);
+  let last = -1;
+  for (let i = 0; i < cond.length; i += 1) {
+    if (cond[i]) last = i;
+    out[i] = last < 0 ? null : i - last;
+  }
+  return out;
+}
+
+/**
  * 与 ta.percentrank 一致：统计**之前** length 根中 <= 当前值的占比（×100）。
  * 注意窗口是 [i-length, i-1]，不含当前 bar —— 与 highest/lowest 的语义相反。
  */

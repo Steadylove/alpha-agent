@@ -1,4 +1,6 @@
 import {
+  barsSinceSeries,
+  crossSeries,
   emaSeries,
   highestSeries,
   lowestSeries,
@@ -61,5 +63,46 @@ describe("series primitives", () => {
   it("percentRankSeries: 相等的值计入分子（<= 而非 <）", () => {
     // 窗口 [5,5,5]，当前 5 -> 3/3*100 = 100
     expect(percentRankSeries([5, 5, 5, 5], 3)[3]).toBeCloseTo(100, 10);
+  });
+});
+
+describe("crossSeries", () => {
+  it("上穿与下穿都记 true，首根恒为 false", () => {
+    const a = [1, 3, 3, 1];
+    const b = [2, 2, 2, 2];
+    expect(crossSeries(a, b)).toEqual([false, true, false, true]);
+  });
+
+  it("同侧运行始终不算穿越", () => {
+    expect(crossSeries([1, 1.5, 1.8], [2, 2, 2])).toEqual([false, false, false]);
+  });
+
+  it("触碰后反向离开算穿越（Pine 用 <= / >= 而非严格不等）", () => {
+    expect(crossSeries([1, 2, 1], [2, 2, 2])).toEqual([false, false, true]);
+  });
+
+  it("从相等处上穿算 true（crossover 用 a[1] <= b[1]）", () => {
+    expect(crossSeries([2, 3], [2, 2])).toEqual([false, true]);
+  });
+
+  it("任一端为 null 时记 false", () => {
+    expect(crossSeries([null, 3, 1], [2, 2, 2])).toEqual([false, false, true]);
+  });
+});
+
+describe("barsSinceSeries", () => {
+  it("条件为真的当根记 0，其后逐根递增", () => {
+    expect(barsSinceSeries([false, true, false, false, true, false])).toEqual([
+      null,
+      0,
+      1,
+      2,
+      0,
+      1,
+    ]);
+  });
+
+  it("从未为真时全为 null（对应 Pine 的 na）", () => {
+    expect(barsSinceSeries([false, false, false])).toEqual([null, null, null]);
   });
 });
