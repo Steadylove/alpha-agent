@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "prisma:generate": "prisma generate",
-    "screener:push": "npx --yes tsx scripts/push-daily-screener.ts"
+    "screener:push": "npx --yes tsx scripts/push-daily-screener.ts",
+    "backfill:macro": "npx --yes tsx scripts/backfill-macro-history.ts"
   },
   "keywords": [],
   "author": "",

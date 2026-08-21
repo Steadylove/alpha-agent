@@ -1,3 +1,5 @@
+import type { DailyBar } from "@/lib/types/market";
+
 const SKEW_URL = "https://cdn.cboe.com/api/global/us_indices/daily_prices/SKEW_History.csv";
 const VIX_URL = "https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv";
 
@@ -15,7 +17,59 @@ async function fetchCsv(url: string): Promise<string[][] | null> {
     .trim()
     .split("\n")
     .slice(1)
-    .map((line) => line.split(","));
+    .map((line) => line.split(",").map((cell) => cell.trim()));
+}
+
+/** CBOE 波动率指数代码。VIX9D/VIX3M 构成 MPR 的 F2 隐波期限结构。 */
+export type CboeVolIndex = "VIX" | "VIX9D" | "VIX3M" | "VIX6M";
+
+const cboeHistoryUrl = (index: CboeVolIndex) =>
+  `https://cdn.cboe.com/api/global/us_indices/daily_prices/${index}_History.csv`;
+
+/** MM/DD/YYYY -> YYYY-MM-DD */
+function toIsoDate(raw: string): string | null {
+  const parts = raw.split("/");
+  if (parts.length !== 3) return null;
+  const [month, day, year] = parts;
+  if (year.length !== 4) return null;
+  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+}
+
+/**
+ * 拉取波动率指数全历史日线（VIX 自 1990、VIX3M 自 2009、VIX9D 自 2011）。
+ * 指数无成交量，volume 恒为 0。
+ */
+export async function fetchCboeVolIndexHistory(index: CboeVolIndex): Promise<DailyBar[]> {
+  const rows = await fetchCsv(cboeHistoryUrl(index));
+  if (!rows) {
+    throw new Error(`CBOE history request failed for ${index}`);
+  }
+
+  return rows
+    .map((cells): DailyBar | null => {
+      const date = toIsoDate(cells[0] ?? "");
+      const close = Number(cells[4]);
+
+      if (date == null || !Number.isFinite(close) || close <= 0) {
+        return null;
+      }
+
+      const open = Number(cells[1]);
+      const high = Number(cells[2]);
+      const low = Number(cells[3]);
+
+      return {
+        symbol: index,
+        date,
+        open: Number.isFinite(open) && open > 0 ? open : close,
+        high: Number.isFinite(high) && high > 0 ? high : close,
+        low: Number.isFinite(low) && low > 0 ? low : close,
+        close,
+        volume: 0,
+        source: "cboe",
+      };
+    })
+    .filter((bar): bar is DailyBar => bar !== null);
 }
 
 export async function fetchLatestSkew(): Promise<number | null> {

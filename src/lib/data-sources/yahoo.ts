@@ -18,12 +18,16 @@ type YahooChartResponse = {
   };
 };
 
-export async function fetchYahooDailyBars(symbol: string): Promise<DailyBar[]> {
+export async function fetchYahooDailyBars(
+  symbol: string,
+  options: { years?: number } = {},
+): Promise<DailyBar[]> {
   const period2 = Math.floor(Date.now() / 1000);
-  // 拉 8 年 ≈ 2000 交易日：EMA676 至少能递推 ~1300 步稳态收敛（3 年 750 根仅 74 步递推，
+  // 默认拉 8 年 ≈ 2000 交易日：EMA676 至少能递推 ~1300 步稳态收敛（3 年 750 根仅 74 步递推，
   // 种子 SMA 还未平滑，会让 EMA676 值虚低影响 Vegas 判断）。
   // daily-report 只吃最近 250 根，扩窗零副作用。
-  const period1 = period2 - 8 * 365 * 24 * 60 * 60;
+  // MPR 历史校准需要更长窗口，通过 years 显式放宽。
+  const period1 = period2 - (options.years ?? 8) * 365 * 24 * 60 * 60;
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?period1=${period1}&period2=${period2}&interval=1d`;
   const response = await fetch(url, { next: { revalidate: 60 * 60 } });
 
