@@ -41,11 +41,11 @@ model Instrument {
   bars       DailyBar[]
   scores     StockScore[]
   states     WatchlistState[]
-  sectorRows SectorScore[] @relation("SectorInstrument")
+  sectorRows SectorScore[]    @relation("SectorInstrument")
 }
 
 model DailyBar {
-  id           String     @id @default(cuid())
+  id           String   @id @default(cuid())
   instrumentId String
   date         DateTime
   open         Float
@@ -54,7 +54,7 @@ model DailyBar {
   close        Float
   volume       BigInt
   source       String
-  createdAt    DateTime   @default(now())
+  createdAt    DateTime @default(now())
 
   instrument Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
 
@@ -63,16 +63,16 @@ model DailyBar {
 }
 
 model MarketMetric {
-  id         String   @id @default(cuid())
-  date       DateTime
-  mss        Float
-  skewScore  Float?
-  pcrScore   Float?
-  creditScore Float?
+  id           String   @id @default(cuid())
+  date         DateTime
+  mss          Float
+  skewScore    Float?
+  pcrScore     Float?
+  creditScore  Float?
   breadthScore Float?
-  confidence Float
-  details    Json
-  createdAt  DateTime @default(now())
+  confidence   Float
+  details      Json
+  createdAt    DateTime @default(now())
 
   @@unique([date])
 }
@@ -130,6 +130,56 @@ model RotationState {
   @@index([symbol, date])
 }
 
+/// 个股深度面板的每日快照，一只标的一天一行。
+model StockPanelState {
+  id     String   @id @default(cuid())
+  date   DateTime
+  symbol String
+  close  Float
+
+  /// 对标 SPY 的相对强度，1~99
+  rs             Float
+  rsAccelerating Boolean
+  /// T-CUBE 趋势打分，0~10
+  trendScore     Int
+
+  /// A/B/C/D/E/W
+  stage           String
+  /// T1/T2/T3
+  baseTier        String
+  baseDays        Int
+  distFrom52wHigh Float
+  squeezeRatio    Float
+
+  /// 作用于日收益率的 Hurst，面板采用口径
+  hurstReturn       Float
+  /// trending / reverting / random
+  hurstReturnRegime String
+  /// Pine 原口径（作用于收盘价），仅作对照
+  hurstPrice        Float
+
+  /// vcp_nr7 / nr7 / vcp / inside_bar / normal
+  volatilityPattern String
+  volumeRatio       Float
+  /// pocket_pivot / dry_up / inflow / outflow
+  moneyFlow         String
+
+  /// frozen / overextended / avoid / range
+  dipKind       String
+  /// prime / dry_up / normal / bottom / choppy，仅 range 有值
+  dipQuality    String?
+  dipLow        Float?
+  dipHigh       Float?
+  /// 仅 Stage D 有值，标出上方压制的 VWAP90
+  dipResistance Float?
+
+  createdAt DateTime @default(now())
+
+  @@unique([date, symbol])
+  @@index([date])
+  @@index([symbol, date])
+}
+
 model RotationTrade {
   id         String   @id @default(cuid())
   symbol     String
@@ -165,24 +215,24 @@ model SectorScore {
 }
 
 model StockScore {
-  id             String   @id @default(cuid())
-  date           DateTime
-  instrumentId   String
-  symbol         String
+  id                String          @id @default(cuid())
+  date              DateTime
+  instrumentId      String
+  symbol            String
   finalCompassScore Float
-  qualityScore   Float
-  momentumScore  Float
-  trendScore     Float
-  fundamentalScore Float
-  valuationScore Float
-  environmentScore Float
-  executionScore Float
-  killSwitchStatus String
-  killSwitchReason String?
-  rank           Int
-  status         WatchlistStatus
-  details        Json
-  createdAt      DateTime @default(now())
+  qualityScore      Float
+  momentumScore     Float
+  trendScore        Float
+  fundamentalScore  Float
+  valuationScore    Float
+  environmentScore  Float
+  executionScore    Float
+  killSwitchStatus  String
+  killSwitchReason  String?
+  rank              Int
+  status            WatchlistStatus
+  details           Json
+  createdAt         DateTime        @default(now())
 
   instrument Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
 
@@ -191,14 +241,14 @@ model StockScore {
 }
 
 model WatchlistState {
-  id           String          @id @default(cuid())
+  id           String           @id @default(cuid())
   date         DateTime
   instrumentId String
   symbol       String
   previous     WatchlistStatus?
   current      WatchlistStatus
   reason       String
-  createdAt    DateTime        @default(now())
+  createdAt    DateTime         @default(now())
 
   instrument Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
 
@@ -236,16 +286,16 @@ model NewsItem {
 }
 
 model JobRun {
-  id          String    @id @default(cuid())
-  name        String
-  status      JobStatus
-  startedAt   DateTime
-  finishedAt  DateTime
-  durationMs  Int
-  recordsRead Int       @default(0)
-  recordsWritten Int    @default(0)
-  error       String?
-  details     Json
+  id             String    @id @default(cuid())
+  name           String
+  status         JobStatus
+  startedAt      DateTime
+  finishedAt     DateTime
+  durationMs     Int
+  recordsRead    Int       @default(0)
+  recordsWritten Int       @default(0)
+  error          String?
+  details        Json
 }
 
 model AlphaScreenerRun {
