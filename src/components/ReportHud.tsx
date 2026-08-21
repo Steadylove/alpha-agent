@@ -349,10 +349,9 @@ export function ReportHud({
                 暂无 Alpha 股票数据。
               </Text>
             ) : topStocks.map((stock) => (
-              <Link
+              <div
                 key={stock.symbol}
-                href={`/stock/${stock.symbol}`}
-                className="flex items-center justify-between text-sm hover:bg-zinc-900 rounded px-1 -mx-1 transition-colors"
+                className="flex items-center justify-between text-sm px-1 -mx-1"
               >
                 <Group gap="xs">
                   <Text size="sm" c="gray.2" fw={500}>
@@ -365,18 +364,14 @@ export function ReportHud({
                 <Text size="sm" c="emerald.4" fw={500}>
                   {stock.finalCompassScore}
                 </Text>
-              </Link>
+              </div>
             ))}
           </Stack>
         </Stack>
       </Card>
 
       <Text size="xs" c="dimmed" ta="right" style={{ gridColumn: "1 / -1" }}>
-        Report {reportDate} · 点击环/进度条查看公式，跳转{" "}
-        <Link href="/methodology" className="underline hover:text-zinc-200">
-          Methodology
-        </Link>{" "}
-        看全流程
+        Report {reportDate} · 点击环 / 进度条查看公式
       </Text>
     </SimpleGrid>
   );

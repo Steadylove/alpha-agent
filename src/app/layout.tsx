@@ -4,22 +4,25 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Providers } from "@/app/providers";
 import { ColorSchemeScript } from "@mantine/core";
-import { Compass, LayoutDashboard, LineChart, FileText, Activity, Settings, BookOpen, Crosshair, Radar, Repeat, Microscope } from "lucide-react";
+import { Compass, LayoutDashboard, FileText, Activity, Settings, Crosshair, Radar, Repeat, Microscope } from "lucide-react";
 
 export const metadata: Metadata = {
   title: "Market Compass",
   description: "US equities swing-trading market compass dashboard",
 };
 
-const navItems = [
+/** 量化面板本身。 */
+const primaryNav = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
   { href: "/mpr", label: "Radar", icon: Radar },
   { href: "/rotation", label: "Rotation", icon: Repeat },
   { href: "/depth", label: "Depth", icon: Microscope },
+];
+
+/** Discord 推送的内容镜像与运维入口。 */
+const secondaryNav = [
   { href: "/screener", label: "Screener", icon: Crosshair },
-  { href: "/stocks", label: "Universe", icon: LineChart },
   { href: "/reports", label: "Reports", icon: FileText },
-  { href: "/methodology", label: "Methodology", icon: BookOpen },
   { href: "/jobs", label: "Runs", icon: Activity },
   { href: "/settings", label: "Config", icon: Settings },
 ];
@@ -39,9 +42,16 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                   <Compass className="h-5 w-5" />
                   <span className="text-sm font-semibold tracking-wide">Market Compass</span>
                 </Link>
-                <nav className="hidden items-center gap-6 text-sm text-zinc-400 md:flex">
-                  {navItems.map((item) => (
+                <nav className="hidden items-center gap-5 text-sm text-zinc-400 md:flex">
+                  {primaryNav.map((item) => (
                     <Link key={item.href} href={item.href} className="flex items-center gap-2 hover:text-zinc-50 transition-colors">
+                      <item.icon className="h-4 w-4" />
+                      <span>{item.label}</span>
+                    </Link>
+                  ))}
+                  <span className="h-4 w-px bg-zinc-800" />
+                  {secondaryNav.map((item) => (
+                    <Link key={item.href} href={item.href} className="flex items-center gap-2 text-zinc-500 hover:text-zinc-200 transition-colors">
                       <item.icon className="h-4 w-4" />
                       <span>{item.label}</span>
                     </Link>
