@@ -28,9 +28,18 @@ export interface RegimeBar {
 }
 
 export interface StockRegimeDay {
-  /** R/S 分析得出的 Hurst 指数，钳制在 0~1；窗口不足或退化时为 0.5 */
-  hurst: number;
-  hurstRegime: HurstRegime;
+  /**
+   * 作用于日收益率的 Hurst 指数，钳制在 0~1；窗口不足或退化时为 0.5。
+   * 这是面板采用的口径：0.5 即随机游走，实测中位数 0.51，分布正常展开。
+   */
+  hurstReturn: number;
+  hurstReturnRegime: HurstRegime;
+  /**
+   * Pine 原口径：R/S 直接作用于收盘价。价格是累积量、自带趋势，
+   * 该值实测 99.2% 的交易日都落在「强趋势」档，仅作对照保留。
+   */
+  hurstPrice: number;
+  hurstPriceRegime: HurstRegime;
   isNr7: boolean;
   isVcp: boolean;
   volatilityPattern: VolatilityPattern;
@@ -41,15 +50,17 @@ export interface StockRegimeDay {
 }
 
 /**
- * 经典 R/S 重标极差法：对 30 根收盘价去均值后累加，
+ * 经典 R/S 重标极差法：对窗口内 30 个值去均值后累加，
  * 用极差与标准差之比的对数除以 log(30)。
+ *
+ * `firstValid` 之前的位置返回中性 0.5（收益率序列首根是构造出来的，需排除）。
  */
-function hurstAt(closes: readonly number[], index: number): number {
-  if (index < HURST_WINDOW - 1) return 0.5;
+function hurstAt(values: readonly number[], index: number, firstValid: number): number {
+  if (index < firstValid) return 0.5;
 
   const start = index - HURST_WINDOW + 1;
   let sum = 0;
-  for (let i = start; i <= index; i += 1) sum += closes[i];
+  for (let i = start; i <= index; i += 1) sum += values[i];
   const mean = sum / HURST_WINDOW;
 
   let cum = 0;
@@ -57,7 +68,7 @@ function hurstAt(closes: readonly number[], index: number): number {
   let minCum = Infinity;
   let sqDiff = 0;
   for (let i = start; i <= index; i += 1) {
-    const dev = closes[i] - mean;
+    const dev = values[i] - mean;
     cum += dev;
     maxCum = Math.max(maxCum, cum);
     minCum = Math.min(minCum, cum);
@@ -68,6 +79,10 @@ function hurstAt(closes: readonly number[], index: number): number {
   const s = Math.sqrt(sqDiff / HURST_WINDOW);
   const raw = s > 0 && r > 0 ? Math.log(r / s) / Math.log(HURST_WINDOW) : 0.5;
   return Math.min(1, Math.max(0, raw));
+}
+
+function hurstRegimeOf(h: number): HurstRegime {
+  return h >= 0.55 ? "trending" : h <= 0.45 ? "reverting" : "random";
 }
 
 export function computeStockRegimeSeries(bars: readonly RegimeBar[]): StockRegimeDay[] {
@@ -90,6 +105,11 @@ export function computeStockRegimeSeries(bars: readonly RegimeBar[]): StockRegim
   const ema20 = emaSeries(closes, 20);
   const ema50 = emaSeries(closes, 50);
 
+  // 首根收益率无从计算，置 0 并把该口径的预热推后一根
+  const returns = closes.map((c, i) =>
+    i === 0 || closes[i - 1] === 0 ? 0 : (c - closes[i - 1]) / closes[i - 1],
+  );
+
   // 下跌日成交量，用于 Pocket Pivot 的「放量超过近 10 日最大下跌量」
   const downVol = bars.map((b, i) =>
     i > 0 && (b.close < closes[i - 1] || b.close < b.open) ? b.volume : 0,
@@ -97,9 +117,8 @@ export function computeStockRegimeSeries(bars: readonly RegimeBar[]): StockRegim
   const maxDownVol10 = highestOfPrev(downVol, 10);
 
   return bars.map((bar, i) => {
-    const hurst = hurstAt(closes, i);
-    const hurstRegime: HurstRegime =
-      hurst >= 0.55 ? "trending" : hurst <= 0.45 ? "reverting" : "random";
+    const hurstPrice = hurstAt(closes, i, HURST_WINDOW - 1);
+    const hurstReturn = hurstAt(returns, i, HURST_WINDOW);
 
     const isNr7 = lowestTr7[i] != null && tr[i] <= lowestTr7[i]!;
     const isVcp =
@@ -129,8 +148,10 @@ export function computeStockRegimeSeries(bars: readonly RegimeBar[]): StockRegim
           : "outflow";
 
     return {
-      hurst,
-      hurstRegime,
+      hurstReturn,
+      hurstReturnRegime: hurstRegimeOf(hurstReturn),
+      hurstPrice,
+      hurstPriceRegime: hurstRegimeOf(hurstPrice),
       isNr7,
       isVcp,
       volatilityPattern,

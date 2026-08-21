@@ -18,47 +18,84 @@ const trending = (n: number) => Array.from({ length: n }, (_, i) => bar(100 * 1.
 const sawtooth = (n: number) =>
   Array.from({ length: n }, (_, i) => bar(i % 2 === 0 ? 100 : 102));
 
-describe("Hurst 指数", () => {
+describe("Hurst 指数（价格口径，Pine 原样）", () => {
   it("窗口不足 30 根时返回中性 0.5", () => {
     const days = computeStockRegimeSeries(trending(40));
-    expect(days.slice(0, 29).every((d) => d.hurst === 0.5)).toBe(true);
-    expect(days[29].hurst).not.toBe(0.5);
+    expect(days.slice(0, 29).every((d) => d.hurstPrice === 0.5)).toBe(true);
+    expect(days[29].hurstPrice).not.toBe(0.5);
   });
 
   it("单边趋势的 H 高于锯齿震荡的 H", () => {
-    const trend = computeStockRegimeSeries(trending(100)).at(-1)!.hurst;
-    const chop = computeStockRegimeSeries(sawtooth(100)).at(-1)!.hurst;
+    const trend = computeStockRegimeSeries(trending(100)).at(-1)!.hurstPrice;
+    const chop = computeStockRegimeSeries(sawtooth(100)).at(-1)!.hurstPrice;
     expect(trend).toBeGreaterThan(chop);
   });
 
   it("单边趋势判为强趋势态", () => {
-    expect(computeStockRegimeSeries(trending(100)).at(-1)!.hurstRegime).toBe("trending");
+    expect(computeStockRegimeSeries(trending(100)).at(-1)!.hurstPriceRegime).toBe("trending");
   });
 
   it("锯齿震荡判为均值回归", () => {
-    expect(computeStockRegimeSeries(sawtooth(100)).at(-1)!.hurstRegime).toBe("reverting");
+    expect(computeStockRegimeSeries(sawtooth(100)).at(-1)!.hurstPriceRegime).toBe("reverting");
   });
 
   it("恒定价格标准差为 0，退化为 0.5", () => {
     const flat = Array.from({ length: 50 }, () => bar(100));
-    expect(computeStockRegimeSeries(flat).at(-1)!.hurst).toBe(0.5);
+    expect(computeStockRegimeSeries(flat).at(-1)!.hurstPrice).toBe(0.5);
+  });
+});
+
+describe("Hurst 指数（收益率口径，面板采用）", () => {
+  it("价格纹丝不动时收益率全为 0，退化为 0.5", () => {
+    const flat = Array.from({ length: 60 }, () => bar(100));
+    expect(computeStockRegimeSeries(flat).at(-1)!.hurstReturn).toBe(0.5);
   });
 
-  it("H 恒在 0~1 之间", () => {
+  it("不随价格水平漂移：同一涨幅序列平移后 H 不变", () => {
+    const a = computeStockRegimeSeries(sawtooth(100)).at(-1)!.hurstReturn;
+    const b = computeStockRegimeSeries(
+      Array.from({ length: 100 }, (_, i) => bar(i % 2 === 0 ? 1000 : 1020)),
+    ).at(-1)!.hurstReturn;
+    expect(a).toBeCloseTo(b, 8);
+  });
+
+  it("收益率正负交替（反持续）判为均值回归", () => {
+    expect(computeStockRegimeSeries(sawtooth(100)).at(-1)!.hurstReturnRegime).toBe("reverting");
+  });
+
+  it("收益率成段同号（持续）时高于交替时", () => {
+    // 每 10 根同向，收益率自相关为正
+    const streaky = Array.from({ length: 100 }, (_, i) => {
+      const dir = Math.floor(i / 10) % 2 === 0 ? 1 : -1;
+      return 100 * (1 + dir * 0.01) ** i;
+    }).map((c) => bar(c));
+    const streakH = computeStockRegimeSeries(streaky).at(-1)!.hurstReturn;
+    const altH = computeStockRegimeSeries(sawtooth(100)).at(-1)!.hurstReturn;
+    expect(streakH).toBeGreaterThan(altH);
+  });
+
+  it("首根收益率是构造出来的，因此预热比价格口径晚一根", () => {
+    const days = computeStockRegimeSeries(sawtooth(60));
+    expect(days[29].hurstReturn).toBe(0.5);
+    expect(days[30].hurstReturn).not.toBe(0.5);
+  });
+
+  it("两个口径都恒在 0~1 之间", () => {
     for (const bars of [trending(200), sawtooth(200)]) {
       for (const d of computeStockRegimeSeries(bars)) {
-        expect(d.hurst).toBeGreaterThanOrEqual(0);
-        expect(d.hurst).toBeLessThanOrEqual(1);
+        for (const h of [d.hurstPrice, d.hurstReturn]) {
+          expect(h).toBeGreaterThanOrEqual(0);
+          expect(h).toBeLessThanOrEqual(1);
+        }
       }
     }
   });
 
-  it("态别阈值：>=0.55 趋势、<=0.45 回归、之间随机", () => {
-    const days = computeStockRegimeSeries(trending(100));
-    for (const d of days) {
-      const expected =
-        d.hurst >= 0.55 ? "trending" : d.hurst <= 0.45 ? "reverting" : "random";
-      expect(d.hurstRegime).toBe(expected);
+  it("两个口径共用同一组态别阈值：>=0.55 趋势、<=0.45 回归", () => {
+    for (const d of computeStockRegimeSeries(sawtooth(100))) {
+      const expected = (h: number) => (h >= 0.55 ? "trending" : h <= 0.45 ? "reverting" : "random");
+      expect(d.hurstPriceRegime).toBe(expected(d.hurstPrice));
+      expect(d.hurstReturnRegime).toBe(expected(d.hurstReturn));
     }
   });
 });

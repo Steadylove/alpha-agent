@@ -63,6 +63,7 @@ async function main() {
   const stageCounts = new Map<string, number>();
   const tierCounts = new Map<string, number>();
   const hurstCounts = new Map<string, number>();
+  const hurstPriceCounts = new Map<string, number>();
   const volCounts = new Map<string, number>();
   const flowCounts = new Map<string, number>();
   const zoneCounts = new Map<string, number>();
@@ -93,13 +94,6 @@ async function main() {
     const stages = computeStockStageSeries(aligned, rs);
     const regimes = computeStockRegimeSeries(aligned);
 
-    // 同一套 R/S，但喂日收益率而非价格，用于量化原口径的偏高程度
-    const retBars = aligned.map((b, i) => {
-      const r = i === 0 ? 0 : (b.close - closes[i - 1]) / closes[i - 1];
-      return { ...b, close: 100 + r * 1000 };
-    });
-    const retRegimes = computeStockRegimeSeries(retBars);
-
     const ema20 = emaSeries(closes, 20);
     const ema50 = emaSeries(closes, 50);
     const ema144 = emaSeries(closes, 144);
@@ -116,14 +110,15 @@ async function main() {
 
       tally(stageCounts, stage.stage);
       tally(tierCounts, stage.baseTier);
-      tally(hurstCounts, regime.hurstRegime);
+      tally(hurstCounts, regime.hurstReturnRegime);
+      tally(hurstPriceCounts, regime.hurstPriceRegime);
       tally(volCounts, regime.volatilityPattern);
       tally(flowCounts, regime.moneyFlow);
 
       rsValues.push(rs[i]);
       trendValues.push(stage.trendScore);
-      hurstValues.push(regime.hurst);
-      hurstOnReturns.push(retRegimes[i].hurst);
+      hurstValues.push(regime.hurstPrice);
+      hurstOnReturns.push(regime.hurstReturn);
       distValues.push(stage.distFrom52wHigh);
 
       const zone = computeDipZone({
@@ -152,7 +147,8 @@ async function main() {
 
   printTally("形态阶段分布", stageCounts, total);
   printTally("筑底档位分布", tierCounts, total);
-  printTally("Hurst 态别分布", hurstCounts, total);
+  printTally("Hurst 态别分布（收益率口径，面板采用）", hurstCounts, total);
+  printTally("Hurst 态别分布（价格口径，Pine 原样）", hurstPriceCounts, total);
   printTally("波动形态分布", volCounts, total);
   printTally("资金态分布", flowCounts, total);
   printTally("低吸带类型分布", zoneCounts, total);
@@ -161,7 +157,8 @@ async function main() {
   for (const [label, arr] of [
     ["RS 评分", rsValues],
     ["趋势分", trendValues],
-    ["Hurst", hurstValues],
+    ["Hurst 价格口径", hurstValues],
+    ["Hurst 收益口径", hurstOnReturns],
     ["距 52 周高 %", distValues],
     ["低吸带深度 %", depthPct],
   ] as const) {
