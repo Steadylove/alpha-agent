@@ -496,8 +496,8 @@ Stage A 占四成偏高,但这是标的池的问题不是闸门的问题:这 40 
 
 ### Phase 5b/5d/5e · 行业时钟、个股风控、战术仲裁 ✅ 已完成(2026-08-21)
 
-至此 MarketCompass Pine 的第 4、5、6、7、8、11、12、13、14、15 节全部落地,
-只剩第 9~10 节的估值引擎(Phase 5c)。
+本阶段落地 MarketCompass Pine 的第 4、5、6、7、8、11、12、13、14、15 节,
+加上随后 Phase 5c 的第 9~10 节,该脚本已全部落地。
 
 **交付物:**
 - `src/lib/scoring/sectorUniverse.ts` —— 11 只 SPDR 行业 ETF + 行业名映射链
@@ -573,36 +573,77 @@ XLC 与 XLRE 分别成立于 2018-06 与 2015-10,更早的历史里这两档记 
 
 ---
 
-### Phase 5c · 12M 动态估值引擎(Pine 第 9~10 节)· 待做
+### Phase 5c · 12M 动态估值引擎(Pine 第 9~10 节)✅ 已完成(2026-08-21)
 
-前面判断「没有基本面数据源」是错的——项目里 `src/lib/data-sources/fmp.ts`
-早就接了 FMP,`FMP_API_KEY` 也配着。所以这块没有外部依赖障碍。
+至此 MarketCompass Pine 全部章节落地。
 
-**还需要的基本面字段**(括号内为 FMP 对应端点):
+**交付物:**
+- `src/lib/data-sources/fmp.ts` 加 `fetchFmpValuationInputs`
+- `src/lib/scoring/valuation12m.ts` —— 估值级联 + 标的基因(Pine 第 9~10 节)
+- `src/lib/scoring/momentumGates.ts` —— 两个前置开关与 4H 相对 alpha
+- `StockFundamentals`(按周刷新的基本面缓存)+ `StockValuation`(当日估值)两张表
+- `src/lib/jobs/stockValuation.ts` + `POST /api/jobs/stock-valuation`
+- `/depth` 面板加「12M 空间」列,带覆盖率与可信度标记
+- 66 条新测试,累计 332 条全绿
 
-| Pine 变量 | 含义 | 来源 |
-| --- | --- | --- |
-| `eps_ttm` | 摊薄 EPS TTM | `income-statement` quarter × 4 求和 |
-| `rev_ttm` | 营收 TTM | 同上,现有 `fetchFmpIncomeBasics` 已拉这个端点 |
-| `shares_val` | 流通股 | 同上的 `weightedAverageShsOutDil` |
-| `mkt_cap_b` | 市值(十亿) | `profile` 或 `market-capitalization` |
-| `eps_q_yoy` | 单季 EPS 同比 | `income-statement` quarter × 5 |
-| `wallstreet_target_avg` | 分析师共识价 | 现有 `fetchFmpDeepFundamentals` 已拉 |
-| `analyst_estimates_cnt` | 分析师家数 | `price-target-summary`,现有代码未拉 |
+**落库形态:只算最新一天。** FMP 给的是当期基本面,复原「2019 年某天的 EPS TTM」
+要拉全部季报历史并按公告日对齐、还要处理财报重述。而 `upside_pct` 没有历史序列的用途
+(见下),所以 `StockValuation` 与面板其余字段的全序列形态不同,单开一条路径。
 
-**还需要的价量派生量**(全部可算,无外部依赖):
-`ema850`、`peak_rs_60`、`perfTicker252`、`currentTfAlpha`(= `0.6*alpha1 + 0.4*alpha2`),
-用于 `is_in_long_downtrend` 与 `is_hyper_momentum` 两个开关。
-`macro_mult` 直接读已落库的 `MacroPhaseState.fsmState`,不用重算。
+**基本面按周缓存,不每天拉。** FMP 免费额度 250 次/天,每只标的刷新要 4 次调用
+(`income-statement` / `profile` / `price-target-consensus` / `price-target-summary`),
+40 只就是 160 次。季报一年只变四次,`FUNDAMENTALS_TTL_DAYS = 7`。
+额度耗尽时 FMP 整片返回 429,处理是保留旧缓存继续用,只把从没取到过的标的记进 missing。
 
-**一个必须先拍的设计点:** 面板里其他所有指标都是全历史逐日序列,
-但 FMP 给的是**当期**基本面,要复原「2019 年某天的 EPS TTM 是多少」得拉全部季报历史
-并按公告日对齐(还要处理财报重述)。因此估值引擎**只能算最新一天**,
-与其余字段的「全序列」形态不一致,落库与面板都要为此单开一条路径。
+#### 校准发现一:五条分支里有四条等于「现价 × 固定系数」
 
-**影响面:** `upside_pct` 只喂 `is_dip_active` 这一个仲裁标志(Pine 第 587 行),
-不参与已交付的低吸带、形态闸、风控与战术指令计算。也就是说不做这块,
-现有面板的所有结论都不受影响。
+两个 PS 模型(Pine 第 517~522、541~546 行)写作
+`rev_per_share = rev/shares`、`current_ps = close/rev_per_share`、
+`target = rev_per_share × current_ps × k`,展开就是 `close × k`——**营收与股本完全约掉**。
+实测换任意一组营收/股本,结果一模一样。它们只在分支的准入判断里起作用,不进结果。
+
+同理 `target = eps × (current_pe × k)` 展开是 `eps × (close/eps) × k = close × k`,
+所以「高 PE 动态扩展」(k=1.18)与「动能估值扩张」(k=1.20)在 PE 封顶**不生效时**
+也退化成现价加成,只有撞上 75 / 42 / 55 才真正用到 EPS。
+
+真正独立于现价的只有 PEG 模型与市值基准 PE 两条。加上末尾「防倒挂」会把强势标的
+强行顶到 `close × 1.22`,这个「目标价」更接近动能强度的价格投影,不是内在价值估计。
+**处置:原样实现,但在模块注释与面板口径说明里写明,面板对锚定现价的分支标 `≈`。**
+
+#### 校准发现二:`is_dip_active` 在 Pine 里只是个背景色
+
+之前记的「`upside_pct` 只喂 `is_dip_active` 这一个仲裁标志」还高估了它。
+全文搜下来 `is_dip_active` 只出现在两处:第 587 行的定义,和第 589 行的
+`dip_bg = path_id_D == 4 ? maroon : (is_dip_active ? teal : gray)`。
+不进仲裁、不进风控、不改低吸带价位。**整个估值引擎在 Pine 里是纯展示件。**
+
+当前口径下它在 35 只里亮 32 只,本也不具备区分度。**处置:落库保留,面板不单独展示。**
+
+#### 校准发现三:`rs >= 80` 是冗余条件
+
+`is_hyper_momentum` 的四个「或」条件里,`rs >= 80` 恒被 `is_former_leader` 蕴含:
+`peak_rs_60 = highest(rs, 60) >= rs`,所以 `rs >= 80` 必然同时满足
+`peak_rs_60 >= 75` 与 `rs >= 65`,两者的前置门(非长期下行)也相同。
+不影响行为,**原样保留**,仅记录。
+
+#### 覆盖率:实测 14/40 能拿到基本面
+
+探测当天 40 只里 13 只有正 EPS、INTC 为负 EPS(走 PS 分支),RKLB 是 FMP 订阅
+未覆盖的标的,其余 25 只当时撞上 429 未能确认。首次 job 实测在额度耗尽状态下跑通,
+35 只全部降级到技术兜底/防倒挂而没有崩,降级路径符合设计。
+
+用实测真值播种 4 只(NVDA / KO / INTC / PLTR)验证缓存主路径,数值全部可复核:
+macro_mult 取 1.05(fsmState 0);NVDA PEG 算出 326.5 后撞万亿上限压回 `close × 1.35`;
+KO 的 PEG 目标 59.94 低于现价,被防倒挂顶到 `close × 1.22`;
+ORCL 无基本面 + 长期下行,走空头保守 `close × 0.85`。
+
+值得记一笔:这 4 只有真实基本面的标的,**全部**落在锚定现价的分支上。
+这从实证一侧印证了发现一——即便基本面齐全,这套级联大部分时候也不产生独立于价格的结论。
+
+**4H 相对 alpha 用 Yahoo 1H 合成。** Pine 的 `currentTfAlpha` 跑在 240 分钟线上,
+是全套指标里唯一需要日线以外数据的。项目里 `yahooIntraday.ts` 已有 730 天 1H 拉取
+与 4H 合成,50 根回看绰绰有余,35 只全部取到。它只是超级动能四个条件之一,
+取不到时记 `null` 等价于该条件不成立。
 
 ---
 
