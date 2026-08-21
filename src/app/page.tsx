@@ -1,13 +1,15 @@
 import { Card, MetricCard } from "@/components/Card";
+import { MacroPhaseBanner } from "@/components/MacroPhaseBanner";
 import { StatusBadge } from "@/components/StatusBadge";
 import { getDashboardData } from "@/lib/dashboard/data";
+import { getMprData } from "@/lib/dashboard/mpr";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const data = await getDashboardData();
+  const [data, mpr] = await Promise.all([getDashboardData(), getMprData()]);
   const mss = data.report.summary.match(/MSS (\d+)\/100/)?.[1] ?? "N/A";
 
   return (
@@ -21,6 +23,8 @@ export default async function DashboardPage() {
           Latest Report <ArrowRight className="h-4 w-4" />
         </Link>
       </div>
+
+      <MacroPhaseBanner latest={mpr.latest} />
 
       <div className="grid gap-4 md:grid-cols-4">
         <MetricCard label="Market Safety Score" value={`${mss}`} hint="Macro risk & breadth" valueColor="blue.4" />
