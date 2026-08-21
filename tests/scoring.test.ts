@@ -51,6 +51,8 @@ describe("scoring engine", () => {
         adtv20d: null,
         reverseSplit12m: false,
         analystTargetPrice: 250,
+        moatScore: null,
+        moatReason: null,
       },
     }));
 
