@@ -1,7 +1,7 @@
 "use client";
 
 import { Card } from "@/components/Card";
-import type { MprDay } from "@/lib/scoring/mpr";
+import type { MacroPhaseSnapshot } from "@/lib/dashboard/mpr";
 import {
   Alert,
   Group,
@@ -51,8 +51,8 @@ type ForceDef = {
   key: "f1" | "f2" | "f3" | "f4" | "f5";
   label: string;
   source: string;
-  hint: (day: MprDay) => string;
-  raw?: (day: MprDay) => string;
+  hint: (day: MacroPhaseSnapshot) => string;
+  raw?: (day: MacroPhaseSnapshot) => string;
 };
 
 const FORCES: ForceDef[] = [
@@ -115,7 +115,7 @@ function ClickPopover({ trigger, children }: { trigger: ReactNode; children: Rea
   );
 }
 
-function ForceBar({ force, day }: { force: ForceDef; day: MprDay }) {
+function ForceBar({ force, day }: { force: ForceDef; day: MacroPhaseSnapshot }) {
   const value = day[force.key];
   return (
     <ClickPopover
@@ -173,7 +173,11 @@ function Stat({ label, value, color }: { label: string; value: string; color?: s
   );
 }
 
-export function MprPanel({ data }: { data: { latest: MprDay | null; missingSymbols: string[] } }) {
+export function MprPanel({
+  data,
+}: {
+  data: { latest: MacroPhaseSnapshot | null; missingSymbols: string[] };
+}) {
   const { latest, missingSymbols } = data;
 
   if (missingSymbols.length > 0) {
@@ -188,8 +192,11 @@ export function MprPanel({ data }: { data: { latest: MprDay | null; missingSymbo
 
   if (!latest) {
     return (
-      <Alert color="yellow" title="暂无 MPR 数据">
-        <Text size="sm">对齐后无可用交易日，请检查宏观日线回填是否完整。</Text>
+      <Alert color="yellow" title="尚未生成 MPR 快照">
+        <Text size="sm">
+          宏观日线已就绪，但 macro-phase 任务还没跑过。执行{" "}
+          <code>POST /api/jobs/macro-phase</code>（需带 <code>x-cron-secret</code> 头）后刷新。
+        </Text>
       </Alert>
     );
   }

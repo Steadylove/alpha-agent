@@ -1,40 +1,45 @@
-import {
-  MPR_SYMBOLS,
-  alignMprInputs,
-  computeMprSeries,
-  type AlignBar,
-  type MprDay,
-  type MprSymbol,
-} from "@/lib/scoring/mpr";
+import { MPR_SYMBOLS } from "@/lib/scoring/mpr";
+
+/** MacroPhaseState 落库的字段子集，页面只需要这些。 */
+export type MacroPhaseSnapshot = {
+  date: string;
+  pathId: number;
+  fsmState: number;
+  marketRiskScore: number;
+  prob5dDown: number;
+  f1: number;
+  f2: number;
+  f3: number;
+  f4: number;
+  f5: number;
+  rawTerm: number;
+  rawCred: number;
+  domVol: number;
+  domCred: number;
+  domSpot: number;
+  spyDamage: number;
+  leadGap: number;
+  leadPersist: number;
+  leadQuality: number;
+  transVel: number;
+};
 
 export type MprData = {
-  latest: MprDay | null;
+  latest: MacroPhaseSnapshot | null;
   /** 近端历史，最新的在最后。 */
-  history: MprDay[];
-  /** 缺失的标的，非空时说明还没跑 npm run backfill:macro。 */
+  history: MacroPhaseSnapshot[];
+  /** 宏观日线缺失的标的，非空时说明还没跑 npm run backfill:macro。 */
   missingSymbols: string[];
 };
 
-/** 面板展示的历史长度。 */
+/** 时间轴展示长度，需不超过 macroPhase 任务的回写窗口。 */
 const HISTORY_DAYS = 120;
 
 /**
- * 预热所需的最少交易日：ECDF 的原始序列自身要 252 根才有值，分位再要 252 根。
- * 不足这个量算出来的是零填充的假分位——实测 400 根窗口会让近 60 天里 20 天的
- * 路径判定出错，600 根则与全历史逐位一致。
- */
-const MIN_WARMUP_BARS = 252 * 2 + HISTORY_DAYS;
-
-/**
- * 回溯年数。6 年约 1510 个交易日，是 MIN_WARMUP_BARS 的 2.4 倍，余量充足。
- * 不取全历史是因为 4.5 万行的传输会把页面从 0.7s 级拖到 2s 级。
- */
-const LOOKBACK_YEARS = 6;
-
-/**
- * 加载近端日线并逐日计算 MPR。
+ * 读取 macro-phase 任务落库的 MPR 快照。
  *
- * 必须用单次批量查询：逐标的查要 11.5s，合并成一次是 1.55s，差在往返延迟。
+ * 页面不做实时计算：全历史日线要拉 4.5 万行、页面会掉到 2s 级，
+ * 而读快照表只是一次索引扫描。表为空时返回空数据由前端提示去跑任务。
  */
 export async function getMprData(): Promise<MprData> {
   if (!process.env.DATABASE_URL) {
@@ -44,47 +49,44 @@ export async function getMprData(): Promise<MprData> {
   const { getPrisma } = await import("@/lib/db/prisma");
   const prisma = getPrisma();
 
-  const instruments = await prisma.instrument.findMany({
-    where: { symbol: { in: [...MPR_SYMBOLS] } },
-    select: { id: true, symbol: true },
+  const rows = await prisma.macroPhaseState.findMany({
+    orderBy: { date: "desc" },
+    take: HISTORY_DAYS,
   });
 
-  const found = new Set(instruments.map((i) => i.symbol));
-  const missingSymbols = MPR_SYMBOLS.filter((s) => !found.has(s));
-  if (missingSymbols.length > 0) {
-    return { latest: null, history: [], missingSymbols };
-  }
-
-  const since = new Date();
-  since.setFullYear(since.getFullYear() - LOOKBACK_YEARS);
-
-  const bars = await prisma.dailyBar.findMany({
-    where: { instrumentId: { in: instruments.map((i) => i.id) }, date: { gte: since } },
-    orderBy: { date: "asc" },
-    select: { instrumentId: true, date: true, close: true, volume: true },
-  });
-
-  const symbolById = new Map(instruments.map((i) => [i.id, i.symbol as MprSymbol]));
-  const bySymbol = {} as Record<MprSymbol, AlignBar[]>;
-  for (const symbol of MPR_SYMBOLS) bySymbol[symbol] = [];
-  for (const bar of bars) {
-    const symbol = symbolById.get(bar.instrumentId);
-    if (!symbol) continue;
-    bySymbol[symbol].push({
-      date: bar.date.toISOString().slice(0, 10),
-      close: bar.close,
-      volume: Number(bar.volume),
+  if (rows.length === 0) {
+    const instruments = await prisma.instrument.findMany({
+      where: { symbol: { in: [...MPR_SYMBOLS] } },
+      select: { symbol: true },
     });
+    const found = new Set(instruments.map((i) => i.symbol));
+    return { latest: null, history: [], missingSymbols: MPR_SYMBOLS.filter((s) => !found.has(s)) };
   }
 
-  const rows = alignMprInputs(bySymbol);
-  if (rows.length < MIN_WARMUP_BARS) {
-    // 预热不足时 ECDF 会输出零填充的假分位，宁可不显示也不给错的数
-    return { latest: null, history: [], missingSymbols: [] };
-  }
-
-  const series = computeMprSeries(rows);
-  const history = series.slice(-HISTORY_DAYS);
+  const history = rows
+    .map((row) => ({
+      date: row.date.toISOString().slice(0, 10),
+      pathId: row.pathId,
+      fsmState: row.fsmState,
+      marketRiskScore: row.marketRiskScore,
+      prob5dDown: row.prob5dDown,
+      f1: row.f1,
+      f2: row.f2,
+      f3: row.f3,
+      f4: row.f4,
+      f5: row.f5,
+      rawTerm: row.rawTerm,
+      rawCred: row.rawCred,
+      domVol: row.domVol,
+      domCred: row.domCred,
+      domSpot: row.domSpot,
+      spyDamage: row.spyDamage,
+      leadGap: row.leadGap,
+      leadPersist: row.leadPersist,
+      leadQuality: row.leadQuality,
+      transVel: row.transVel,
+    }))
+    .reverse();
 
   return { latest: history.at(-1) ?? null, history, missingSymbols: [] };
 }
