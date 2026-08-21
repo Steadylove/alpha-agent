@@ -74,6 +74,34 @@ export function lowestSeries(values: number[], length: number): (number | null)[
   return out;
 }
 
+/**
+ * 与 ta.stdev 一致：Pine 的 biased 默认为 true，即**总体**标准差（除以 n）。
+ * 用样本标准差（除以 n-1）会让挤压比率系统性偏大。
+ */
+export function stdevSeries(values: number[], length: number): (number | null)[] {
+  const out: (number | null)[] = new Array(values.length).fill(null);
+  for (let i = length - 1; i < values.length; i += 1) {
+    let sum = 0;
+    for (let j = i - length + 1; j <= i; j += 1) sum += values[j];
+    const mean = sum / length;
+
+    let sq = 0;
+    for (let j = i - length + 1; j <= i; j += 1) sq += (values[j] - mean) ** 2;
+    out[i] = Math.sqrt(sq / length);
+  }
+  return out;
+}
+
+/** 与 ta.obv 一致：收涨累加成交量、收跌累减，平盘不动。首根记 0。 */
+export function obvSeries(closes: number[], volumes: number[]): number[] {
+  const out: number[] = new Array(closes.length).fill(0);
+  for (let i = 1; i < closes.length; i += 1) {
+    const dir = closes[i] > closes[i - 1] ? 1 : closes[i] < closes[i - 1] ? -1 : 0;
+    out[i] = out[i - 1] + dir * volumes[i];
+  }
+  return out;
+}
+
 /** 与 ta.rma 一致（Wilder 平滑）：SMA 播种，其后 alpha = 1/length 递推。 */
 export function rmaSeries(values: number[], length: number): (number | null)[] {
   const out: (number | null)[] = new Array(values.length).fill(null);

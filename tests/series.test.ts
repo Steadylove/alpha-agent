@@ -3,7 +3,9 @@ import {
   barsSinceSeries,
   crossSeries,
   emaSeries,
+  obvSeries,
   rmaSeries,
+  stdevSeries,
   trueRangeSeries,
   highestSeries,
   lowestSeries,
@@ -66,6 +68,38 @@ describe("series primitives", () => {
   it("percentRankSeries: 相等的值计入分子（<= 而非 <）", () => {
     // 窗口 [5,5,5]，当前 5 -> 3/3*100 = 100
     expect(percentRankSeries([5, 5, 5, 5], 3)[3]).toBeCloseTo(100, 10);
+  });
+});
+
+describe("stdevSeries", () => {
+  it("用总体标准差（除以 n），不是样本标准差", () => {
+    // [2,4,4,4] 均值 3.5，总体方差 = (2.25+0.25+0.25+0.25)/4 = 0.75
+    expect(stdevSeries([2, 4, 4, 4], 4)[3]).toBeCloseTo(Math.sqrt(0.75), 10);
+  });
+
+  it("恒定序列标准差为 0", () => {
+    expect(stdevSeries([5, 5, 5, 5], 3)[3]).toBeCloseTo(0, 10);
+  });
+
+  it("窗口不足处为 null", () => {
+    expect(stdevSeries([1, 2, 3], 3).slice(0, 2)).toEqual([null, null]);
+  });
+});
+
+describe("obvSeries", () => {
+  it("收涨累加、收跌累减、平盘不动", () => {
+    const closes = [10, 11, 10, 10, 12];
+    const volumes = [100, 200, 300, 400, 500];
+    expect(obvSeries(closes, volumes)).toEqual([0, 200, -100, -100, 400]);
+  });
+
+  it("首根恒为 0", () => {
+    expect(obvSeries([10], [999])[0]).toBe(0);
+  });
+
+  it("单边上涨时等于成交量累计", () => {
+    const out = obvSeries([1, 2, 3, 4], [10, 20, 30, 40]);
+    expect(out.at(-1)).toBe(90);
   });
 });
 
