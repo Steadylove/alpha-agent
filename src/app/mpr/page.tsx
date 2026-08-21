@@ -1,5 +1,6 @@
 import { Card } from "@/components/Card";
 import { MprPanel } from "@/components/MprPanel";
+import { MprTimeline } from "@/components/MprTimeline";
 import { getMprData } from "@/lib/dashboard/mpr";
 import { Group, Stack, Text } from "@mantine/core";
 
@@ -16,6 +17,8 @@ export default async function MprPage() {
       </div>
 
       <MprPanel data={data} />
+
+      <MprTimeline history={data.history} />
 
       {data.latest ? (
         <Card
