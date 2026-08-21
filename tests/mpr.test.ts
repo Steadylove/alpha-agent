@@ -1,4 +1,13 @@
-import { MPR_DEFAULTS, computeMprSeries, rollingEcdf, type MprInput } from "@/lib/scoring/mpr";
+import {
+  MPR_DEFAULTS,
+  MPR_SYMBOLS,
+  alignMprInputs,
+  computeMprSeries,
+  rollingEcdf,
+  type AlignBar,
+  type MprInput,
+  type MprSymbol,
+} from "@/lib/scoring/mpr";
 import { describe, expect, it } from "vitest";
 
 /** 确定性伪随机，保证夹具可复现。 */
@@ -340,5 +349,79 @@ describe("leadPersist 跨日状态递推", () => {
       .slice(300)
       .some((day, i) => day.leadPersist !== truncated[i].leadPersist || day.f1 !== truncated[i].f1);
     expect(anyDiff).toBe(true);
+  });
+});
+
+describe("alignMprInputs", () => {
+  const bars = (dates: string[], close: number): AlignBar[] =>
+    dates.map((date) => ({ date, close, volume: 1_000 }));
+
+  /** 给全部 9 个标的同一组日期，再按需覆盖个别标的。 */
+  const build = (
+    dates: string[],
+    overrides: Partial<Record<MprSymbol, AlignBar[]>> = {},
+  ): Record<MprSymbol, AlignBar[]> => {
+    const base = {} as Record<MprSymbol, AlignBar[]>;
+    for (const symbol of MPR_SYMBOLS) base[symbol] = bars(dates, 100);
+    return { ...base, ...overrides };
+  };
+
+  it("只保留所有标的都有数据的交易日", () => {
+    const rows = alignMprInputs(
+      build(["2020-01-01", "2020-01-02", "2020-01-03"], {
+        RSP: bars(["2020-01-01", "2020-01-03"], 50),
+      }),
+    );
+    expect(rows.map((r) => r.date)).toEqual(["2020-01-01", "2020-01-03"]);
+  });
+
+  it("输出按日期升序，与输入顺序无关", () => {
+    const rows = alignMprInputs(build(["2020-01-03", "2020-01-01", "2020-01-02"]));
+    expect(rows.map((r) => r.date)).toEqual(["2020-01-01", "2020-01-02", "2020-01-03"]);
+  });
+
+  it("各标的的收盘价被映射到正确字段", () => {
+    const rows = alignMprInputs(
+      build(["2020-01-01"], {
+        SPY: [{ date: "2020-01-01", close: 300, volume: 90_000_000 }],
+        RSP: bars(["2020-01-01"], 140),
+        TLT: bars(["2020-01-01"], 160),
+        DXY: bars(["2020-01-01"], 96),
+        HYG: bars(["2020-01-01"], 87),
+        IEI: bars(["2020-01-01"], 122),
+        VIX: bars(["2020-01-01"], 18),
+        VIX9D: bars(["2020-01-01"], 16),
+        VIX3M: bars(["2020-01-01"], 21),
+      }),
+    );
+
+    expect(rows[0]).toEqual({
+      date: "2020-01-01",
+      spyClose: 300,
+      spyVolume: 90_000_000,
+      rspClose: 140,
+      tltClose: 160,
+      dxyClose: 96,
+      hygClose: 87,
+      ieiClose: 122,
+      vixClose: 18,
+      vix9dClose: 16,
+      vix3mClose: 21,
+    });
+  });
+
+  it("DXY 多出的非美股交易日被丢弃（ICE 与 NYSE 日历不同）", () => {
+    const rows = alignMprInputs(
+      build(["2020-01-01", "2020-01-02"], {
+        DXY: bars(["2020-01-01", "2020-01-02", "2020-01-03", "2020-01-04"], 96),
+      }),
+    );
+    expect(rows.map((r) => r.date)).toEqual(["2020-01-01", "2020-01-02"]);
+  });
+
+  it("任一标的缺失时返回空数组，不抛异常", () => {
+    const input = build(["2020-01-01"]);
+    input.VIX9D = [];
+    expect(alignMprInputs(input)).toEqual([]);
   });
 });

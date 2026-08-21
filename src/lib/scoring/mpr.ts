@@ -89,6 +89,56 @@ export function rollingEcdf(raw: (number | null)[], length: number): number[] {
   return percentRankSeries(filled, length).map((v) => (v == null ? 50 : v));
 }
 
+/** 对齐用的最小 bar 结构，避免调用方被迫构造完整 DailyBar。 */
+export type AlignBar = { date: string; close: number; volume: number };
+
+export const MPR_SYMBOLS = [
+  "SPY",
+  "RSP",
+  "TLT",
+  "DXY",
+  "HYG",
+  "IEI",
+  "VIX",
+  "VIX9D",
+  "VIX3M",
+] as const;
+
+export type MprSymbol = (typeof MPR_SYMBOLS)[number];
+
+/**
+ * 把 9 个标的的日线内连接到共同交易日。
+ * DXY 走 ICE 日历，与美股假期不完全重合，必须对齐后才能算跨资产力场。
+ */
+export function alignMprInputs(bySymbol: Record<MprSymbol, AlignBar[]>): MprInput[] {
+  const maps = new Map<MprSymbol, Map<string, AlignBar>>();
+  for (const symbol of MPR_SYMBOLS) {
+    maps.set(symbol, new Map((bySymbol[symbol] ?? []).map((bar) => [bar.date, bar])));
+  }
+
+  const dates = [...maps.get("SPY")!.keys()]
+    .filter((date) => MPR_SYMBOLS.every((symbol) => maps.get(symbol)!.has(date)))
+    .sort();
+
+  return dates.map((date) => {
+    const pick = (symbol: MprSymbol) => maps.get(symbol)!.get(date)!;
+    const spy = pick("SPY");
+    return {
+      date,
+      spyClose: spy.close,
+      spyVolume: spy.volume,
+      rspClose: pick("RSP").close,
+      tltClose: pick("TLT").close,
+      dxyClose: pick("DXY").close,
+      hygClose: pick("HYG").close,
+      ieiClose: pick("IEI").close,
+      vixClose: pick("VIX").close,
+      vix9dClose: pick("VIX9D").close,
+      vix3mClose: pick("VIX3M").close,
+    };
+  });
+}
+
 function toSigma(stress: number): MprSigma {
   if (stress >= 75) return 2;
   if (stress >= 50) return 1;
