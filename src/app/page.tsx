@@ -6,7 +6,11 @@ import Link from "next/link";
 import { ArrowRight, Microscope, Radar, Repeat } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
-export const dynamic = "force-dynamic";
+/**
+ * 数据由每日任务链在 00:30 UTC 一次性写入，请求间不会变，
+ * 因此按 ISR 缓存而非每次请求重查。这也让 Next 恢复导航预取。
+ */
+export const revalidate = 300;
 
 type ModuleStat = { label: string; value: string; hint?: string; tone?: "pos" | "neg" };
 

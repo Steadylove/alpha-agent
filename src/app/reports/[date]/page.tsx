@@ -3,7 +3,8 @@ import { getDashboardData } from "@/lib/dashboard/data";
 import { ReportMarkdown } from "@/components/ReportMarkdown";
 import { ReportHud } from "@/components/ReportHud";
 
-export const dynamic = "force-dynamic";
+/** 历史简报写完就不再变，按 ISR 缓存。 */
+export const revalidate = 300;
 
 export default async function ReportDetailPage({ params }: { params: Promise<{ date: string }> }) {
   const { date } = await params;

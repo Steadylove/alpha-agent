@@ -1,7 +1,8 @@
 import { StockPanelBoard } from "@/components/StockPanelBoard";
 import { getStockPanelData } from "@/lib/dashboard/stockPanel";
 
-export const dynamic = "force-dynamic";
+/** 数据每日一更，按 ISR 缓存；见首页注释。 */
+export const revalidate = 300;
 
 export default async function DepthPage() {
   const data = await getStockPanelData();

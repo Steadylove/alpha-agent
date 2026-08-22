@@ -1,11 +1,23 @@
 import { Card } from "@/components/Card";
 import { StockSignalChart } from "@/components/StockSignalChart";
 import { getStockSignalChart } from "@/lib/dashboard/stockSignalChart";
+import { ROTATION_UNIVERSE } from "@/lib/scoring/rotationUniverse";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
-export const dynamic = "force-dynamic";
+/** 数据每日一更，按 ISR 缓存；见首页注释。 */
+export const revalidate = 300;
+
+/**
+ * 预渲染全部 40 只标的。
+ *
+ * 不列举的话这条路由会退化成每次请求重算：信号与 Vegas 隧道都要在全历史
+ * （5000+ 根）上推进才正确，单页服务端渲染要 2.6 秒。
+ */
+export function generateStaticParams() {
+  return ROTATION_UNIVERSE.map((t) => ({ symbol: t.symbol }));
+}
 
 const money = (v: number) => `$${v.toFixed(2)}`;
 const pct = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;

@@ -180,19 +180,24 @@ export async function getStockPanelData(): Promise<StockPanelData> {
     prisma.macroPhaseState.findFirst({ orderBy: { date: "desc" }, select: { pathId: true } }),
   ]);
 
-  const [valuations, shortInterest] = await Promise.all([
+  const [valuations, newestSettlement] = await Promise.all([
     newestValuation
       ? prisma.stockValuation.findMany({ where: { date: newestValuation.date } })
       : [],
-    prisma.shortInterest.findMany({ orderBy: { settlementDate: "desc" } }),
+    // 只要最新一期：全表会随每两周一期无限增长
+    prisma.shortInterest.findFirst({
+      orderBy: { settlementDate: "desc" },
+      select: { settlementDate: true },
+    }),
   ]);
   const valuationBySymbol = new Map(valuations.map((v) => [v.symbol, v]));
 
-  // 每只标的只留最新一期
-  const shortBySymbol = new Map<string, (typeof shortInterest)[number]>();
-  for (const r of shortInterest) {
-    if (!shortBySymbol.has(r.symbol)) shortBySymbol.set(r.symbol, r);
-  }
+  const shortInterest = newestSettlement
+    ? await prisma.shortInterest.findMany({
+        where: { settlementDate: newestSettlement.settlementDate },
+      })
+    : [];
+  const shortBySymbol = new Map(shortInterest.map((r) => [r.symbol, r]));
   const nameBySymbol = new Map(ROTATION_UNIVERSE.map((t) => [t.symbol, t.name]));
   const sectorNameById = new Map(SECTOR_UNIVERSE.map((s) => [s.id as string, s.name]));
 

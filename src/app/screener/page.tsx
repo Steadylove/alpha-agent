@@ -2,7 +2,8 @@ import { Card, MetricCard } from "@/components/Card";
 import { getLatestScreenerData } from "@/lib/dashboard/screener";
 import { Text } from "@mantine/core";
 
-export const dynamic = "force-dynamic";
+/** 数据每日一更，按 ISR 缓存；见首页注释。 */
+export const revalidate = 300;
 
 export default async function ScreenerPage() {
   const data = await getLatestScreenerData();

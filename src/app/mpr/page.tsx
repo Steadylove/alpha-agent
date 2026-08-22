@@ -2,7 +2,8 @@ import { MprPanel } from "@/components/MprPanel";
 import { MprTimeline } from "@/components/MprTimeline";
 import { getMprData } from "@/lib/dashboard/mpr";
 
-export const dynamic = "force-dynamic";
+/** 数据每日一更，按 ISR 缓存；见首页注释。 */
+export const revalidate = 300;
 
 export default async function MprPage() {
   const data = await getMprData();

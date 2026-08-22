@@ -2,7 +2,8 @@ import { Card } from "@/components/Card";
 import { getDashboardData } from "@/lib/dashboard/data";
 import Link from "next/link";
 
-export const dynamic = "force-dynamic";
+/** 数据每日一更，按 ISR 缓存；见首页注释。 */
+export const revalidate = 300;
 
 export default async function ReportsPage() {
   const data = await getDashboardData();

@@ -3,7 +3,8 @@ import { RotationNavCurve } from "@/components/RotationNavCurve";
 import { RotationSignals } from "@/components/RotationSignals";
 import { getRotationData } from "@/lib/dashboard/rotation";
 
-export const dynamic = "force-dynamic";
+/** 数据每日一更，按 ISR 缓存；见首页注释。 */
+export const revalidate = 300;
 
 export default async function RotationPage() {
   const data = await getRotationData();
