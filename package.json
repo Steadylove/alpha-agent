@@ -11,6 +11,7 @@
     "test:watch": "vitest",
     "prisma:generate": "prisma generate",
     "screener:push": "npx --yes tsx scripts/push-daily-screener.ts",
+    "jobs:daily": "npx --yes tsx scripts/run-daily-jobs.ts",
     "backfill:macro": "npx --yes tsx scripts/backfill-macro-history.ts",
     "backfill:rotation": "npx --yes tsx scripts/backfill-rotation-history.ts",
     "backfill:sectors": "npx --yes tsx scripts/backfill-sectors.ts",

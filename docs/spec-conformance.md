@@ -99,3 +99,22 @@ Compass Pine 里内嵌了一套简化版 MPR，与 MPR Pine 的完整版口径�
 - `npx eslint .`
 
 空头持仓由 `short-interest` 任务刷新，双月一期，已有当期数据时自动跳过回源。
+
+## 五、每日调度
+
+`.github/workflows/daily-quant-jobs.yml`，00:30 UTC 周二至周六（美股收盘后约 4.5 小时，日线已定稿）。
+
+先跑三个 backfill 补日线，再由 `npm run jobs:daily` 按依赖顺序执行：
+
+```
+macro-phase → short-interest → rotation-radar → stock-panel → stock-valuation
+```
+
+顺序约束有两条：`macro-phase` 的产出被后面三个读取（低吸带 Path 4 冻结、估值的 fsmState/pathId、提前保本的宏观条件）；`short-interest` 必须早于 `stock-valuation`，否则轧空档位读到上一期。
+
+`short-interest` 是唯一的软失败步骤——它依赖 FINRA 与 SEC 两个外部免费接口且双月才换一期，挂掉时估值沿用上一期缓存即可，不该拖垮整条链。
+
+### 调度相关的已知问题
+
+- **日线更新用 `skipDuplicates`,不修正历史。** 发生拆股时旧价不会被重算，需手工清库重跑 backfill。这是 backfill 脚本的既有设计，不是调度引入的
+- **`backfill:sectors` 的行业归属部分对全部 40 只标的报「FMP 无行业数据」**，当前订阅不覆盖该接口。ETF 日线正常，板块时钟走的是 `SECTOR_UNIVERSE` 而非逐股归属，因此不受影响；脚本退出码为 0，不会中断 workflow

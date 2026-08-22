@@ -1,0 +1,53 @@
+name: Daily Quant Jobs
+
+on:
+  # 00:30 UTC = 20:30 America/New_York 前一日，美股收盘后约 4.5 小时，
+  # 日线已定稿。周二至周六对应美股周一至周五的交易日。
+  # 比 daily-screener 的 01:00 UTC 早半小时，避免两条链同时压 Neon。
+  schedule:
+    - cron: "30 0 * * 2-6"
+  workflow_dispatch:
+
+# 上一轮没跑完时不要并发写库
+concurrency:
+  group: daily-quant-jobs
+  cancel-in-progress: false
+
+jobs:
+  run-jobs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+      # SEC 要求可联系到的标识，缺省会退回代码里的占位值
+      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run prisma:generate
+
+      # 三个 backfill 都是幂等增量（DailyBar 在 (instrumentId, date) 上唯一），
+      # 重跑只补当日新增。计算任务全部依赖这一步的结果。
+      - name: Refresh rotation universe bars
+        run: npm run backfill:rotation
+
+      - name: Refresh sector ETF bars
+        run: npm run backfill:sectors
+
+      - name: Refresh macro series
+        run: npm run backfill:macro
+
+      - name: Run quant job chain
+        run: npm run jobs:daily
