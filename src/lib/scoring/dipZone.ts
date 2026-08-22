@@ -25,6 +25,7 @@ export interface DipZoneInput {
   close: number;
   /** sma(atr(14), 252)，长周期平均真实波幅 */
   atr: number;
+  /** 必须传 `dipStageOf(flags)` 的结果，而非展示阶段——两套优先级不同 */
   stage: StockStage;
   trendScore: number;
   /** 当日量 / 50 日均量 */

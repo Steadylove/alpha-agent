@@ -1,0 +1,1142 @@
+//@version=6
+indicator("MarketCompass: 量化估值与状态拓扑决策系统", shorttitle="市场罗盘", overlay = true, max_bars_back = 5000)
+
+// ==================== 1. 参数设置 ====================
+group_layout = "🎨 看板布局与显示模式"
+hud_mode     = input.string("详细旗舰版 (Desktop Detailed)", "看板布局模式", options=["详细旗舰版 (Desktop Detailed)", "标准简洁版 (Desktop Compact)", "手机极简版 (Mobile Mini)"], group=group_layout)
+table_pos_in = input.string("左下 (Bottom Left)", "看板屏幕位置", options=["左下 (Bottom Left)", "右上 (Top Right)", "左上 (Top Left)", "右下 (Bottom Right)"], group=group_layout)
+hud_font_sz  = input.string("标准 (Small)", "看板字体大小", options=["极大 (Normal)", "标准 (Small)", "极小 (Tiny)"], group=group_layout)
+show_table   = input.bool(true,  "显示 HUD 决策看板", group=group_layout)
+
+group_vegas  = "Vegas 隧道图表线参数"
+v_a = input.int(12,  "过滤线 EMA", group=group_vegas)
+v_b = input.int(144, "A组通道1 EMA", group=group_vegas)
+v_c = input.int(169, "A组通道2 EMA", group=group_vegas)
+v_d = input.int(576, "B组通道1 EMA", group=group_vegas)
+v_e = input.int(676, "B组通道2 EMA", group=group_vegas)
+
+group_val    = "估值模型参数 (基本面)"
+peg_target   = input.float(1.0, "基准 PEG 乘数", step=0.05, group=group_val)
+max_pe_mid   = input.float(60.0, "中/小盘股 PE 天花板", step=5.0, group=group_val)
+
+group_mpr    = "MPR 状态估计与传导拓扑引擎 (日线基准)"
+calib_len    = input.int(252, "MPR 历史回溯窗口 (日线 ECDF)", minval=50, group=group_mpr)
+drift_len    = input.int(5,   "背离观测周期 (日线)", minval=2, maxval=20, group=group_mpr)
+tau_persist  = input.float(5.0, "持续性衰减常数", minval=1.0, group=group_mpr)
+
+group_risk   = "抄底背离与移动风控参数"
+enable_rsi           = input.bool(true,   "启用 RSI 动能过滤", group=group_risk)
+rsi_value            = input.int(30,      "RSI 最低阈值", group=group_risk)
+rsi_length           = input.int(14,      "RSI 周期", group=group_risk)
+atrLength            = input.int(14,      "风控 ATR 周期 (默认14)", group=group_risk)
+stopLossMultiplier   = input.float(4.0,   "初始静态止损乘数 (x ATR)", step=0.1, group=group_risk)
+stopProfitMultiplier = input.float(5.5,   "初始静态止盈乘数 (x ATR)", step=0.1, group=group_risk)
+be_trigger_pct       = input.float(10.0,  "保本锁定触发门槛 (%)", step=0.5, group=group_risk)
+tighten_lvl1_pct     = input.float(20.0,  "一级收紧触发浮盈 (%)", step=1.0, group=group_risk)
+tighten_lvl1_mult    = input.float(3.8,   "一级收紧追踪乘数 (x ATR)", step=0.1, group=group_risk)
+tighten_lvl2_pct     = input.float(40.0,  "二级收紧触发浮盈 (%)", step=1.0, group=group_risk)
+tighten_lvl2_mult    = input.float(2.8,   "二级收紧追踪乘数 (x ATR)", step=0.1, group=group_risk)
+show_help_line       = input.bool(true,   "显示动态移动止损/止盈线", group=group_risk)
+
+// 数学基建：经验累积分布 (Rolling ECDF)
+f_rolling_ecdf(float src, int len) =>
+    nz(ta.percentrank(nz(src, 0.0), len), 50.0)
+
+// 机构 VWAP 与 日线量能/OBV 预计算逻辑
+v90_calc          = ta.sma(volume, 90) > 0 ? ta.sma(close * volume, 90) / ta.sma(volume, 90) : ta.sma(close, 90)
+v250_calc         = ta.sma(volume, 250) > 0 ? ta.sma(close * volume, 250) / ta.sma(volume, 250) : ta.sma(close, 250)
+vol_50d_calc      = ta.sma(volume, 50)
+vrp_calc          = vol_50d_calc > 0 ? volume / vol_50d_calc : 1.0
+obv_calc          = ta.obv
+obv_ema_calc      = ta.ema(ta.obv, 20)
+down_vol_calc     = (close < close[1] or close < open) ? volume : 0.0
+max_down_vol_calc = ta.highest(down_vol_calc[1], 10)
+pp_calc           = (close > close[1] or close > open) and (volume > max_down_vol_calc) and (close > ta.ema(close, 20) or close > ta.ema(close, 50))
+
+// ==================== 2. 跨周期日线变量解耦打包 ====================
+[ema20_D, ema50_D, ema100_D, ema200_D, ema850_D, ema144_D, ema169_D, ema576_D, ema676_D] = request.security(
+     syminfo.tickerid, 'D',
+     [ta.ema(close, 20), ta.ema(close, 50), ta.ema(close, 100), ta.ema(close, 200), ta.ema(close, 850), ta.ema(close, 144), ta.ema(close, 169), ta.ema(close, 576), ta.ema(close, 676)],
+     ignore_invalid_symbol=true
+ )
+
+[closeD0, closeD21, closeD63, closeD126, closeD252, high52w_D] = request.security(
+     syminfo.tickerid, 'D',
+     [close, close[21], close[63], close[126], close[252], ta.highest(close[1], 252)],
+     ignore_invalid_symbol=true
+ )
+
+[atr252_raw, vwap_90_D, vwap_250_D, vwap_stdev_raw, vol_50d, kc_val_raw, bb_val_raw, obv_val_D, obv_ema_D, is_pp_D, vrp_D] = request.security(
+     syminfo.tickerid, 'D',
+     [ta.sma(ta.atr(14), 252), v90_calc, v250_calc, ta.stdev(close, 120), vol_50d_calc, ta.sma(ta.atr(14), 20), ta.stdev(close, 20), obv_calc, obv_ema_calc, pp_calc, vrp_calc],
+     ignore_invalid_symbol=true
+ )
+
+float vwap_slope = (vwap_90_D - nz(vwap_90_D[5], vwap_90_D)) / 5.0
+
+// ==================== 3. Vegas 隧道图表绘制 ====================
+v_ema1 = ta.ema(close, v_a)
+v_ema2 = ta.ema(close, v_b)
+v_ema3 = ta.ema(close, v_c)
+v_ema4 = ta.ema(close, v_d)
+v_ema5 = ta.ema(close, v_e)
+
+plot_v1 = plot(v_ema1, title="过滤线", color=color.green, linewidth=2)
+plot_v2 = plot(v_ema2, title="A组1",   color=color.blue,  linewidth=2)
+plot_v3 = plot(v_ema3, title="A组2",   color=color.blue,  linewidth=2)
+plot_v4 = plot(v_ema4, title="B组1",   color=color.red,   linewidth=2)
+plot_v5 = plot(v_ema5, title="B组2",   color=color.red,   linewidth=2)
+
+fill(plot_v2, plot_v3, color=color.new(color.blue, 85), title="A组通道背景")
+fill(plot_v4, plot_v5, color=color.new(color.red, 85),  title="B组通道背景")
+
+// ==================== 4. T-CUBE 趋势打分卡 ====================
+int trend_score = 0
+if close > nz(ema20_D, close)
+    trend_score += 2
+if nz(ema20_D, close) > nz(ema50_D, close)
+    trend_score += 2
+if nz(ema50_D, close) > nz(ema100_D, close)
+    trend_score += 2
+if nz(ema100_D, close) > nz(ema200_D, close)
+    trend_score += 2
+if nz(ema50_D) > nz(ema50_D[3])
+    trend_score += 1
+if nz(ema200_D) > nz(ema200_D[20])
+    trend_score += 1
+
+string trend_score_str = str.tostring(trend_score) + " / 10 分 (" + (trend_score >= 7 ? "🟢 趋势强劲" : "🔴 结构较弱") + ")"
+
+// ==================== 5. 四周期 RS 动能评分与 Alpha ====================
+[spxCloseD0, spxCloseD21, spxCloseD63, spxCloseD126, spxCloseD252, spx_ma20, spx_ma50, spx_ma200] = request.security(
+     'SP:SPX', 'D',
+     [close[1], close[22], close[64], close[127], close[253], ta.sma(close[1], 20), ta.sma(close[1], 50), ta.sma(close[1], 200)],
+     ignore_invalid_symbol=true
+ )
+
+perfTicker21  = (not na(closeD21) and closeD21 != 0) ? closeD0 / closeD21 : 1.0
+perfTicker63  = (not na(closeD63) and closeD63 != 0) ? closeD0 / closeD63 : 1.0
+perfTicker126 = (not na(closeD126) and closeD126 != 0) ? closeD0 / closeD126 : 1.0
+perfTicker252 = (not na(closeD252) and closeD252 != 0) ? closeD0 / closeD252 : 1.0
+
+perfComp21  = (not na(spxCloseD21) and spxCloseD21 != 0) ? spxCloseD0 / spxCloseD21 : 1.0
+perfComp63  = (not na(spxCloseD63) and spxCloseD63 != 0) ? spxCloseD0 / spxCloseD63 : 1.0
+perfComp126 = (not na(spxCloseD126) and spxCloseD126 != 0) ? spxCloseD0 / spxCloseD126 : 1.0
+perfComp252 = (not na(spxCloseD252) and spxCloseD252 != 0) ? spxCloseD0 / spxCloseD252 : 1.0
+
+rs_item21  = (not na(perfComp21) and perfComp21 != 0) ? (perfTicker21 / perfComp21) * 100.0 : 100.0
+rs_item63  = (not na(perfComp63) and perfComp63 != 0) ? (perfTicker63 / perfComp63) * 100.0 : 100.0
+rs_item126 = (not na(perfComp126) and perfComp126 != 0) ? (perfTicker126 / perfComp126) * 100.0 : 100.0
+rs_item252 = (not na(perfComp252) and perfComp252 != 0) ? (perfTicker252 / perfComp252) * 100.0 : 100.0
+
+totalRsScore = 0.10 * rs_item21 + 0.40 * rs_item63 + 0.30 * rs_item126 + 0.20 * rs_item252
+float rel_alpha_pct = totalRsScore - 100.0
+float scaled_rs = 50.0 + 48.0 * (rel_alpha_pct / (math.abs(rel_alpha_pct) + 28.0))
+float dailyRSRating = math.min(99.0, math.max(1.0, scaled_rs))
+
+bool is_rs_accelerating = rs_item21 >= rs_item63
+string rs_momentum_str = is_rs_accelerating ? "🟢 动能加速" : "🔴 动能衰减"
+
+[close240, close240_20, close240_50] = request.security(syminfo.tickerid, '240', [close, close[20], close[50]], ignore_invalid_symbol=true)
+[spxClose240, spxClose240_20, spxClose240_50] = request.security('SP:SPX', '240', [close, close[20], close[50]], ignore_invalid_symbol=true)
+
+s_p1 = (not na(close240_20) and close240_20 != 0) ? (close240 - close240_20) / close240_20 * 100.0 : 0.0
+m_p1 = (not na(spxClose240_20) and spxClose240_20 != 0) ? (spxClose240 - spxClose240_20) / spxClose240_20 * 100.0 : 0.0
+alpha1 = s_p1 - m_p1
+
+s_p2 = (not na(close240_50) and close240_50 != 0) ? (close240 - close240_50) / close240_50 * 100.0 : 0.0
+m_p2 = (not na(spxClose240_50) and spxClose240_50 != 0) ? (spxClose240 - spxClose240_50) / spxClose240_50 * 100.0 : 0.0
+alpha2 = s_p2 - m_p2
+
+currentTfAlpha = 0.6 * alpha1 + 0.4 * alpha2
+
+bool is_in_long_downtrend = (closeD0 < nz(ema850_D, closeD0)) and (dailyRSRating < 40)
+float peak_rs_60 = ta.highest(dailyRSRating, 60)
+bool is_former_leader = not is_in_long_downtrend and ((peak_rs_60 >= 75 and dailyRSRating >= 65) or (perfTicker252 >= 1.35 and dailyRSRating >= 65))
+bool is_hyper_momentum = not is_in_long_downtrend and (dailyRSRating >= 80 or currentTfAlpha >= 12.0 or (closeD0 / nz(ema200_D, closeD0) >= 1.30) or is_former_leader)
+
+// ==================== 6. SLS 3.0 行业板块生命周期时钟 ====================
+[xlk_c0, xlk_c21, xlk_c63]   = request.security('XLK', 'D',  [close[1], close[22], close[64]], ignore_invalid_symbol=true)
+[xlf_c0, xlf_c21, xlf_c63]   = request.security('XLF', 'D',  [close[1], close[22], close[64]], ignore_invalid_symbol=true)
+[xlv_c0, xlv_c21, xlv_c63]   = request.security('XLV', 'D',  [close[1], close[22], close[64]], ignore_invalid_symbol=true)
+[xly_c0, xly_c21, xly_c63]   = request.security('XLY', 'D',  [close[1], close[22], close[64]], ignore_invalid_symbol=true)
+[xlc_c0, xlc_c21, xlc_c63]   = request.security('XLC', 'D',  [close[1], close[22], close[64]], ignore_invalid_symbol=true)
+[xli_c0, xli_c21, xli_c63]   = request.security('XLI', 'D',  [close[1], close[22], close[64]], ignore_invalid_symbol=true)
+[xlp_c0, xlp_c21, xlp_c63]   = request.security('XLP', 'D',  [close[1], close[22], close[64]], ignore_invalid_symbol=true)
+[xle_c0, xle_c21, xle_c63]   = request.security('XLE', 'D',  [close[1], close[22], close[64]], ignore_invalid_symbol=true)
+[xlre_c0, xlre_c21, xlre_c63]= request.security('XLRE', 'D', [close[1], close[22], close[64]], ignore_invalid_symbol=true)
+[xlu_c0, xlu_c21, xlu_c63]   = request.security('XLU', 'D',  [close[1], close[22], close[64]], ignore_invalid_symbol=true)
+[xlb_c0, xlb_c21, xlb_c63]   = request.security('XLB', 'D',  [close[1], close[22], close[64]], ignore_invalid_symbol=true)
+
+float sls_xlk  = (not na(xlk_c63) and xlk_c63 > 0)  ? xlk_c0 / xlk_c63 : 0.0
+float sls_xlf  = (not na(xlf_c63) and xlf_c63 > 0)  ? xlf_c0 / xlf_c63 : 0.0
+float sls_xlv  = (not na(xlv_c63) and xlv_c63 > 0)  ? xlv_c0 / xlv_c63 : 0.0
+float sls_xly  = (not na(xly_c63) and xly_c63 > 0)  ? xly_c0 / xly_c63 : 0.0
+float sls_xlc  = (not na(xlc_c63) and xlc_c63 > 0)  ? xlc_c0 / xlc_c63 : 0.0
+float sls_xli  = (not na(xli_c63) and xli_c63 > 0)  ? xli_c0 / xli_c63 : 0.0
+float sls_xlp  = (not na(xlp_c63) and xlp_c63 > 0)  ? xlp_c0 / xlp_c63 : 0.0
+float sls_xle  = (not na(xle_c63) and xle_c63 > 0)  ? xle_c0 / xle_c63 : 0.0
+float sls_xlre = (not na(xlre_c63) and xlre_c63 > 0)? xlre_c0 / xlre_c63 : 0.0
+float sls_xlu  = (not na(xlu_c63) and xlu_c63 > 0)  ? xlu_c0 / xlu_c63 : 0.0
+float sls_xlb  = (not na(xlb_c63) and xlb_c63 > 0)  ? xlb_c0 / xlb_c63 : 0.0
+
+float mom21_spx  = (not na(spxCloseD21) and spxCloseD21 > 0) ? spxCloseD0 / spxCloseD21 : 1.0
+float mom21_xlk  = ((not na(xlk_c21) and xlk_c21 > 0) ? xlk_c0 / xlk_c21 : 1.0) - mom21_spx
+float mom21_xlf  = ((not na(xlf_c21) and xlf_c21 > 0) ? xlf_c0 / xlf_c21 : 1.0) - mom21_spx
+float mom21_xlv  = ((not na(xlv_c21) and xlv_c21 > 0) ? xlv_c0 / xlv_c21 : 1.0) - mom21_spx
+float mom21_xly  = ((not na(xly_c21) and xly_c21 > 0) ? xly_c0 / xly_c21 : 1.0) - mom21_spx
+float mom21_xlc  = ((not na(xlc_c21) and xlc_c21 > 0) ? xlc_c0 / xlc_c21 : 1.0) - mom21_spx
+float mom21_xli  = ((not na(xli_c21) and xli_c21 > 0) ? xli_c0 / xli_c21 : 1.0) - mom21_spx
+float mom21_xlp  = ((not na(xlp_c21) and xlp_c21 > 0) ? xlp_c0 / xlp_c21 : 1.0) - mom21_spx
+float mom21_xle  = ((not na(xle_c21) and xle_c21 > 0) ? xle_c0 / xle_c21 : 1.0) - mom21_spx
+float mom21_xlre = ((not na(xlre_c21) and xlre_c21 > 0)? xlre_c0 / xlre_c21 : 1.0) - mom21_spx
+float mom21_xlu  = ((not na(xlu_c21) and xlu_c21 > 0) ? xlu_c0 / xlu_c21 : 1.0) - mom21_spx
+float mom21_xlb  = ((not na(xlb_c21) and xlb_c21 > 0) ? xlb_c0 / xlb_c21 : 1.0) - mom21_spx
+
+var sec_names = array.new<string>(11)
+if barstate.isfirst
+    array.set(sec_names, 0, "信息科技"), array.set(sec_names, 1, "金融"), array.set(sec_names, 2, "医疗健康"), array.set(sec_names, 3, "可选消费")
+    array.set(sec_names, 4, "通信服务"), array.set(sec_names, 5, "工业"), array.set(sec_names, 6, "日常消费"), array.set(sec_names, 7, "能源")
+    array.set(sec_names, 8, "房地产"),   array.set(sec_names, 9, "公用事业"), array.set(sec_names, 10, "原材料")
+
+var sec_scores = array.new<float>(11, 0.0)
+array.set(sec_scores, 0, sls_xlk), array.set(sec_scores, 1, sls_xlf), array.set(sec_scores, 2, sls_xlv), array.set(sec_scores, 3, sls_xly)
+array.set(sec_scores, 4, sls_xlc), array.set(sec_scores, 5, sls_xli), array.set(sec_scores, 6, sls_xlp), array.set(sec_scores, 7, sls_xle)
+array.set(sec_scores, 8, sls_xlre), array.set(sec_scores, 9, sls_xlu), array.set(sec_scores, 10, sls_xlb)
+
+var sec_mom21 = array.new<float>(11, 0.0)
+array.set(sec_mom21, 0, mom21_xlk), array.set(sec_mom21, 1, mom21_xlf), array.set(sec_mom21, 2, mom21_xlv), array.set(sec_mom21, 3, mom21_xly)
+array.set(sec_mom21, 4, mom21_xlc), array.set(sec_mom21, 5, mom21_xli), array.set(sec_mom21, 6, mom21_xlp), array.set(sec_mom21, 7, mom21_xle)
+array.set(sec_mom21, 8, mom21_xlre), array.set(sec_mom21, 9, mom21_xlu), array.set(sec_mom21, 10, mom21_xlb)
+
+int top1_idx = 0, int top2_idx = 0, int top3_idx = 0
+float max1 = -999.0, float max2 = -999.0, float max3 = -999.0
+
+for i = 0 to 10
+    if array.get(sec_scores, i) > max1
+        max1 := array.get(sec_scores, i)
+        top1_idx := i
+for i = 0 to 10
+    if i != top1_idx and array.get(sec_scores, i) > max2
+        max2 := array.get(sec_scores, i)
+        top2_idx := i
+for i = 0 to 10
+    if i != top1_idx and i != top2_idx and array.get(sec_scores, i) > max3
+        max3 := array.get(sec_scores, i)
+        top3_idx := i
+
+string top3_mainlines_str = "1." + array.get(sec_names, top1_idx) + " | 2." + array.get(sec_names, top2_idx) + " | 3." + array.get(sec_names, top3_idx)
+
+string bottoming_secs_str = ""
+int btm_cnt = 0, int best_mom_idx = 0, float best_mom_val = -999.0
+for i = 0 to 10
+    float s_sc = array.get(sec_scores, i), float s_mo = array.get(sec_mom21, i)
+    if s_mo > best_mom_val
+        best_mom_val := s_mo
+        best_mom_idx := i
+    if s_sc < 1.05 and s_mo > 0.01
+        bottoming_secs_str := btm_cnt == 0 ? array.get(sec_names, i) : (bottoming_secs_str + "、" + array.get(sec_names, i))
+        btm_cnt += 1
+
+bottoming_secs_str := btm_cnt > 0 ? ("🌱 " + bottoming_secs_str + " (资金回流)") : ("🔥 " + array.get(sec_names, best_mom_idx) + " (轮动中)")
+
+string current_sec = syminfo.sector
+string sec_cn = "未分类"
+float  my_sec_sls = perfTicker63
+float  my_sec_mom = 0.0
+
+if str.contains(current_sec, "Tech") or str.contains(current_sec, "Electronic") or str.contains(current_sec, "Software") or str.contains(current_sec, "Hardware") or str.contains(current_sec, "Semiconductor")
+    sec_cn := "信息科技", my_sec_sls := sls_xlk, my_sec_mom := mom21_xlk
+else if str.contains(current_sec, "Financial") or str.contains(current_sec, "Bank") or str.contains(current_sec, "Insurance")
+    sec_cn := "金融", my_sec_sls := sls_xlf, my_sec_mom := mom21_xlf
+else if str.contains(current_sec, "Health") or str.contains(current_sec, "Pharma") or str.contains(current_sec, "Bio") or str.contains(current_sec, "Medical")
+    sec_cn := "医疗健康", my_sec_sls := sls_xlv, my_sec_mom := mom21_xlv
+else if str.contains(current_sec, "Consumer Cyclical") or str.contains(current_sec, "Discretionary") or str.contains(current_sec, "Retail")
+    sec_cn := "可选消费", my_sec_sls := sls_xly, my_sec_mom := mom21_xly
+else if str.contains(current_sec, "Communication") or str.contains(current_sec, "Media") or str.contains(current_sec, "Telecom")
+    sec_cn := "通信服务", my_sec_sls := sls_xlc, my_sec_mom := mom21_xlc
+else if str.contains(current_sec, "Industrial") or str.contains(current_sec, "Capital Goods") or str.contains(current_sec, "Transportation") or str.contains(current_sec, "Aerospace")
+    sec_cn := "工业", my_sec_sls := sls_xli, my_sec_mom := mom21_xli
+else if str.contains(current_sec, "Defensive") or str.contains(current_sec, "Staples")
+    sec_cn := "日常消费", my_sec_sls := sls_xlp, my_sec_mom := mom21_xlp
+else if str.contains(current_sec, "Energy") or str.contains(current_sec, "Oil") or str.contains(current_sec, "Gas")
+    sec_cn := "能源", my_sec_sls := sls_xle, my_sec_mom := mom21_xle
+else if str.contains(current_sec, "Real Estate") or str.contains(current_sec, "REIT")
+    sec_cn := "房地产", my_sec_sls := sls_xlre, my_sec_mom := mom21_xlre
+else if str.contains(current_sec, "Utilities") or str.contains(current_sec, "Power")
+    sec_cn := "公用事业", my_sec_sls := sls_xlu, my_sec_mom := mom21_xlu
+else if str.contains(current_sec, "Material") or str.contains(current_sec, "Chemical") or str.contains(current_sec, "Mining")
+    sec_cn := "原材料", my_sec_sls := sls_xlb, my_sec_mom := mom21_xlb
+else
+    sec_cn := "信息科技", my_sec_sls := sls_xlk, my_sec_mom := mom21_xlk
+
+int sec_rank = 1
+for i = 0 to 10
+    if array.get(sec_scores, i) > my_sec_sls
+        sec_rank += 1
+
+string sls_status_str = sec_rank <= 3 ? ("🔥 领涨主线 #" + str.tostring(sec_rank) + " (" + sec_cn + ")") : (my_sec_sls < 1.02 and my_sec_mom > 0.02 ? ("🌱 潜伏筑底 #" + str.tostring(sec_rank) + " (" + sec_cn + ")") : (sec_rank <= 6 ? ("⚖️ 中性轮动 #" + str.tostring(sec_rank) + " (" + sec_cn + ")") : ("❄️ 资金流出 #" + str.tostring(sec_rank) + " (" + sec_cn + ")")))
+color  sls_status_bg  = sec_rank <= 3 ? color.teal : (my_sec_sls < 1.02 and my_sec_mom > 0.02 ? color.purple : (sec_rank <= 6 ? color.navy : color.maroon))
+
+// ==================== 7. 全天候 6 大形态阶段判定 ====================
+float dist_52w = not na(high52w_D) and high52w_D > 0 ? (close - high52w_D) / high52w_D * 100.0 : 0.0
+float vrp = nz(vrp_D, 1.0)
+float kc_w = not na(kc_val_raw) ? 3.0 * kc_val_raw : 1.0
+float bb_w = not na(bb_val_raw) ? 4.0 * bb_val_raw : 1.0
+float sqz_ratio = kc_w > 0 ? bb_w / kc_w : 1.0
+
+int base_days = ta.barssince(close < nz(ema50_D, close) * 0.85)
+if na(base_days)
+    base_days := 30
+
+string base_tier_str = base_days < 15 ? "🚩T1中继" : (base_days <= 65 ? "🛡️T2黄金" : "🚀T3发射井")
+bool is_super_leader = (dailyRSRating >= 80 or trend_score >= 8)
+
+bool is_stage_c = dist_52w > 18.0
+bool is_stage_a = (dist_52w >= -8.0 and dist_52w <= 6.0) and (trend_score >= 6 or dailyRSRating >= 75) and not is_stage_c
+bool is_stage_d = (close < nz(ema200_D, close) and trend_score <= 3 and vwap_slope < -0.03)
+bool is_stage_e = (close < nz(ema200_D, close) and not is_stage_d and (vwap_slope >= -0.03 or base_days > 40))
+bool is_stage_w = (sqz_ratio > 1.35 and not is_super_leader and trend_score < 6)
+bool is_stage_b = not (is_stage_c or is_stage_d or is_stage_w or is_stage_a or is_stage_e)
+
+string stage_gate_str = is_stage_c ? "❌ Stage C: 高位延伸" : (is_stage_d ? "📉 Stage D: 趋势衰减" : (is_stage_w ? "📊 Stage W: 高波震荡" : (is_stage_a ? ("⚡ Stage A: 黄金突破带 (" + base_tier_str + ")") : (is_stage_e ? ("🕳️ Stage E: 混沌筑底 (" + base_tier_str + ")") : ("🎯 Stage B: 箱体蓄势 (" + base_tier_str + ")")))))
+color  stage_gate_bg  = (is_stage_c or is_stage_d or is_stage_w) ? color.maroon : (is_stage_a ? color.purple : (is_stage_e ? color.gray : color.navy))
+
+// ==================== 8. 🌪️ MPR 状态拓扑与传导路径引擎 (日线全解耦封装) ====================
+f_calc_mpr_topology_engine(int c_len, int d_len, float t_persist) =>
+    vix_c_loc   = request.security("CBOE:VIX", "D", close, ignore_invalid_symbol=true)
+    vix9d_c_loc = request.security("CBOE:VIX9D", "D", close, ignore_invalid_symbol=true)
+    vix3m_c_loc = request.security("CBOE:VIX3M", "D", close, ignore_invalid_symbol=true)
+    spy_c_loc   = request.security("AMEX:SPY", "D", close, ignore_invalid_symbol=true)
+    spy_vol_loc = request.security("AMEX:SPY", "D", volume, ignore_invalid_symbol=true)
+    rsp_c_loc   = request.security("AMEX:RSP", "D", close, ignore_invalid_symbol=true)
+    tlt_c_loc   = request.security("AMEX:TLT", "D", close, ignore_invalid_symbol=true)
+    dxy_c_loc   = request.security("TVC:DXY", "D", close, ignore_invalid_symbol=true)
+    gld_c_loc   = request.security("AMEX:GLD", "D", close, ignore_invalid_symbol=true)
+    hyg_c_loc   = request.security("AMEX:HYG", "D", close, ignore_invalid_symbol=true)
+    iei_c_loc   = request.security("AMEX:IEI", "D", close, ignore_invalid_symbol=true)
+
+    // 1. 五大观测域原始压力 (Observable Stress Fields)
+    // F1: 量价推进效率 (日线)
+    spy_high_252 = ta.highest(spy_c_loc, c_len), spy_low_252 = ta.lowest(spy_c_loc, c_len)
+    spy_loc      = (spy_high_252 - spy_low_252 == 0) ? 0.5 : (spy_c_loc - spy_low_252) / (spy_high_252 - spy_low_252)
+    spy_rvol     = spy_vol_loc / nz(ta.sma(spy_vol_loc, 20), spy_vol_loc)
+    spy_move     = math.abs(spy_c_loc - nz(spy_c_loc[d_len], spy_c_loc)) / nz(spy_c_loc[d_len], spy_c_loc) * 100.0
+    spy_eff      = spy_move / (spy_rvol + 0.1)
+    f1_raw       = spy_loc * math.log(1.0 + 1.0 / (spy_eff + 0.05))
+    f1_stress    = f_rolling_ecdf(f1_raw, c_len)
+
+    // F2: 隐波期限倒挂 (日线)
+    raw_term     = (not na(vix3m_c_loc) and vix3m_c_loc > 0) ? (nz(vix9d_c_loc, vix_c_loc) / vix3m_c_loc) : 1.0
+    f2_stress    = f_rolling_ecdf(raw_term, c_len)
+
+    // F3: 跨资产避险脱节 (日线)
+    spy_ret      = ta.roc(spy_c_loc, d_len)
+    tlt_ret      = ta.roc(tlt_c_loc, d_len)
+    dxy_ret      = ta.roc(dxy_c_loc, d_len)
+    gld_ret      = ta.roc(gld_c_loc, d_len)
+    macro_break  = (spy_ret > 0 ? 1.0 : 0.0) * (math.max(0.0, tlt_ret) + math.max(0.0, dxy_ret) + math.max(0.0, gld_ret))
+    f3_stress    = f_rolling_ecdf(macro_break, c_len)
+
+    // F4: 信用利差紧缩 (日线)
+    raw_cred     = (not na(hyg_c_loc) and hyg_c_loc > 0) ? (nz(iei_c_loc, 115.0) / hyg_c_loc) : 1.0
+    f4_stress    = f_rolling_ecdf(raw_cred, c_len)
+
+    // F5: 现货广度背离 (日线)
+    rsp_ret      = ta.roc(rsp_c_loc, d_len)
+    dispersion   = spy_ret - rsp_ret
+    f5_stress    = f_rolling_ecdf(dispersion, c_len)
+
+    // 2. 三大核心物理域聚合 (Domain Aggregation)
+    float domain_vol    = f2_stress                         // 前沿衍生品域
+    float domain_credit = math.max(f4_stress, f3_stress)    // 宏观信用与避险域
+    float domain_spot   = math.max(f5_stress, f1_stress)    // 现货广度与量价域
+
+    // 3. 现货真实破坏度 (Price Damage)
+    spy_damage_raw = -ta.roc(spy_c_loc, d_len)
+    spy_damage     = f_rolling_ecdf(spy_damage_raw, c_len)
+
+    // 4. 传导拓扑路径识别 (Transmission Topology Graph)
+    // Path 0: 多头自洽稳态
+    // Path 1: 前沿暗流 (期权/信用率先异动，但现货健康)
+    // Path 2: 相变临界 (期权/信用异动已传导至现货广度，价格未破位)
+    // Path 3: 微观漂移 (仅现货滞涨，衍生品/信用平静)
+    // Path 4: 破位确认 (全市场下杀破位)
+    int path_id = 0
+    if spy_damage >= 70.0 and (domain_spot >= 70.0 or domain_vol >= 70.0)
+        path_id := 4 // 🔴 全面破位确认
+    else if (domain_vol >= 70.0 or domain_credit >= 75.0) and domain_spot >= 65.0 and spy_damage < 60.0
+        path_id := 2 // 🚨 相变临界扩散 (期权/信用 ➔ 广度 ➔ 现货前夕)
+    else if (domain_vol >= 70.0 or domain_credit >= 75.0) and domain_spot < 65.0
+        path_id := 1 // ⚠️ 跨市场暗流 (期权/信用单点异动，尚未传导到现货)
+    else if domain_spot >= 65.0 and domain_vol < 50.0 and domain_credit < 50.0
+        path_id := 3 // 🟡 微观滞涨漂移 (仅个股/广度技术分化)
+    else
+        path_id := 0 // 🟢 多头健康稳态
+
+    // 隐状态估计 (Latent State S0~S3)
+    int fsm_state = path_id == 4 ? 3 : (path_id == 2 ? 2 : (path_id == 1 or path_id == 3 ? 1 : 0))
+
+    // 领先缺口度量
+    float lead_gap = math.max(domain_vol, domain_credit) - spy_damage
+    var int lead_persist = 0
+    lead_persist := (lead_gap > 20.0 and spy_damage < 50.0) ? (lead_persist + 1) : 0
+    float lead_decay   = 1.0 - math.exp(-lead_persist / t_persist)
+    float lead_quality = math.max(0.0, lead_gap * lead_decay)
+
+    [fsm_state, path_id, spy_damage, lead_quality, f1_stress, f2_stress, f3_stress, f4_stress, f5_stress, raw_term, raw_cred, domain_vol, domain_credit, domain_spot]
+
+// ⚡ 跨周期日线基准请求
+[fsm_state_D, path_id_D, spy_dmg_D, lead_q_D, f1_D, f2_D, f3_D, f4_D, f5_D, term_D, cred_D, dom_vol, dom_cred, dom_spot] = request.security(
+     syminfo.tickerid, "D",
+     f_calc_mpr_topology_engine(calib_len, drift_len, tau_persist),
+     ignore_invalid_symbol=true
+ )
+
+// 状态与路径视觉标签
+string mpr_state_str = fsm_state_D == 3 ? "🔴 S3 破位危机 (Crisis)" : (fsm_state_D == 2 ? "🟠 S2 承压下行 (Stress)" : (fsm_state_D == 1 ? "🟡 S1 动能减弱 (Fragile)" : "🟢 S0 多头稳态 (Normal)"))
+color  mpr_state_bg  = fsm_state_D == 3 ? color.maroon : (fsm_state_D == 2 ? color.orange : (fsm_state_D == 1 ? color.navy : color.teal))
+
+string topo_path_str = ""
+color  topo_path_bg  = color.teal
+if path_id_D == 4
+    topo_path_str := "🔴 [确认破位] 全市场力场同步坍塌"
+    topo_path_bg  := color.maroon
+else if path_id_D == 2
+    topo_path_str := "🚨 [相变临界] 衍生品/信用 ➔ 现货广度扩散"
+    topo_path_bg  := color.maroon
+else if path_id_D == 1
+    topo_path_str := "⚠️ [跨市场暗流] 衍生品/信用单点异动 (现货暂稳)"
+    topo_path_bg  := color.orange
+else if path_id_D == 3
+    topo_path_str := "🟡 [微观漂移] 现货高位放量滞涨 (底层平静)"
+    topo_path_bg  := color.navy
+else
+    topo_path_str := "🟢 [稳态自洽] 三大域共振健康顺风"
+    topo_path_bg  := color.teal
+
+// 致险力场白话排序
+var f_names_plain = array.new<string>(5)
+var f_vals_plain  = array.new<float>(5)
+if barstate.isfirst
+    array.set(f_names_plain, 0, "期权抢购(倒挂)"), array.set(f_names_plain, 1, "广度失血(仅巨头涨)"), array.set(f_names_plain, 2, "信用收紧(抛售垃圾债)"), array.set(f_names_plain, 3, "放量滞涨(主力派发)"), array.set(f_names_plain, 4, "避险抢跑(黄金/美债异动)")
+
+array.set(f_vals_plain, 0, f2_D), array.set(f_vals_plain, 1, f5_D), array.set(f_vals_plain, 2, f4_D), array.set(f_vals_plain, 3, f1_D), array.set(f_vals_plain, 4, f3_D)
+int max_f1_idx = 0
+float max_f1_val = -1.0
+for i = 0 to 4
+    if array.get(f_vals_plain, i) > max_f1_val
+        max_f1_val := array.get(f_vals_plain, i)
+        max_f1_idx := i
+string top_stress_str = array.get(f_names_plain, max_f1_idx) + " (" + str.tostring(max_f1_val, "#0") + "%)"
+
+string f2_plain_str = f2_D > 70.0 ? "🚨 恐慌抢Put (" + str.tostring(term_D, "#.##") + ")" : "🟢 平静无踩踏 (" + str.tostring(term_D, "#.##") + ")"
+color  f2_plain_bg  = f2_D > 70.0 ? color.maroon : color.teal
+
+string f4_plain_str = f4_D > 70.0 ? "🔴 机构避险/收紧" : "🟢 资金充沛稳健"
+color  f4_plain_bg  = f4_D > 70.0 ? color.maroon : color.teal
+
+string lead_plain_str = lead_q_D > 15.0 ? "🚨 极端背离 (随时补跌)" : "⚪ 同步常态 (无突发跳水)"
+color  lead_plain_bg  = lead_q_D > 15.0 ? color.orange : color.navy
+
+// 🌟 宏观总决断 (拓扑驱动)
+string macro_verdict_str = ""
+color  macro_verdict_bg  = color.teal
+
+if path_id_D == 4
+    macro_verdict_str := "🔴【大盘破位确认】全市场流动性坍塌 ➔ 现金防御，严禁接飞刀！"
+    macro_verdict_bg  := color.maroon
+else if path_id_D == 2
+    macro_verdict_str := "🚨【相变临界扩散】暗流已侵蚀现货广度 ➔ 严禁追多，推高移动止损，分批锁定！"
+    macro_verdict_bg  := color.maroon
+else if path_id_D == 1
+    macro_verdict_str := "⚠️【跨市场暗流】期权/信用率先异动 ➔ 降低风险敞口，严守保本纪律。"
+    macro_verdict_bg  := color.orange
+else if path_id_D == 3
+    macro_verdict_str := "🟡【微观放量滞涨】出现技术性分化 ➔ 保持警惕，推高移动止损。"
+    macro_verdict_bg  := color.navy
+else
+    macro_verdict_str := "🟢【宏观多头顺风】三大力场健康共振 ➔ 环境优良，按计划积极做多主线！"
+    macro_verdict_bg  := color.teal
+
+float macro_mult = fsm_state_D == 3 ? 0.85 : (fsm_state_D == 2 ? 0.92 : (fsm_state_D == 0 ? 1.05 : 1.00))
+
+// ==================== 9. 财报接口与估值基础数据 ====================
+mc_raw_d   = request.financial(syminfo.tickerid, "MARKET_CAP", "D", ignore_invalid_symbol=true)
+mc_raw_fq  = request.financial(syminfo.tickerid, "MARKET_CAP", "FQ", ignore_invalid_symbol=true)
+shares_fq  = request.financial(syminfo.tickerid, "TOTAL_SHARES_OUTSTANDING", "FQ", ignore_invalid_symbol=true)
+shares_fy  = request.financial(syminfo.tickerid, "TOTAL_SHARES_OUTSTANDING", "FY", ignore_invalid_symbol=true)
+shares_val = not na(shares_fq) and shares_fq > 0 ? shares_fq : shares_fy
+mc_calc_raw = not na(shares_val) ? shares_val * close : na
+
+float mkt_cap_b = not na(mc_raw_d) and mc_raw_d > 0 ? mc_raw_d / 1e9 : (not na(mc_raw_fq) and mc_raw_fq > 0 ? mc_raw_fq / 1e9 : (not na(mc_calc_raw) and mc_calc_raw > 0 ? mc_calc_raw / 1e9 : na))
+bool is_trillion_cap = not na(mkt_cap_b) and mkt_cap_b >= 1000.0
+bool is_large_tier   = not na(mkt_cap_b) and mkt_cap_b >= 200.0
+
+float wallstreet_target_avg = syminfo.target_price_average
+float analyst_estimates_raw = syminfo.target_price_estimates
+int   analyst_estimates_cnt = not na(analyst_estimates_raw) ? int(analyst_estimates_raw) : 0
+float wallstreet_upside_pct = (not na(wallstreet_target_avg) and close > 0) ? ((wallstreet_target_avg - close) / close) * 100.0 : na
+
+eps_q_yoy   = request.financial(syminfo.tickerid, "EARNINGS_PER_SHARE_DILUTED", "FQ_YOY", ignore_invalid_symbol=true)
+eps_ttm     = request.financial(syminfo.tickerid, "EARNINGS_PER_SHARE_DILUTED", "TTM", ignore_invalid_symbol=true)
+rev_ttm     = request.financial(syminfo.tickerid, "TOTAL_REVENUE", "TTM", ignore_invalid_symbol=true)
+short_int_raw = request.financial(syminfo.tickerid, "SHORT_INTEREST", "FQ", ignore_invalid_symbol=true)
+
+current_atr = na(atr252_raw) ? ta.atr(14) : atr252_raw
+
+// ==================== 10. 12M 动态估值引擎与标的基因判定 ====================
+float calculated_pe    = na
+float raw_quant_target = na
+string target_mode_str = ""
+
+float current_pe = (not na(eps_ttm) and eps_ttm > 0) ? close / eps_ttm : na
+
+string target_archetype_str = "适合价值 / 趋势中长线配置"
+if na(eps_ttm) or eps_ttm <= 0
+    if trend_score <= 4 or dailyRSRating < 45
+        target_archetype_str := "纯技术博弈 / 超跌反弹 (禁长线)"
+    else
+        target_archetype_str := "高弹性成长 / 动能博弈 (轻仓)"
+else if not na(current_pe) and current_pe >= 45.0
+    target_archetype_str := "成长动能溢价 / 预期现金流博弈"
+else if is_stage_c
+    target_archetype_str := "高位派发筹码 / 仅限日内与防守"
+
+if is_in_long_downtrend
+    if is_large_tier
+        raw_quant_target := nz(ema200_D, close) + (2.0 * current_atr)
+        target_mode_str  := "🛡️ 12M 龙头均值修复"
+    else
+        calculated_pe := 22.0
+        raw_quant_target := not na(eps_ttm) and eps_ttm > 0 ? eps_ttm * calculated_pe : close * 0.85
+        target_mode_str  := "❄️ 12M 空头保守模型"
+else if not na(eps_ttm) and eps_ttm > 0
+    bool is_high_pe_growth = not na(current_pe) and current_pe >= 40.0
+    
+    if is_high_pe_growth and not na(rev_ttm) and not na(shares_val) and shares_val > 0
+        float rev_per_share = rev_ttm / shares_val
+        float current_ps    = close / rev_per_share
+        float target_ps     = current_ps * (dailyRSRating >= 75 ? 1.20 : 1.12)
+        raw_quant_target    := rev_per_share * target_ps
+        target_mode_str     := "👑 12M SaaS/高PE营收重估"
+    else if is_high_pe_growth
+        calculated_pe       := math.min(current_pe * 1.18, 75.0)
+        raw_quant_target    := eps_ttm * calculated_pe
+        target_mode_str     := "⚡ 12M 高PE动态扩展模型"
+    else if not na(eps_q_yoy) and eps_q_yoy > 0.15
+        float g_rate        = math.min(eps_q_yoy * 100.0, 50.0)
+        calculated_pe       := math.min(math.max(g_rate * peg_target, 18.0), max_pe_mid)
+        raw_quant_target    := eps_ttm * calculated_pe
+        target_mode_str     := "⚡ 12M PEG高成长模型"
+    else if is_hyper_momentum
+        float momentum_pe_cap = is_large_tier ? 42.0 : 55.0
+        calculated_pe       := math.min(current_pe * 1.20, momentum_pe_cap)
+        raw_quant_target    := eps_ttm * calculated_pe
+        target_mode_str     := "⚡ 12M 动能估值扩张"
+    else
+        calculated_pe       := is_trillion_cap ? 30.0 : (is_large_tier ? 35.0 : 25.0)
+        raw_quant_target    := eps_ttm * calculated_pe
+        target_mode_str     := is_trillion_cap ? "👑 12M 龙头基准PE" : "⚖️ 12M 稳健成长PE"
+else if not na(rev_ttm) and not na(shares_val) and shares_val > 0
+    float rev_per_share     = rev_ttm / shares_val
+    float current_ps        = close / rev_per_share
+    float target_ps         = current_ps * (is_hyper_momentum ? 1.25 : 1.12)
+    raw_quant_target        := rev_per_share * target_ps
+    target_mode_str         := "🔥 12M 动态PS模型"
+
+if not na(raw_quant_target)
+    raw_quant_target := raw_quant_target * macro_mult
+
+if (is_hyper_momentum or dailyRSRating >= 70 or trend_score >= 7) and not is_in_long_downtrend
+    if na(raw_quant_target) or raw_quant_target < close
+        raw_quant_target := close * 1.22
+        target_mode_str  := "🚀 12M 龙头动能防倒挂"
+
+float valuation_target = raw_quant_target
+if not na(wallstreet_target_avg) and wallstreet_target_avg > 0 and analyst_estimates_cnt >= 3
+    float spread_ratio = math.abs(raw_quant_target - wallstreet_target_avg) / wallstreet_target_avg
+    if spread_ratio > 0.25
+        valuation_target := 0.50 * raw_quant_target + 0.50 * wallstreet_target_avg
+        target_mode_str  := target_mode_str + " (共识平滑)"
+
+if is_trillion_cap and not is_hyper_momentum and not na(valuation_target)
+    float max_trillion_target = close * 1.35
+    if valuation_target > max_trillion_target
+        valuation_target := max_trillion_target
+        target_mode_str := "👑 万亿体量上限压制 (+35%)"
+
+if not na(valuation_target) and valuation_target < close * 0.5
+    valuation_target := close * 0.95
+    target_mode_str  := "🛡️ 结构性价格兜底"
+
+float primary_target = not na(valuation_target) ? valuation_target : ((nz(ema200_D, close) + (4.0 * current_atr)) * macro_mult)
+if na(primary_target) or primary_target <= 0
+    primary_target := close * 1.15
+
+float upside_pts = primary_target - close
+float upside_pct = close > 0 ? (upside_pts / close) * 100.0 : 0.0
+
+// ==================== 11. 机构 VWAP 与 Vegas 隧道支撑带计算 ====================
+vwap_base90  = na(vwap_90_D) ? ta.sma(close, 90) : vwap_90_D
+vwap_base250 = na(vwap_250_D) ? ta.sma(close, 250) : vwap_250_D
+
+float vegas_mid_top = math.max(nz(ema144_D, close), nz(ema169_D, close))
+float vegas_mid_bot = math.min(nz(ema144_D, close), nz(ema169_D, close))
+
+bool is_dip_active = upside_pct >= 15.0 and path_id_D != 4
+string dip_str = path_id_D == 4 ? "🚨 大盘高危 (低吸冻结)" : (upside_pct < 15.0 ? "⛔ 空间不足 (<15%)" : "")
+color  dip_bg  = path_id_D == 4 ? color.maroon : (is_dip_active ? color.teal : color.gray)
+
+float atr_buf_deep    = 1.0 * current_atr
+float atr_buf_shallow = 0.3 * current_atr
+
+if path_id_D != 4
+    if is_stage_a
+        float base_a = math.min(close, math.max(nz(ema20_D, close), vwap_base90))
+        float a_top = math.min(close, base_a + atr_buf_shallow)
+        float a_bot = math.min(a_top * 0.98, base_a - atr_buf_deep)
+        dip_str := "🎯 $" + str.tostring(a_bot, "#.##") + " ~ $" + str.tostring(a_top, "#.##")
+        dip_bg  := color.teal
+    else if is_stage_b
+        if trend_score >= 7
+            float base_b = math.min(close, math.max(nz(ema50_D, close), vegas_mid_bot))
+            float b_top = math.min(close, nz(ema20_D, close))
+            float b_bot = math.min(b_top * 0.97, base_b - 1.2 * current_atr)
+            dip_str := (vrp < 0.50 ? "🟢 $" : "🎯 $") + str.tostring(b_bot, "#.##") + " ~ $" + str.tostring(b_top, "#.##")
+            dip_bg  := vrp < 0.50 ? color.lime : color.teal
+        else
+            float base_b = math.min(close, math.max(vwap_base90, vegas_mid_bot))
+            float b_top = math.min(close, math.min(nz(ema50_D, close), vegas_mid_top))
+            float b_bot = math.min(b_top * 0.97, base_b - 1.0 * current_atr)
+            dip_str := "🎯 $" + str.tostring(b_bot, "#.##") + " ~ $" + str.tostring(b_top, "#.##")
+            dip_bg  := color.teal
+    else if is_stage_e
+        float base_e = math.min(close, math.min(vwap_base90, vegas_mid_top))
+        float e_top = math.min(close, base_e)
+        float e_bot = math.min(e_top * 0.92, math.max(nz(ema576_D, close), vwap_base250 * 0.90) - 1.5 * current_atr)
+        dip_str := "🕳️ $" + str.tostring(e_bot, "#.##") + " ~ $" + str.tostring(e_top, "#.##")
+        dip_bg  := color.gray
+    else if is_stage_d
+        dip_str := "📉 观望 (压头线 $" + str.tostring(vwap_base90, "#.##") + ")"
+        dip_bg  := color.maroon
+    else if is_stage_w
+        float w_bot = close - 1.5 * current_atr
+        float w_top = close - 0.2 * current_atr
+        dip_str := "📊 震荡箱体: $" + str.tostring(w_bot, "#.##") + " ~ $" + str.tostring(w_top, "#.##")
+        dip_bg  := color.maroon
+    else if is_stage_c
+        dip_str := "❌ 远离成本线 (安全垫失效)"
+        dip_bg  := color.maroon
+
+float short_ratio_pct = (not na(short_int_raw) and not na(shares_val) and shares_val > 0) ? (short_int_raw / shares_val) * 100.0 : 0.0
+float squeeze_mult = short_ratio_pct >= 15.0 ? 1.8 : (short_ratio_pct >= 8.0 ? 1.35 : 1.0)
+string squeeze_str = short_ratio_pct >= 15.0 ? "极高轧空" : (short_ratio_pct >= 8.0 ? "轧空预警" : "波段")
+float target_atr_st = close + (2.0 * current_atr * squeeze_mult)
+
+// ==================== 12. Hurst 赫斯特指数、VCP极限收敛与NR7变盘透视 ====================
+float h_sum = 0.0
+for i = 0 to 29
+    h_sum += close[i]
+float h_mean = h_sum / 30.0
+
+float h_sq_diff = 0.0, float h_cum = 0.0, float h_max_cum = -1e10, float h_min_cum = 1e10
+for i = 29 to 0
+    float h_dev = close[i] - h_mean
+    h_cum += h_dev
+    h_max_cum := math.max(h_max_cum, h_cum)
+    h_min_cum := math.min(h_min_cum, h_cum)
+    h_sq_diff += h_dev * h_dev
+
+float h_r = h_max_cum - h_min_cum
+float h_s = math.sqrt(h_sq_diff / 30.0)
+float hurst_val = (h_s > 0 and h_r > 0) ? math.log(h_r / h_s) / math.log(30.0) : 0.5
+float hurst_clamped = math.min(1.0, math.max(0.0, hurst_val))
+
+string hurst_status_str = "⚖️ 随机震荡 (H=" + str.tostring(hurst_clamped, "#.##") + ")"
+color  hurst_status_bg  = color.navy
+if hurst_clamped >= 0.55
+    hurst_status_str := "🟢 强趋势态 (H=" + str.tostring(hurst_clamped, "#.##") + ")"
+    hurst_status_bg  := color.teal
+else if hurst_clamped <= 0.45
+    hurst_status_str := "🔄 均值回归 (H=" + str.tostring(hurst_clamped, "#.##") + ")"
+    hurst_status_bg  := color.purple
+
+bool is_nr7 = ta.tr <= ta.lowest(ta.tr, 7)
+bool is_vcp = (ta.atr(5) < ta.atr(10)) and (ta.atr(10) < ta.atr(20))
+string vcp_nr7_str = (is_nr7 and is_vcp) ? "⚡ VCP+NR7 极限变盘引爆" : (is_nr7 ? "🎯 NR7 极限波幅收缩" : (is_vcp ? "🌊 VCP 波动率逐级收敛" : (high < high[1] and low > low[1] ? "📦 Inside Bar 孕线收敛" : "⚪ 正常波动")))
+color  vcp_nr7_bg  = (is_nr7 or is_vcp) ? color.purple : color.navy
+
+bool is_obv_inflow   = obv_val_D > obv_ema_D
+string vol_obv_status_str = is_pp_D ? "🔥 机构点火 (Pocket Pivot)" : (vrp_D < 0.45 ? "🌊 极度锁仓 (VDU 枯竭)" : (is_obv_inflow ? "🟢 资金净流入 (OBV > EMA)" : "🔴 资金净流出 (OBV < EMA)"))
+color  vol_obv_status_bg  = (is_pp_D or is_obv_inflow) ? color.teal : (vrp_D < 0.45 ? color.purple : color.navy)
+
+// ==================== 13. MACD对数背离一买/二买信号算法 ====================
+atr_risk_raw = ta.atr(atrLength)
+atr_risk     = ta.sma(atr_risk_raw, atrLength)
+rsi_raw      = ta.rsi(close, rsi_length)
+rsi_val      = ta.sma(rsi_raw, rsi_length)
+
+U1 = ta.ema(high, 24), D1 = ta.ema(low, 23), U2 = ta.ema(high, 89), D2 = ta.ema(low, 90)
+DIF = 100.0 * (ta.ema(close, 12) - ta.ema(close, 26)), DEA = ta.ema(DIF, 9), MACD = 2.0 * (DIF - DEA)
+
+TP_P = math.max(close, open), LLV_P = ta.lowest(TP_P, 4), HHV_P = ta.highest(TP_P, 4)
+TP_DEA_U = DEA > DEA[1] and DEA[2] > DEA[1], TPDU_D = ta.barssince(TP_DEA_U[1])
+BTM_D = LLV_P[TPDU_D + 1] > close and DIF > DIF[TPDU_D + 1] and TP_DEA_U
+TP_DEA_D = DEA < DEA[1] and DEA[2] < DEA[1], TPDD_D = ta.barssince(TP_DEA_D[1])
+TOP_D = HHV_P[TPDD_D + 1] < HHV_P and DIF < DIF[TPDD_D + 1] and TP_DEA_D
+DC = ta.cross(DEA, DIF) and DEA[1] < DIF[1], DC_D1 = ta.barssince(DC)
+cond_macd_n = MACD < 0 and MACD[1] < 0
+
+LV_C1 = ta.lowest(close, nz(DC_D1) + 1), LV_C2 = LV_C1[DC_D1 + 1], LV_C3 = LV_C2[DC_D1 + 1]
+LV_D1 = ta.lowest(DIF, nz(DC_D1) + 1), LV_D2 = LV_D1[DC_D1 + 1], LV_D3 = LV_D2[DC_D1 + 1]
+LOG_LD2 = math.floor(math.log10(math.abs(LV_D2))) - 1, LOG_LD3 = math.floor(math.log10(math.abs(LV_D3))) - 1
+
+diff_dif_ld2 = math.floor(DIF / math.pow(10, LOG_LD2)), diff_dif_ld3 = math.floor(DIF / math.pow(10, LOG_LD3))
+diff_llv_ld2 = math.floor(LV_D2 / math.pow(10, LOG_LD2)), diff_llv_ld3 = math.floor(LV_D3 / math.pow(10, LOG_LD3))
+
+btm_d_direct = cond_macd_n and diff_dif_ld2 > diff_llv_ld2 and diff_dif_ld2 <= diff_dif_ld2[1] and LV_C1 < LV_C2
+btm_d_indirect = cond_macd_n and diff_dif_ld3 > diff_llv_ld3 and diff_dif_ld3 <= diff_dif_ld3[1] and LV_C1 < LV_C3 and LV_C3 < LV_C2
+
+cond_buy = (diff_dif_ld2 > diff_dif_ld2[1] and btm_d_direct[1]) or (diff_dif_ld3 > diff_llv_ld3 and diff_dif_ld3 <= diff_dif_ld3[1] and LV_C1 < LV_C3 and LV_C3 < LV_C2)
+cond_btm_psvn = btm_d_direct or btm_d_indirect
+btm_d_dis = (btm_d_direct[1] and LV_D1 <= LV_D2) or (btm_d_indirect[1] and LV_D1 <= LV_D3)
+
+cond_psvn_dis = (ta.cross(DIF, DEA) and DIF[1] < DEA[1]) and ta.barssince(btm_d_dis) < ta.barssince(cond_btm_psvn) and ta.barssince(cond_btm_psvn) < DC_D1 and ta.barssince(TOP_D) > DC_D1
+cond_buy1 = cond_psvn_dis and (U1 < D2 or U1[1] < D2[1])
+
+bool buy1_signal = ta.barssince(cond_buy[1]) > 10 and cond_buy and barstate.isconfirmed
+bool buy2_signal = ta.barssince(cond_buy1[1]) > 10 and cond_buy1 and barstate.isconfirmed
+
+plotshape(buy1_signal, title="一买信号", text="❤️ 一买", style=shape.triangleup, location=location.belowbar, color=color.red,    textcolor=color.white, size=size.normal)
+plotshape(buy2_signal, title="二买信号", text="⭐️ 二买", style=shape.triangleup, location=location.belowbar, color=color.orange, textcolor=color.white, size=size.normal)
+
+// ==================== 14. 动态移动风控与保本引擎 ====================
+var float entryPrice1     = na
+var float stopLossLevel1   = na
+var float stopProfitLevel1 = na
+var float highest1         = na
+var float maxProfit1       = na
+
+var float entryPrice2     = na
+var float stopLossLevel2   = na
+var float stopProfitLevel2 = na
+var float highest2         = na
+var float maxProfit2       = na
+
+bool rsi_ok = (enable_rsi ? rsi_val > rsi_value : true)
+
+if buy1_signal and na(entryPrice1) and rsi_ok
+    entryPrice1      := close
+    stopLossLevel1   := close - (stopLossMultiplier * atr_risk)
+    stopProfitLevel1 := close - (stopProfitMultiplier * atr_risk)
+    highest1         := high
+    maxProfit1       := 0.0
+
+if buy2_signal and na(entryPrice2) and rsi_ok
+    entryPrice2      := close
+    stopLossLevel2   := close - (stopLossMultiplier * atr_risk)
+    stopProfitLevel2 := close - (stopProfitMultiplier * atr_risk)
+    highest2         := high
+    maxProfit2       := 0.0
+
+if not na(entryPrice1)
+    highest1 := math.max(highest1, high)
+    maxProfit1 := math.max(maxProfit1, (close - entryPrice1) / entryPrice1 * 100.0)
+    stopProfitLevel1 := math.max(stopProfitLevel1, highest1 - ((maxProfit1 >= tighten_lvl2_pct ? tighten_lvl2_mult : (maxProfit1 >= tighten_lvl1_pct ? tighten_lvl1_mult : stopProfitMultiplier)) * atr_risk))
+    if maxProfit1 >= be_trigger_pct
+        stopLossLevel1 := math.max(stopLossLevel1, entryPrice1 * 1.01)
+
+if not na(entryPrice2)
+    highest2 := math.max(highest2, high)
+    maxProfit2 := math.max(maxProfit2, (close - entryPrice2) / entryPrice2 * 100.0)
+    stopProfitLevel2 := math.max(stopProfitLevel2, highest2 - ((maxProfit2 >= tighten_lvl2_pct ? tighten_lvl2_mult : (maxProfit2 >= tighten_lvl1_pct ? tighten_lvl1_mult : stopProfitMultiplier)) * atr_risk))
+    if maxProfit2 >= be_trigger_pct
+        stopLossLevel2 := math.max(stopLossLevel2, entryPrice2 * 1.01)
+
+if not na(stopProfitLevel1) and ta.crossunder(close, stopProfitLevel1) and barstate.isconfirmed
+    entryPrice1 := na, stopLossLevel1 := na, stopProfitLevel1 := na, highest1 := na, maxProfit1 := na
+
+if not na(stopLossLevel1) and ta.crossunder(close, stopLossLevel1) and barstate.isconfirmed
+    entryPrice1 := na, stopLossLevel1 := na, stopProfitLevel1 := na, highest1 := na, maxProfit1 := na
+
+if not na(stopProfitLevel2) and ta.crossunder(close, stopProfitLevel2) and barstate.isconfirmed
+    entryPrice2 := na, stopLossLevel2 := na, stopProfitLevel2 := na, highest2 := na, maxProfit2 := na
+
+if not na(stopLossLevel2) and ta.crossunder(close, stopLossLevel2) and barstate.isconfirmed
+    entryPrice2 := na, stopLossLevel2 := na, stopProfitLevel2 := na, highest2 := na, maxProfit2 := na
+
+plot(show_help_line and not na(entryPrice1) ? stopLossLevel1   : na, title="一买止损线", color=color.purple, style=plot.style_linebr, linewidth=2)
+plot(show_help_line and not na(entryPrice1) ? stopProfitLevel1 : na, title="一买止盈线", color=color.blue,   style=plot.style_linebr, linewidth=2)
+plot(show_help_line and not na(entryPrice2) ? stopLossLevel2   : na, title="二买止损线", color=color.red,    style=plot.style_linebr, linewidth=2)
+plot(show_help_line and not na(entryPrice2) ? stopProfitLevel2 : na, title="二买止盈线", color=color.orange, style=plot.style_linebr, linewidth=2)
+
+// ==================== 15. 🧭 传导拓扑自洽战术指令仲裁引擎 ====================
+string final_tactical_guide = ""
+color  tactical_guide_bg    = color.yellow
+color  tactical_guide_fg    = color.black
+
+// 1. 持仓追踪状态仲裁 (持仓优先)
+if not na(entryPrice1) or not na(entryPrice2)
+    if path_id_D == 4
+        final_tactical_guide := "🚨 [破位熔断·持仓] 全市场力场同步坍塌 ➔ 坚决禁止加仓，分批锁利，严格执行止损线！"
+        tactical_guide_bg    := color.maroon
+        tactical_guide_fg    := color.white
+    else if path_id_D == 2
+        final_tactical_guide := "🚨 [临界扩散·持仓] 暗流已侵蚀现货广度 ➔ 上移移动止盈至保本线，禁止加仓，防范全面破位。"
+        tactical_guide_bg    := color.maroon
+        tactical_guide_fg    := color.white
+    else if path_id_D == 1
+        final_tactical_guide := "🛡️ [跨市场暗流·持仓] 期权/信用异动 ➔ 紧盯移动止盈线，推高保本锁，防范洗盘。"
+        tactical_guide_bg    := color.orange
+        tactical_guide_fg    := color.white
+    else if path_id_D == 3
+        final_tactical_guide := "🟡 [微观漂移·持仓] 放量滞涨分化 ➔ 依托支撑线保护利润，勿盲目加杠杆。"
+        tactical_guide_bg    := color.yellow
+        tactical_guide_fg    := color.black
+    else
+        final_tactical_guide := "🚀 [顺势主升·持仓] 宏观多头顺风共振 ➔ 依托 Vegas 与移动止盈线放大利润！"
+        tactical_guide_bg    := color.teal
+        tactical_guide_fg    := color.white
+
+// 2. 买点触发仲裁 (空仓状态下出现信号)
+else if (buy1_signal or buy2_signal) and rsi_ok
+    if path_id_D == 4 or path_id_D == 2
+        final_tactical_guide := "🚨 [拓扑高危·冻结] 虽然出现技术底背离点火，但宏观处于临界扩散/破位态 ➔ 严禁抄底接飞刀！"
+        tactical_guide_bg    := color.maroon
+        tactical_guide_fg    := color.white
+    else if path_id_D == 1
+        final_tactical_guide := "⚠️ [逆风试错·轻仓] 跨市场暗流环境下买点点火 ➔ 严格轻仓防守性试错，破止损果断离场！"
+        tactical_guide_bg    := color.orange
+        tactical_guide_fg    := color.white
+    else
+        final_tactical_guide := buy1_signal ? "⚡ [一买触发·共振] 宏观环境健康 + 左侧背离确认 ➔ 按标准风控执行建仓！" : "⚡ [二买触发·共振] 宏观环境健康 + 二次底分型确认 ➔ 按标准风控执行建仓！"
+        tactical_guide_bg    := color.yellow
+        tactical_guide_fg    := color.black
+
+// 3. 常态波段与形态仲裁 (无信号、空仓状态)
+else
+    if path_id_D == 4 or path_id_D == 2
+        final_tactical_guide := "🚨 [拓扑高危·空仓] 宏观风险正在向现货扩散 ➔ 强制冻结所有多头买点与低吸，保持防御！"
+        tactical_guide_bg    := color.maroon
+        tactical_guide_fg    := color.white
+    else if path_id_D == 1
+        if is_stage_a
+            final_tactical_guide := "⚠️ [逆风顺势·防诱多] 个股处于突破带，但大盘暗流涌动 ➔ 警惕假突破，禁止追高，仅限回踩低吸。"
+            tactical_guide_bg    := color.orange
+            tactical_guide_fg    := color.white
+        else if is_stage_c
+            final_tactical_guide := "❌ [高位防守] 个股已高位延伸 + 大盘暗流 ➔ 坚决分批止盈降低敞口！"
+            tactical_guide_bg    := color.maroon
+            tactical_guide_fg    := color.white
+        else if is_stage_d
+            final_tactical_guide := "📉 [空头观望] 个股破位 + 大盘承压 ➔ 双重死叉态，禁止任何抄底行为！"
+            tactical_guide_bg    := color.maroon
+            tactical_guide_fg    := color.white
+        else
+            final_tactical_guide := "⚠️ [承压蓄势] 跨市场暗流隐现 ➔ 暂停激进建仓，仅在低吸下沿挂单轻仓试探。"
+            tactical_guide_bg    := color.orange
+            tactical_guide_fg    := color.white
+    else
+        if is_stage_c
+            final_tactical_guide := "❌ [右侧防御] 股价高位延伸远离成本线 (参考目标: $" + str.tostring(primary_target, "#.##") + ") ➔ 严禁追高，分批止盈！"
+            tactical_guide_bg    := color.maroon
+            tactical_guide_fg    := color.white
+        else if is_stage_d
+            final_tactical_guide := "📉 [空头防守] 趋势下行衰减 (压头线: $" + str.tostring(vwap_base90, "#.##") + ") ➔ 左侧观望，严禁抄底！"
+            tactical_guide_bg    := color.maroon
+            tactical_guide_fg    := color.white
+        else if is_stage_w
+            final_tactical_guide := "📊 [中性套利] 高波震荡箱体 ➔ 挂单: $" + str.tostring(close - 1.5 * current_atr, "#.##") + "(买) ~ $" + str.tostring(close - 0.2 * current_atr, "#.##") + "(卖)。"
+            tactical_guide_bg    := color.yellow
+            tactical_guide_fg    := color.black
+        else if is_stage_a
+            final_tactical_guide := "⚡ [右侧顺势] 黄金突破带成型 ➔ 突破追买 > $" + str.tostring(high52w_D, "#.##") + " | 关注低吸区间。"
+            tactical_guide_bg    := color.yellow
+            tactical_guide_fg    := color.black
+        else if is_stage_e
+            final_tactical_guide := "🕳️ [左侧逆向] 混沌筑底形态 ➔ 分批建立底仓带，耐心等待一买确认。"
+            tactical_guide_bg    := color.yellow
+            tactical_guide_fg    := color.black
+        else
+            final_tactical_guide := "🎯 [右侧中继] 箱体蓄势良性 ➔ 依托 Vegas 隧道与 ATR 弹性低吸区间分批布局。"
+            tactical_guide_bg    := color.yellow
+            tactical_guide_fg    := color.black
+
+// ==================== 16. 🧭 旗舰多模式 HUD 智能终端渲染 ====================
+get_table_pos(string p) =>
+    p == "右上 (Top Right)" ? position.top_right : p == "左上 (Top Left)" ? position.top_left : p == "右下 (Bottom Right)" ? position.bottom_right : position.bottom_left
+
+var table hudTable = na
+
+if show_table and barstate.islast
+    if not na(hudTable)
+        table.delete(hudTable)
+    
+    f_sz = hud_font_sz == "极大 (Normal)" ? size.normal : (hud_font_sz == "极小 (Tiny)" ? size.tiny : size.small)
+    
+    string eps_str = not na(eps_ttm) ? "$" + str.tostring(eps_ttm, "#.##") : "无/亏损"
+    string pe_str  = not na(current_pe) ? str.tostring(current_pe, "#.#") + "x" : "N/A"
+    string fund_base_str = "EPS: " + eps_str + " | PE: " + pe_str
+
+    string upside_txt = (upside_pct >= 0 ? "+" : "") + str.tostring(upside_pts, "#.##") + " (" + (upside_pct >= 0 ? "+" : "") + str.tostring(upside_pct, "#.#") + "%)"
+    color  upside_bg  = upside_pct >= 0 ? color.teal : color.maroon
+    string ws_txt = not na(wallstreet_target_avg) ? "$" + str.tostring(wallstreet_target_avg, "#.##") + " (" + (wallstreet_upside_pct >= 0 ? "+" : "") + str.tostring(wallstreet_upside_pct, "#.#") + "%)" : "数据未覆盖"
+    string vwap_txt = "$" + str.tostring(vwap_base90, "#.##") + " / $" + str.tostring(vwap_base250, "#.##")
+    string st_target_str = "$" + str.tostring(target_atr_st, "#.##") + " (" + squeeze_str + ")"
+
+    string buy_state_str = "⚪ 暂无持仓"
+    color  buy_state_bg  = color.gray
+    if not na(entryPrice1)
+        float cur_pnl1 = (close - entryPrice1) / entryPrice1 * 100.0
+        buy_state_str := "❤️ 一买持仓 (" + (cur_pnl1 >= 0 ? "+" : "") + str.tostring(cur_pnl1, "#.#") + "%)"
+        buy_state_bg  := cur_pnl1 >= 0 ? color.teal : color.maroon
+    else if not na(entryPrice2)
+        float cur_pnl2 = (close - entryPrice2) / entryPrice2 * 100.0
+        buy_state_str := "⭐️ 二买持仓 (" + (cur_pnl2 >= 0 ? "+" : "") + str.tostring(cur_pnl2, "#.#") + "%)"
+        buy_state_bg  := cur_pnl2 >= 0 ? color.teal : color.maroon
+    else if buy1_signal
+        buy_state_str := rsi_ok ? "🔥 ❤️ 一买建仓触发" : "⚠️ 一买成型 (RSI<30阻断)"
+        buy_state_bg  := rsi_ok ? color.teal : color.gray
+    else if buy2_signal
+        buy_state_str := rsi_ok ? "🔥 ⭐️ 二买建仓触发" : "⚠️ 二买成型 (RSI<30阻断)"
+        buy_state_bg  := rsi_ok ? color.orange : color.gray
+
+    string risk_info_str = "⚪ 暂无持仓 (空仓观望)"
+    color  risk_bg       = color.gray
+    if not na(entryPrice1)
+        risk_info_str := "止损: $" + str.tostring(stopLossLevel1, "#.##") + " | 止盈: $" + str.tostring(stopProfitLevel1, "#.##")
+        risk_bg       := color.navy
+    else if not na(entryPrice2)
+        risk_info_str := "止损: $" + str.tostring(stopLossLevel2, "#.##") + " | 止盈: $" + str.tostring(stopProfitLevel2, "#.##")
+        risk_bg       := color.navy
+
+    color c_tbl_bg    = color.new(#0f172a, 10)
+    color c_frame     = color.new(#334155, 0)
+    color c_head_bg   = color.new(#1e293b, 0)
+    color c_label_bg  = color.new(#1e293b, 40)
+    color c_text_mut  = #94a3b8
+
+    // -------------------------------------------------------------
+    // 📱【分支 1：手机极简版 - 2 列 x 13 行】
+    // -------------------------------------------------------------
+    if hud_mode == "手机极简版 (Mobile Mini)"
+        hudTable := table.new(get_table_pos(table_pos_in), 2, 13, bgcolor=c_tbl_bg, frame_color=c_frame, frame_width=1, border_width=1, border_color=color.new(#334155, 50))
+        
+        table.cell(hudTable, 0, 0, "🧭 市场罗盘 (MPR)", text_color=color.yellow, text_size=f_sz, bgcolor=c_head_bg)
+        table.cell(hudTable, 1, 0, mpr_state_str, text_color=color.white, text_size=f_sz, bgcolor=mpr_state_bg)
+
+        table.cell(hudTable, 0, 1, "⚡ 宏观总决断", text_color=color.white, text_size=f_sz, bgcolor=macro_verdict_bg)
+        table.cell(hudTable, 1, 1, macro_verdict_str, text_color=color.white, text_size=f_sz, bgcolor=macro_verdict_bg)
+        
+        table.cell(hudTable, 0, 2, "🌪️ 传导拓扑路径", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 2, topo_path_str, text_color=color.white, text_size=f_sz, bgcolor=topo_path_bg)
+        
+        table.cell(hudTable, 0, 3, "🎯 领先/致险", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 3, top_stress_str, text_color=color.white, text_size=f_sz, bgcolor=color.maroon)
+        
+        table.cell(hudTable, 0, 4, "🌐 所属主线", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 4, sls_status_str, text_color=color.white, text_size=f_sz, bgcolor=sls_status_bg)
+        
+        table.cell(hudTable, 0, 5, "🎯 阶段/Hurst", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 5, stage_gate_str + " | " + hurst_status_str, text_color=color.white, text_size=f_sz, bgcolor=stage_gate_bg)
+        
+        table.cell(hudTable, 0, 6, "⚡ VCP/量能", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 6, vcp_nr7_str + " | " + vol_obv_status_str, text_color=color.white, text_size=f_sz, bgcolor=vcp_nr7_bg)
+        
+        table.cell(hudTable, 0, 7, "🎯 12M目标价", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 7, "$" + str.tostring(primary_target, "#.##") + " (" + upside_txt + ")", text_color=color.white, text_size=f_sz, bgcolor=upside_pct >= 0 ? color.purple : color.maroon)
+        
+        table.cell(hudTable, 0, 8, "🎯 回踩低吸带", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 8, dip_str, text_color=color.white, text_size=f_sz, bgcolor=dip_bg)
+        
+        table.cell(hudTable, 0, 9, "⚡ 买卖信号", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 9, buy_state_str, text_color=color.white, text_size=f_sz, bgcolor=buy_state_bg)
+        
+        table.cell(hudTable, 0, 10, "🏁 短线目标", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 10, st_target_str, text_color=color.white, text_size=f_sz, bgcolor=squeeze_mult > 1.0 ? color.purple : color.teal)
+        
+        table.cell(hudTable, 0, 11, "🛡️ 风控SL/TP", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 11, risk_info_str, text_color=color.white, text_size=f_sz, bgcolor=risk_bg)
+        
+        table.cell(hudTable, 0, 12, "💡 战术指令", text_color=tactical_guide_fg, text_size=f_sz, bgcolor=tactical_guide_bg)
+        table.cell(hudTable, 1, 12, final_tactical_guide, text_color=tactical_guide_fg, text_size=f_sz, bgcolor=tactical_guide_bg)
+
+    // -------------------------------------------------------------
+    // 🖥️【分支 2：标准简洁版 - 4 列 x 13 行】
+    // -------------------------------------------------------------
+    else if hud_mode == "标准简洁版 (Desktop Compact)"
+        hudTable := table.new(get_table_pos(table_pos_in), 4, 13, bgcolor=c_tbl_bg, frame_color=c_frame, frame_width=1, border_width=1, border_color=color.new(#334155, 50))
+        
+        table.cell(hudTable, 0, 0, "🧭 MARKETCOMPASS · 市场状态拓扑决策系统", text_color=color.yellow, text_size=f_sz, bgcolor=c_head_bg)
+        table.merge_cells(hudTable, 0, 0, 3, 0)
+
+        // 1: 宏观终极裁决
+        table.cell(hudTable, 0, 1, "⚡ 宏观总决断", text_color=color.white, text_size=f_sz, bgcolor=macro_verdict_bg)
+        table.cell(hudTable, 1, 1, macro_verdict_str, text_color=color.white, text_size=f_sz, bgcolor=macro_verdict_bg)
+        table.merge_cells(hudTable, 1, 1, 3, 1)
+
+        // 2: 宏观水温与相变
+        table.cell(hudTable, 0, 2, "MPR 大盘状态", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 2, mpr_state_str, text_color=color.white, text_size=f_sz, bgcolor=mpr_state_bg)
+        table.cell(hudTable, 2, 2, "传导拓扑路径", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 3, 2, topo_path_str, text_color=color.white, text_size=f_sz, bgcolor=topo_path_bg)
+
+        // 3: 领先吹哨与力场
+        table.cell(hudTable, 0, 3, "领先吹哨状态", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 3, lead_plain_str, text_color=color.white, text_size=f_sz, bgcolor=lead_plain_bg)
+        table.cell(hudTable, 2, 3, "首要致险力场", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 3, 3, top_stress_str, text_color=color.white, text_size=f_sz, bgcolor=color.maroon)
+
+        // 4: 领涨主线与所属行业
+        table.cell(hudTable, 0, 4, "领涨主线Top3", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 4, top3_mainlines_str, text_color=color.black, text_size=f_sz, bgcolor=color.yellow)
+        table.cell(hudTable, 2, 4, "本标的所属主线", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 3, 4, sls_status_str, text_color=color.white, text_size=f_sz, bgcolor=sls_status_bg)
+
+        // 5: 基本面底基与估值模式
+        table.cell(hudTable, 0, 5, "基本面底基", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 5, fund_base_str, text_color=color.white, text_size=f_sz, bgcolor=color.navy)
+        table.cell(hudTable, 2, 5, "动态估值引擎", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 3, 5, target_mode_str, text_color=color.black, text_size=f_sz, bgcolor=color.yellow)
+
+        // 6: 12M目标与空间
+        table.cell(hudTable, 0, 6, "12M 量化主目标", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 6, "$" + str.tostring(primary_target, "#.##"), text_color=color.white, text_size=size.normal, bgcolor=upside_pct >= 0 ? color.purple : color.maroon)
+        table.cell(hudTable, 2, 6, "12M 预期回报", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 3, 6, upside_txt, text_color=color.white, text_size=f_sz, bgcolor=upside_bg)
+
+        // 7: 趋势评分与RS
+        table.cell(hudTable, 0, 7, "10分制趋势评分", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 7, trend_score_str, text_color=color.white, text_size=f_sz, bgcolor=trend_score >= 7 ? color.teal : color.maroon)
+        table.cell(hudTable, 2, 7, "四周期RS评分", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 3, 7, str.tostring(dailyRSRating, "#0") + " 分 | " + rs_momentum_str, text_color=color.white, text_size=f_sz, bgcolor=dailyRSRating >= 75 ? color.teal : (dailyRSRating <= 45 ? color.maroon : color.navy))
+
+        // 8: 赫斯特分形与VCP
+        table.cell(hudTable, 0, 8, "赫斯特分形状态", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 8, hurst_status_str, text_color=color.white, text_size=f_sz, bgcolor=hurst_status_bg)
+        table.cell(hudTable, 2, 8, "波动收敛与NR7", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 3, 8, vcp_nr7_str, text_color=color.white, text_size=f_sz, bgcolor=vcp_nr7_bg)
+
+        // 9: 形态闸门与量能
+        table.cell(hudTable, 0, 9, "形态阶段闸门", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 9, stage_gate_str, text_color=color.white, text_size=f_sz, bgcolor=stage_gate_bg)
+        table.cell(hudTable, 2, 9, "量能与OBV筹码", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 3, 9, vol_obv_status_str, text_color=color.white, text_size=f_sz, bgcolor=vol_obv_status_bg)
+
+        // 10: VWAP与回踩买点
+        table.cell(hudTable, 0, 10, "机构VWAP(90/250)", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 10, vwap_txt, text_color=color.white, text_size=f_sz, bgcolor=color.navy)
+        table.cell(hudTable, 2, 10, "回踩低吸区间", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 3, 10, dip_str, text_color=color.white, text_size=f_sz, bgcolor=dip_bg)
+
+        // 11: 买卖信号与短线目标
+        table.cell(hudTable, 0, 11, "背离信号状态", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 11, buy_state_str, text_color=color.white, text_size=f_sz, bgcolor=buy_state_bg)
+        table.cell(hudTable, 2, 11, "短线目标(1-4W)", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 3, 11, st_target_str, text_color=color.white, text_size=f_sz, bgcolor=squeeze_mult > 1.0 ? color.purple : color.teal)
+
+        // 12: 战术核心指令
+        table.cell(hudTable, 0, 12, "战术执行指令", text_color=tactical_guide_fg, text_size=f_sz, bgcolor=tactical_guide_bg)
+        table.cell(hudTable, 1, 12, final_tactical_guide, text_color=tactical_guide_fg, text_size=f_sz, bgcolor=tactical_guide_bg)
+        table.merge_cells(hudTable, 1, 12, 3, 12)
+
+    // -------------------------------------------------------------
+    // 👑【分支 3：详细旗舰版 - 4 列 x 19 行全景矩阵】
+    // -------------------------------------------------------------
+    else
+        hudTable := table.new(get_table_pos(table_pos_in), 4, 19, bgcolor=c_tbl_bg, frame_color=c_frame, frame_width=1, border_width=1, border_color=color.new(#334155, 50))
+        
+        // 标题
+        table.cell(hudTable, 0, 0, "👑 MARKETCOMPASS · 市场状态估计与传导拓扑决策系统 (旗舰完全体)", text_color=color.yellow, text_size=f_sz, bgcolor=c_head_bg)
+        table.merge_cells(hudTable, 0, 0, 3, 0)
+
+        // 维度 1: 宏观状态估计与传导拓扑
+        table.cell(hudTable, 0, 1, "【 宏观状态估计与传导拓扑 】", text_color=color.yellow, text_size=f_sz, bgcolor=color.black)
+        table.cell(hudTable, 1, 1, "跨资产物理域状态与传导路径透视", text_color=c_text_mut, text_size=f_sz, bgcolor=color.black)
+        table.merge_cells(hudTable, 1, 1, 3, 1)
+
+        // 🌟 宏观终极裁决横幅
+        table.cell(hudTable, 0, 2, "⚡ 宏观总决断", text_color=color.white, text_size=f_sz, bgcolor=macro_verdict_bg)
+        table.cell(hudTable, 1, 2, macro_verdict_str, text_color=color.white, text_size=f_sz, bgcolor=macro_verdict_bg)
+        table.merge_cells(hudTable, 1, 2, 3, 2)
+
+        table.cell(hudTable, 0, 3, "MPR 大盘隐状态", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 3, mpr_state_str, text_color=color.white, text_size=f_sz, bgcolor=mpr_state_bg)
+        table.cell(hudTable, 2, 3, "风险传导拓扑路径", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 3, 3, topo_path_str, text_color=color.white, text_size=f_sz, bgcolor=topo_path_bg)
+
+        table.cell(hudTable, 0, 4, "领先吹哨状态", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 4, lead_plain_str, text_color=color.white, text_size=f_sz, bgcolor=lead_plain_bg)
+        table.cell(hudTable, 2, 4, "首要致险力场", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 3, 4, top_stress_str, text_color=color.white, text_size=f_sz, bgcolor=color.maroon)
+
+        table.cell(hudTable, 0, 5, "前沿衍生品域(F2)", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 5, f2_plain_str, text_color=color.white, text_size=f_sz, bgcolor=f2_plain_bg)
+        table.cell(hudTable, 2, 5, "宏观信用流动性(F4)", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 3, 5, f4_plain_str, text_color=color.white, text_size=f_sz, bgcolor=f4_plain_bg)
+
+        // 维度 2: 行业时钟与基本面估值
+        table.cell(hudTable, 0, 6, "【 行业主线与基本面 】", text_color=color.yellow, text_size=f_sz, bgcolor=color.black)
+        table.cell(hudTable, 1, 6, target_archetype_str, text_color=c_text_mut, text_size=f_sz, bgcolor=color.black)
+        table.merge_cells(hudTable, 1, 6, 3, 6)
+
+        table.cell(hudTable, 0, 7, "领涨主线 Top 3", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 7, top3_mainlines_str, text_color=color.black, text_size=f_sz, bgcolor=color.yellow)
+        table.cell(hudTable, 2, 7, "资金回流板块", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 3, 7, bottoming_secs_str, text_color=color.white, text_size=f_sz, bgcolor=color.purple)
+
+        table.cell(hudTable, 0, 8, "本标的所属主线", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 8, sls_status_str, text_color=color.white, text_size=f_sz, bgcolor=sls_status_bg)
+        table.cell(hudTable, 2, 8, "基本面底基", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 3, 8, fund_base_str, text_color=color.white, text_size=f_sz, bgcolor=color.navy)
+
+        table.cell(hudTable, 0, 9, "动态估值引擎模式", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 9, target_mode_str, text_color=color.black, text_size=f_sz, bgcolor=color.yellow)
+        table.cell(hudTable, 2, 9, "华尔街平均共识", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 3, 9, ws_txt, text_color=color.white, text_size=f_sz, bgcolor=color.navy)
+
+        table.cell(hudTable, 0, 10, "12M 量化主目标价", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 10, "$" + str.tostring(primary_target, "#.##"), text_color=color.white, text_size=size.large, bgcolor=upside_pct >= 0 ? color.purple : color.maroon)
+        table.cell(hudTable, 2, 10, "12M 预期回报空间", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 3, 10, upside_txt, text_color=color.white, text_size=size.normal, bgcolor=upside_bg)
+
+        // 维度 3: 趋势、分形与量能微观
+        table.cell(hudTable, 0, 11, "【 趋势分形与微观量能 】", text_color=color.yellow, text_size=f_sz, bgcolor=color.black)
+        table.cell(hudTable, 1, 11, "量价行为与微观筹码结构", text_color=c_text_mut, text_size=f_sz, bgcolor=color.black)
+        table.merge_cells(hudTable, 1, 11, 3, 11)
+
+        table.cell(hudTable, 0, 12, "10分制趋势评分", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 12, trend_score_str, text_color=color.white, text_size=f_sz, bgcolor=trend_score >= 7 ? color.teal : color.maroon)
+        table.cell(hudTable, 2, 12, "四周期 RS 动能评分", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 3, 12, str.tostring(dailyRSRating, "#0") + " 分 | " + rs_momentum_str, text_color=color.white, text_size=f_sz, bgcolor=dailyRSRating >= 75 ? color.teal : (dailyRSRating <= 45 ? color.maroon : color.navy))
+
+        table.cell(hudTable, 0, 13, "赫斯特分形状态", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 13, hurst_status_str, text_color=color.white, text_size=f_sz, bgcolor=hurst_status_bg)
+        table.cell(hudTable, 2, 13, "波动极限收缩(VCP)", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 3, 13, vcp_nr7_str, text_color=color.white, text_size=f_sz, bgcolor=vcp_nr7_bg)
+
+        table.cell(hudTable, 0, 14, "形态阶段闸门", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 14, stage_gate_str, text_color=color.white, text_size=f_sz, bgcolor=stage_gate_bg)
+        table.cell(hudTable, 2, 14, "量能与OBV筹码", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 3, 14, vol_obv_status_str, text_color=color.white, text_size=f_sz, bgcolor=vol_obv_status_bg)
+
+        // 维度 4: 战术买卖点与动态风控
+        table.cell(hudTable, 0, 15, "【 战术买卖与动态风控 】", text_color=color.yellow, text_size=f_sz, bgcolor=color.black)
+        table.cell(hudTable, 1, 15, "左侧逆向/右侧波段执行", text_color=c_text_mut, text_size=f_sz, bgcolor=color.black)
+        table.merge_cells(hudTable, 1, 15, 3, 15)
+
+        table.cell(hudTable, 0, 16, "机构VWAP(90/250)", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 16, vwap_txt, text_color=color.white, text_size=f_sz, bgcolor=color.navy)
+        table.cell(hudTable, 2, 16, "右侧回踩低吸带", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 3, 16, dip_str, text_color=color.white, text_size=f_sz, bgcolor=dip_bg)
+
+        table.cell(hudTable, 0, 17, "背离信号状态", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 17, buy_state_str, text_color=color.white, text_size=f_sz, bgcolor=buy_state_bg)
+        table.cell(hudTable, 2, 17, "短线目标(1-4W)", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 3, 17, st_target_str, text_color=color.white, text_size=f_sz, bgcolor=squeeze_mult > 1.0 ? color.purple : color.teal)
+
+        table.cell(hudTable, 0, 18, "持仓移动风控SL/TP", text_color=c_text_mut, text_size=f_sz, bgcolor=c_label_bg)
+        table.cell(hudTable, 1, 18, risk_info_str, text_color=color.white, text_size=f_sz, bgcolor=risk_bg)
+        table.cell(hudTable, 2, 18, "战术指令", text_color=tactical_guide_fg, text_size=f_sz, bgcolor=tactical_guide_bg)
+        table.cell(hudTable, 3, 18, final_tactical_guide, text_color=tactical_guide_fg, text_size=f_sz, bgcolor=tactical_guide_bg)

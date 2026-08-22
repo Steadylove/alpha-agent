@@ -8,11 +8,16 @@ export type StockPanelRow = {
   close: number;
   rs: number;
   rsAccelerating: boolean;
+  /** MPR 口径的 4Q-Alpha 评分，驱动原版实战指引的弱势分支 */
+  mprAlphaRs: number;
+  inShortDowntrend: boolean;
   trendScore: number;
   stage: string;
   baseTier: string;
   baseDays: number;
   distFrom52wHigh: number;
+  /** 布林带宽 / 肯特纳带宽，>1.35 触发 Stage W 高波震荡 */
+  squeezeRatio: number;
   hurstReturn: number;
   hurstReturnRegime: string;
   hurstPrice: number;
@@ -42,6 +47,26 @@ export type StockPanelRow = {
   tacticalAction: string;
   tacticalTone: string;
   tacticalLayer: string;
+  /** 12M 估值引擎输出；基本面缺失或估值任务未跑时为 null */
+  valuation: StockValuationCell | null;
+};
+
+/** 12M 动态估值引擎的面板投影，对齐 MarketCompass Pine 第 479~578 行。 */
+export type StockValuationCell = {
+  primaryTarget: number;
+  upsidePct: number;
+  mode: string;
+  archetype: string;
+  consensusSmoothed: boolean;
+  currentPe: number | null;
+  calculatedPe: number | null;
+  marketCapB: number | null;
+  isDipActive: boolean;
+  /** 轧空短线目标价。缺 short interest 数据源，实为 close + 2×ATR */
+  shortTermTarget: number;
+  squeezeTier: string;
+  isInLongDowntrend: boolean;
+  isHyperMomentum: boolean;
 };
 
 export type SectorClockRow = {
@@ -57,6 +82,10 @@ export type SectorClockRow = {
 
 export type StockPanelData = {
   latestDate: string | null;
+  /** 估值任务独立调度，日期可能落后于面板快照 */
+  valuationDate: string | null;
+  /** 当日 MPR 传导路径，原版实战指引按它分支 */
+  pathId: number | null;
   rows: StockPanelRow[];
   /** 各形态阶段的当日标的数，按 A→B→W→E→D→C 排列。 */
   stageCounts: { stage: string; count: number }[];
@@ -69,6 +98,41 @@ export type StockPanelData = {
 
 const STAGE_ORDER = ["A", "B", "W", "E", "D", "C"];
 
+type StockValuationRow = {
+  primaryTarget: number;
+  upsidePct: number;
+  mode: string;
+  archetype: string;
+  consensusSmoothed: boolean;
+  currentPe: number | null;
+  calculatedPe: number | null;
+  marketCapB: number | null;
+  isDipActive: boolean;
+  shortTermTarget: number;
+  squeezeTier: string;
+  isInLongDowntrend: boolean;
+  isHyperMomentum: boolean;
+};
+
+function valuationCell(v: StockValuationRow | undefined): StockValuationCell | null {
+  if (!v) return null;
+  return {
+    primaryTarget: v.primaryTarget,
+    upsidePct: v.upsidePct,
+    mode: v.mode,
+    archetype: v.archetype,
+    consensusSmoothed: v.consensusSmoothed,
+    currentPe: v.currentPe,
+    calculatedPe: v.calculatedPe,
+    marketCapB: v.marketCapB,
+    isDipActive: v.isDipActive,
+    shortTermTarget: v.shortTermTarget,
+    squeezeTier: v.squeezeTier,
+    isInLongDowntrend: v.isInLongDowntrend,
+    isHyperMomentum: v.isHyperMomentum,
+  };
+}
+
 /**
  * 读取 stock-panel 任务落库的个股快照。
  *
@@ -79,6 +143,8 @@ export async function getStockPanelData(): Promise<StockPanelData> {
   const universeSize = ROTATION_UNIVERSE.length;
   const empty: StockPanelData = {
     latestDate: null,
+    valuationDate: null,
+    pathId: null,
     rows: [],
     stageCounts: [],
     sectorClock: [],
@@ -94,10 +160,18 @@ export async function getStockPanelData(): Promise<StockPanelData> {
   const newest = await prisma.stockPanelState.findFirst({ orderBy: { date: "desc" } });
   if (!newest) return empty;
 
-  const [states, clock] = await Promise.all([
+  const [states, clock, newestValuation, phase] = await Promise.all([
     prisma.stockPanelState.findMany({ where: { date: newest.date } }),
     prisma.sectorClockState.findMany({ where: { date: newest.date }, orderBy: { rank: "asc" } }),
+    // 估值任务与面板任务独立调度，取各自最新的一天而非强制同日
+    prisma.stockValuation.findFirst({ orderBy: { date: "desc" }, select: { date: true } }),
+    prisma.macroPhaseState.findFirst({ orderBy: { date: "desc" }, select: { pathId: true } }),
   ]);
+
+  const valuations = newestValuation
+    ? await prisma.stockValuation.findMany({ where: { date: newestValuation.date } })
+    : [];
+  const valuationBySymbol = new Map(valuations.map((v) => [v.symbol, v]));
   const nameBySymbol = new Map(ROTATION_UNIVERSE.map((t) => [t.symbol, t.name]));
   const sectorNameById = new Map(SECTOR_UNIVERSE.map((s) => [s.id as string, s.name]));
 
@@ -108,11 +182,14 @@ export async function getStockPanelData(): Promise<StockPanelData> {
       close: s.close,
       rs: s.rs,
       rsAccelerating: s.rsAccelerating,
+      mprAlphaRs: s.mprAlphaRs,
+      inShortDowntrend: s.inShortDowntrend,
       trendScore: s.trendScore,
       stage: s.stage,
       baseTier: s.baseTier,
       baseDays: s.baseDays,
       distFrom52wHigh: s.distFrom52wHigh,
+      squeezeRatio: s.squeezeRatio,
       hurstReturn: s.hurstReturn,
       hurstReturnRegime: s.hurstReturnRegime,
       hurstPrice: s.hurstPrice,
@@ -142,6 +219,7 @@ export async function getStockPanelData(): Promise<StockPanelData> {
       tacticalAction: s.tacticalAction,
       tacticalTone: s.tacticalTone,
       tacticalLayer: s.tacticalLayer,
+      valuation: valuationCell(valuationBySymbol.get(s.symbol)),
     }))
     .sort((a, b) => b.rs - a.rs);
 
@@ -152,6 +230,8 @@ export async function getStockPanelData(): Promise<StockPanelData> {
 
   return {
     latestDate: newest.date.toISOString().slice(0, 10),
+    valuationDate: newestValuation?.date.toISOString().slice(0, 10) ?? null,
+    pathId: phase?.pathId ?? null,
     rows,
     stageCounts,
     sectorClock: clock.map((c) => ({

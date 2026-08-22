@@ -6,7 +6,7 @@ import { relativeRsSeries } from "@/lib/scoring/relativeRs";
 import { ROTATION_UNIVERSE } from "@/lib/scoring/rotationUniverse";
 import { atrSeries, emaSeries, smaOfNullable } from "@/lib/scoring/series";
 import { computeStockRegimeSeries, type RegimeBar } from "@/lib/scoring/stockRegime";
-import { computeStockStageSeries, institutionalVwap } from "@/lib/scoring/stockStage";
+import { computeStockStageSeries, dipStageOf, institutionalVwap } from "@/lib/scoring/stockStage";
 
 /**
  * 在真实数据上跑一遍个股深度面板的全部引擎，产出各分类字段的分布。
@@ -124,7 +124,7 @@ async function main() {
       const zone = computeDipZone({
         close: aligned[i].close,
         atr: atr252[i] ?? 0,
-        stage: stage.stage,
+        stage: dipStageOf(stage.flags),
         trendScore: stage.trendScore,
         volumeRatio: regime.volumeRatio,
         pathId: 0,

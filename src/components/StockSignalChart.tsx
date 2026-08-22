@@ -22,6 +22,10 @@ const BUY1 = "#ff4976";
 const BUY2 = "#fbbf24";
 const STOP = "#f23645";
 const TRAIL = "#a855f7";
+/** Vegas 隧道：过滤线 + A 组中期成本带 + B 组长期成本带 */
+const VEGAS_FILTER = "#52525b";
+const VEGAS_A = "#0ea5e9";
+const VEGAS_B = "#6366f1";
 
 /**
  * 把一条含空洞的序列切成若干连续持仓段。
@@ -101,6 +105,28 @@ export function StockSignalChart({ data }: { data: StockSignalChartData }) {
         color: c.close >= c.open ? `${UP}55` : `${DOWN}55`,
       })),
     );
+
+    // Vegas 隧道先画，压在防线与 K 线之下。lightweight-charts 没有两线间填充，
+    // 因此用同色的两条边界线表达通道，而非 Pine 的 fill() 底色。
+    for (const tunnel of [
+      { key: "filter" as const, color: VEGAS_FILTER },
+      { key: "a1" as const, color: VEGAS_A },
+      { key: "a2" as const, color: VEGAS_A },
+      { key: "b1" as const, color: VEGAS_B },
+      { key: "b2" as const, color: VEGAS_B },
+    ]) {
+      const points = data.vegas.map((p) => ({ time: p.time, value: p[tunnel.key] }));
+      for (const seg of segments(points)) {
+        const series = chart.addSeries(LineSeries, {
+          color: tunnel.color,
+          lineWidth: 1,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+        });
+        series.setData(seg);
+      }
+    }
 
     // 两个仓位槽各画两条防线：硬止损（红）与移动止损（紫，Pine 里误名为「止盈线」）。
     const lines: { points: { time: string; value: number | null }[]; color: string; dashed: boolean }[] = [
@@ -191,6 +217,14 @@ export function StockSignalChart({ data }: { data: StockSignalChartData }) {
         <Group gap={6}>
           <span className="inline-block h-px w-4" style={{ background: TRAIL }} />
           <Text size="xs" c="dimmed">移动止损 5.5 → 3.8 → 2.8 ×ATR（跟随最高价上抬）</Text>
+        </Group>
+        <Group gap={6}>
+          <span className="inline-block h-px w-4" style={{ background: VEGAS_A }} />
+          <Text size="xs" c="dimmed">Vegas A 组 EMA144/169（中期成本带）</Text>
+        </Group>
+        <Group gap={6}>
+          <span className="inline-block h-px w-4" style={{ background: VEGAS_B }} />
+          <Text size="xs" c="dimmed">Vegas B 组 EMA576/676（长期成本带）</Text>
         </Group>
         <Text size="xs" c="dimmed">实线为一买槽，虚线为二买槽</Text>
         <Text size="xs" c="dimmed">跌破两条中任意一条即离场，故生效的是更高的那条</Text>

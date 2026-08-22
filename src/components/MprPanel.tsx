@@ -3,6 +3,12 @@
 import { Card } from "@/components/Card";
 import type { MacroPhaseSnapshot } from "@/lib/dashboard/mpr";
 import {
+  actionText,
+  pathTopology,
+  topRiskFactors,
+  transitionGrade,
+} from "@/lib/scoring/mprGuidance";
+import {
   Alert,
   Group,
   Popover,
@@ -160,6 +166,93 @@ function ForceBar({ force, day }: { force: ForceDef; day: MacroPhaseSnapshot }) 
   );
 }
 
+/** Pine 的 σ 分级：压力分位跨过 50 记异动、跨过 75 记极端。 */
+const SIGMA_LABEL: Record<number, string> = { 0: "静", 1: "异动", 2: "极端" };
+
+const TONE_COLOR: Record<string, string> = {
+  positive: "teal",
+  caution: "yellow",
+  warning: "orange",
+  danger: "red",
+};
+
+/**
+ * Pine 第 246~289 行的实战指引与致险因子排序。
+ *
+ * 这是原版口径，会直接给方向与仓位。项目自己的校准判读（mprReading）刻意不给，
+ * 因为 3928 日回测显示路径分级对 5 日方向没有预测力。两者并列展示，标签写清来源。
+ */
+function GuidanceCard({ day }: { day: MacroPhaseSnapshot }) {
+  const topo = pathTopology(day.pathId);
+  const trans = transitionGrade(day.pathId);
+  const top = topRiskFactors(day);
+  const act = actionText(day.pathId);
+
+  return (
+    <Card
+      title={
+        <Stack gap={2}>
+          <Text size="sm" fw={700} c="gray.1">
+            原版实战指引
+          </Text>
+          <Text size="xs" c="dimmed">
+            按原始策略的口径直译 · 本项目的历史校准并不支持据此判断方向，仅作对照
+          </Text>
+        </Stack>
+      }
+    >
+      <Stack gap="sm">
+        <Text size="sm" fw={600} c={`${TONE_COLOR[topo.tone]}.4`}>
+          {act}
+        </Text>
+
+        <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="sm">
+          <Stack gap={2}>
+            <Text size="xs" c="dimmed">
+              拓扑判定
+            </Text>
+            <Text size="xs" c={`${TONE_COLOR[topo.tone]}.4`} fw={500}>
+              {topo.label}
+            </Text>
+          </Stack>
+          <Stack gap={2}>
+            <Text size="xs" c="dimmed">
+              相变分级
+            </Text>
+            <Text size="xs" c={`${TONE_COLOR[trans.tone]}.4`} fw={500}>
+              {trans.label}
+            </Text>
+            <Text size="xs" c="dimmed">
+              {trans.desc}
+            </Text>
+          </Stack>
+          <Stack gap={2}>
+            <Text size="xs" c="dimmed">
+              建议总敞口
+            </Text>
+            <Text size="xs" c="gray.2" fw={500} ff="monospace">
+              {topo.exposureText}
+            </Text>
+          </Stack>
+        </SimpleGrid>
+
+        <Stack gap={2}>
+          <Text size="xs" c="dimmed">
+            当前压力最高的两个力场
+          </Text>
+          <Group gap="xs">
+            {top.map((f) => (
+              <Text key={f.name} size="xs" c="gray.2" ff="monospace">
+                {f.name} {f.value.toFixed(1)}%
+              </Text>
+            ))}
+          </Group>
+        </Stack>
+      </Stack>
+    </Card>
+  );
+}
+
 function Stat({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
     <Group justify="space-between">
@@ -192,7 +285,8 @@ export function MprPanel({
   const path = PATH_META[latest.pathId];
 
   return (
-    <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="lg">
+    <Stack gap="lg">
+      <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="lg">
       <Card
         title={
           <Stack gap={2}>
@@ -251,6 +345,13 @@ export function MprPanel({
               </Stack>
             </ClickPopover>
 
+            <Stat
+              label="5 日下跌概率"
+              value={`${latest.prob5dDown.toFixed(1)}%`}
+              color={
+                latest.prob5dDown >= 60 ? "red.4" : latest.prob5dDown >= 45 ? "orange.4" : undefined
+              }
+            />
             <Stat label="现货破坏度" value={`${latest.spyDamage.toFixed(1)}%`} />
             <Stat
               label="领先质量分"
@@ -269,6 +370,21 @@ export function MprPanel({
             <Stat
               label="三域压力 (Vol/Cred/Spot)"
               value={`${latest.domVol.toFixed(0)} / ${latest.domCred.toFixed(0)} / ${latest.domSpot.toFixed(0)}`}
+            />
+            <Stat
+              label="三域异动分级"
+              value={`${SIGMA_LABEL[latest.sigmaVol]} / ${SIGMA_LABEL[latest.sigmaCred]} / ${SIGMA_LABEL[latest.sigmaSpot]}`}
+              color={
+                Math.max(latest.sigmaVol, latest.sigmaCred, latest.sigmaSpot) >= 2
+                  ? "red.4"
+                  : Math.max(latest.sigmaVol, latest.sigmaCred, latest.sigmaSpot) >= 1
+                    ? "orange.4"
+                    : undefined
+              }
+            />
+            <Stat
+              label="耦合率 / 传导深度"
+              value={`${latest.couplingRatio.toFixed(3)} / T${latest.transDepth}`}
             />
           </Stack>
         </div>
@@ -292,6 +408,9 @@ export function MprPanel({
           ))}
         </Stack>
       </Card>
-    </SimpleGrid>
+      </SimpleGrid>
+
+      <GuidanceCard day={latest} />
+    </Stack>
   );
 }

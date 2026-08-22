@@ -86,6 +86,11 @@ const toRow = (day: MprDay) => ({
   leadPersist: day.leadPersist,
   leadQuality: day.leadQuality,
   transVel: day.transVel,
+  transDepth: day.transDepth,
+  couplingRatio: day.couplingRatio,
+  sigmaVol: day.sigmaVol,
+  sigmaCred: day.sigmaCred,
+  sigmaSpot: day.sigmaSpot,
 });
 
 export async function runMacroPhaseJob(): Promise<MacroPhaseJobResult> {

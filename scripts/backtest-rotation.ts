@@ -4,6 +4,7 @@ import { getPrisma } from "@/lib/db/prisma";
 import { computeLogMacdSeries } from "@/lib/scoring/logMacd";
 import { rotationRsSeries } from "@/lib/scoring/rotationRs";
 import {
+  DEFAULT_TRADE_PARAMS,
   computeRotationTrades,
   type ClosedTrade,
   type TradeBar,
@@ -93,7 +94,10 @@ async function main() {
   for (const minRs of GATES) {
     const all: ClosedTrade[] = [];
     for (const p of precomputed) {
-      const { closed } = computeRotationTrades(p.symbol, p.bars, p.buy1, p.buy2, p.rs, { minRs });
+      const { closed } = computeRotationTrades(p.symbol, p.bars, p.buy1, p.buy2, p.rs, {
+        ...DEFAULT_TRADE_PARAMS,
+        minRs,
+      });
       all.push(...closed);
     }
 

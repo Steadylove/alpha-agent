@@ -1,5 +1,6 @@
 import { ROTATION_UNIVERSE } from "@/lib/scoring/rotationUniverse";
 import { computeLogMacdSeries } from "@/lib/scoring/logMacd";
+import { emaSeries } from "@/lib/scoring/series";
 import { computeStockRisk, type ClosedRiskTrade } from "@/lib/scoring/stockRisk";
 
 export type Candle = {
@@ -14,6 +15,21 @@ export type Candle = {
 
 /** 某个仓位槽在某一根上的两条防线，空仓为 null。 */
 export type StopPoint = { time: string; stop: number | null; trail: number | null };
+
+/**
+ * Vegas 隧道，对齐 MarketCompass Pine 第 77~91 行。
+ *
+ * 过滤线 EMA12 加两条通道：A 组 EMA144/169 是中期成本带，
+ * B 组 EMA576/676 是长期成本带。Pine 用 `fill()` 给两条通道上底色。
+ */
+export type VegasPoint = {
+  time: string;
+  filter: number | null;
+  a1: number | null;
+  a2: number | null;
+  b1: number | null;
+  b2: number | null;
+};
 
 export type SignalMarker = {
   time: string;
@@ -46,6 +62,7 @@ export type StockSignalChartData = {
   markers: SignalMarker[];
   buy1Stops: StopPoint[];
   buy2Stops: StopPoint[];
+  vegas: VegasPoint[];
   trades: TradeRow[];
   /** 当前仍持有的槽。 */
   openSlots: { slot: "buy1" | "buy2"; entryPrice: number; stop: number; trail: number; pnlPct: number }[];
@@ -56,6 +73,9 @@ export type StockSignalChartData = {
 
 /** 图表窗口。信号本身在全历史上推进，这里只决定画多少。 */
 const WINDOW_DAYS = 900;
+
+/** Pine 第 78~82 行的 v_a~v_e 默认值：过滤线、A 组通道、B 组通道。 */
+const VEGAS_LENGTHS = [12, 144, 169, 576, 676] as const;
 
 /**
  * 取单只标的的 K 线，并把一买/二买信号与双槽风控还原成图表序列。
@@ -92,6 +112,10 @@ export async function getStockSignalChart(symbol: string): Promise<StockSignalCh
     signals.map((d) => d.buy2),
   );
 
+  // Vegas 隧道同样要全历史预热：EMA676 在窗口内起算会偏离真实值
+  const closes = rows.map((r) => r.close);
+  const vegasEmas = VEGAS_LENGTHS.map((n) => emaSeries(closes, n));
+
   const iso = (i: number) => rows[i].date.toISOString().slice(0, 10);
   const start = Math.max(0, rows.length - WINDOW_DAYS);
   const inWindow = (i: number) => i >= start;
@@ -99,6 +123,7 @@ export async function getStockSignalChart(symbol: string): Promise<StockSignalCh
   const candles: Candle[] = [];
   const buy1Stops: StopPoint[] = [];
   const buy2Stops: StopPoint[] = [];
+  const vegas: VegasPoint[] = [];
   for (let i = start; i < rows.length; i += 1) {
     const r = rows[i];
     const time = iso(i);
@@ -119,6 +144,14 @@ export async function getStockSignalChart(symbol: string): Promise<StockSignalCh
       time,
       stop: days[i].buy2Slot.stopLossLevel,
       trail: days[i].buy2Slot.trailLevel,
+    });
+    vegas.push({
+      time,
+      filter: vegasEmas[0][i],
+      a1: vegasEmas[1][i],
+      a2: vegasEmas[2][i],
+      b1: vegasEmas[3][i],
+      b2: vegasEmas[4][i],
     });
   }
 
@@ -200,6 +233,7 @@ export async function getStockSignalChart(symbol: string): Promise<StockSignalCh
     markers,
     buy1Stops,
     buy2Stops,
+    vegas,
     trades: closed.filter((t) => inWindow(t.exitIndex)).map(toRow).reverse(),
     openSlots,
     windowDays: candles.length,

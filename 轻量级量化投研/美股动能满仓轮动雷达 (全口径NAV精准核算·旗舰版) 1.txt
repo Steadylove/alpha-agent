@@ -1,0 +1,412 @@
+//@version=5
+indicator("美股动能满仓轮动雷达 (全口径NAV精准核算·旗舰版)", overlay = true, max_bars_back = 1000)
+
+// ==================== 1. 看板与参数设置 ====================
+group_dashboard = "看板显示设置"
+show_radar      = input.bool(true,  "显示多标的雷达看板", group=group_dashboard)
+only_active     = input.bool(true,  "仅显示当前有持仓标的 (聚焦模式)", group=group_dashboard)
+radar_tf        = input.timeframe("D", "监控计算周期 (默认日线 D)", group=group_dashboard)
+stat_year       = input.int(2026,   "基金收益统计起始年份", group=group_dashboard)
+avg_slots       = input.int(8,      "历史平均满仓轮动标的数 (用于平仓收益标准分配)", minval=1, maxval=40, group=group_dashboard)
+table_pos       = input.string("Top Right", "看板屏幕位置", options=["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group=group_dashboard)
+
+// ⚡ RSI 过滤自由控制开关
+group_filters   = "开仓过滤设置"
+use_rsi_filter  = input.bool(false, "启用 RSI 强弱过滤 (关闭则纯形态点火)", group=group_filters)
+rsi_threshold   = input.int(30,     "RSI 过滤门槛 (RSI > 阈值才开仓)", minval=10, maxval=50, group=group_filters)
+
+// ==================== 2. 自选股列表配置 (40只美股原版精确录入) ====================
+group_t1 = "自选标的配置 (01 ~ 10)"
+t01 = input.symbol("NASDAQ:QQQ",  "标的 01", group=group_t1)
+t02 = input.symbol("NASDAQ:AAPL", "标的 02", group=group_t1)
+t03 = input.symbol("NASDAQ:NVDA", "标的 03", group=group_t1)
+t04 = input.symbol("NASDAQ:MSFT", "标的 04", group=group_t1)
+t05 = input.symbol("NASDAQ:META", "标的 05", group=group_t1)
+t06 = input.symbol("NASDAQ:AMZN", "标的 06", group=group_t1)
+t07 = input.symbol("NASDAQ:GOOG", "标的 07", group=group_t1)
+t08 = input.symbol("NASDAQ:AVGO", "标的 08", group=group_t1)
+t09 = input.symbol("NASDAQ:RKLB", "标的 09", group=group_t1)
+t10 = input.symbol("NYSE:IONQ",   "标的 10", group=group_t1)
+
+group_t2 = "自选标的配置 (11 ~ 20)"
+t11 = input.symbol("NYSE:ORCL",   "标的 11", group=group_t2)
+t12 = input.symbol("NASDAQ:TSLA", "标的 12", group=group_t2)
+t13 = input.symbol("NASDAQ:NBIS", "标的 13", group=group_t2)
+t14 = input.symbol("NASDAQ:MU",   "标的 14", group=group_t2)
+t15 = input.symbol("NASDAQ:IREN", "标的 15", group=group_t2)
+t16 = input.symbol("NASDAQ:INTC", "标的 16", group=group_t2)
+t17 = input.symbol("NYSE:CAT",    "标的 17", group=group_t2)
+t18 = input.symbol("NYSE:BE",     "标的 18", group=group_t2)
+t19 = input.symbol("NASDAQ:AMD",  "标的 19", group=group_t2)
+t20 = input.symbol("NASDAQ:LITE", "标的 20", group=group_t2)
+
+group_t3 = "自选标的配置 (21 ~ 30)"
+t21 = input.symbol("NYSE:TSM",    "标的 21", group=group_t3)
+t22 = input.symbol("NYSE:GEV",    "标的 22", group=group_t3)
+t23 = input.symbol("NASDAQ:CRWD", "标的 23", group=group_t3)
+t24 = input.symbol("NASDAQ:CRWV", "标的 24", group=group_t3)
+t25 = input.symbol("NASDAQ:DDOG", "标的 25", group=group_t3)
+t26 = input.symbol("NYSE:KO",     "标的 26", group=group_t3)
+t27 = input.symbol("NYSE:MRK",    "标的 27", group=group_t3)
+t28 = input.symbol("NASDAQ:IBIT", "标的 28", group=group_t3)
+t29 = input.symbol("NASDAQ:ASTS", "标的 29", group=group_t3)
+t30 = input.symbol("NASDAQ:PLTR", "标的 30", group=group_t3)
+
+group_t4 = "自选标的配置 (31 ~ 40)"
+t31 = input.symbol("NASDAQ:QCOM", "标的 31", group=group_t4)
+t32 = input.symbol("NYSE:VRT",    "标的 32", group=group_t4)
+t33 = input.symbol("NASDAQ:WMT",  "标的 33", group=group_t4)
+t34 = input.symbol("AMEX:GLD",    "标的 34", group=group_t4)
+t35 = input.symbol("NYSE:XOM",    "标的 35", group=group_t4)
+t36 = input.symbol("NASDAQ:HOOD", "标的 36", group=group_t4)
+t37 = input.symbol("NASDAQ:MRVL", "标的 37", group=group_t4)
+t38 = input.symbol("NYSE:GLW",    "标的 38", group=group_t4)
+t39 = input.symbol("NASDAQ:ALAB", "标的 39", group=group_t4)
+t40 = input.symbol("NYSE:NEM",    "标的 40", group=group_t4)
+
+// ==================== 3. 单标的形态识别与全周期收益核算 ====================
+f_eval_stock(int s_year, bool filter_rsi, int rsi_th) =>
+    dif = (ta.ema(close, 12) - ta.ema(close, 26)) * 100.0
+    dea = ta.ema(dif, 9)
+    macd = (dif - dea) * 2.0
+    
+    tp_p = math.max(close, open)
+    llv_p = ta.lowest(tp_p, 4)
+    tp_dea_u = dea > dea[1] and dea[2] > dea[1]
+    tpdu_d = ta.barssince(tp_dea_u[1])
+    dc = ta.cross(dea, dif) and dea[1] < dif[1]
+    dc_d1 = ta.barssince(dc)
+    cond_macd_n = macd < 0 and macd[1] < 0
+    
+    lv_c1 = ta.lowest(close, nz(dc_d1) + 1)
+    lv_c2 = lv_c1[dc_d1 + 1]
+    lv_c3 = lv_c2[dc_d1 + 1]
+    
+    lv_d1 = ta.lowest(dif, nz(dc_d1) + 1)
+    lv_d2 = lv_d1[dc_d1 + 1]
+    lv_d3 = lv_d2[dc_d1 + 1]
+    
+    log_ld2 = math.floor(math.log10(math.abs(lv_d2))) - 1
+    log_ld3 = math.floor(math.log10(math.abs(lv_d3))) - 1
+    
+    diff_dif_ld2 = math.floor(dif / math.pow(10, log_ld2))
+    diff_dif_ld3 = math.floor(dif / math.pow(10, log_ld3))
+    diff_llv_ld2 = math.floor(lv_d2 / math.pow(10, log_ld2))
+    diff_llv_ld3 = math.floor(lv_d3 / math.pow(10, log_ld3))
+    
+    btm_d_direct = cond_macd_n and diff_dif_ld2 > diff_llv_ld2 and diff_dif_ld2 <= diff_dif_ld2[1] and lv_c1 < lv_c2
+    btm_d_indirect = cond_macd_n and diff_dif_ld3 > diff_llv_ld3 and diff_dif_ld3 <= diff_dif_ld3[1] and lv_c1 < lv_c3 and lv_c3 < lv_c2
+    
+    cond_buy = (diff_dif_ld2 > diff_dif_ld2[1] and btm_d_direct[1]) or (diff_dif_ld3 > diff_dif_ld3[1] and btm_d_indirect[1])
+    cond_btm_psvn = btm_d_direct or btm_d_indirect
+    btm_d_dis = (btm_d_direct[1] and lv_d1 <= lv_d2) or (btm_d_indirect[1] and lv_d1 <= lv_d3)
+    
+    cond_psvn_dis = (ta.cross(dif, dea) and dif[1] < dea[1]) and ta.barssince(btm_d_dis) < ta.barssince(cond_btm_psvn) and ta.barssince(cond_btm_psvn) < dc_d1
+    cond_buy1 = cond_psvn_dis and (ta.ema(high, 24) < ta.ema(low, 90) or ta.ema(high, 24)[1] < ta.ema(low, 90)[1])
+    
+    buy1_sig = ta.barssince(cond_buy[1]) > 10 and cond_buy
+    buy2_sig = ta.barssince(cond_buy1[1]) > 10 and cond_buy1
+    
+    // 相对强度 (RS 1~99 动能评分)
+    p21  = (not na(close[21])  and close[21]  != 0) ? (close - close[21])  / close[21]  : 0.0
+    p63  = (not na(close[63])  and close[63]  != 0) ? (close - close[63])  / close[63]  : 0.0
+    p126 = (not na(close[126]) and close[126] != 0) ? (close - close[126]) / close[126] : 0.0
+    p252 = (not na(close[252]) and close[252] != 0) ? (close - close[252]) / close[252] : 0.0
+    weighted_perf = (0.20 * p21 + 0.40 * p63 + 0.20 * p126 + 0.20 * p252) * 100.0
+    float rs_rating = math.min(99.0, math.max(1.0, 50.0 + 48.0 * (weighted_perf / (math.abs(weighted_perf) + 28.0))))
+
+    // RSI 过滤判定
+    atr_risk = ta.sma(ta.atr(14), 14)
+    rsi_val  = ta.sma(ta.rsi(close, 14), 14)
+    bool pass_rsi = filter_rsi ? (rsi_val > rsi_th) : true
+    
+    var float entry_p         = na
+    var int   sig_type        = 0
+    var float sl_level        = na
+    var float tp_level        = na
+    var float hi_p            = na
+    var float max_pnl         = 0.0
+    
+    var float ytd_closed_pnl  = 0.0
+    var int   ytd_trade_cnt   = 0
+    var int   ytd_win_cnt     = 0
+    
+    bool is_ytd_bar = year(time) >= s_year
+    
+    // 开仓点火
+    if buy1_sig and sig_type == 0 and pass_rsi
+        entry_p  := close
+        sig_type := 1
+        sl_level := close - 4.0 * atr_risk
+        tp_level := close - 5.5 * atr_risk
+        hi_p     := high
+        max_pnl  := 0.0
+    else if buy2_sig and sig_type == 0 and pass_rsi
+        entry_p  := close
+        sig_type := 2
+        sl_level := close - 4.0 * atr_risk
+        tp_level := close - 5.5 * atr_risk
+        hi_p     := high
+        max_pnl  := 0.0
+        
+    // 动态风控与平仓清算
+    if sig_type > 0
+        hi_p    := math.max(hi_p, high)
+        max_pnl := math.max(max_pnl, (close - entry_p) / entry_p * 100.0)
+        
+        float cur_mult = max_pnl >= 50.0 ? 3.5 : (max_pnl >= 25.0 ? 4.2 : 5.5)
+        tp_level := math.max(tp_level, hi_p - (cur_mult * atr_risk))
+        
+        if max_pnl >= 10.0
+            sl_level := math.max(sl_level, entry_p * 1.01) // 保本锁定
+            
+        // 平仓结算：累加已实现损益与胜率账本
+        if close < sl_level or close < tp_level
+            float closed_pnl = (close - entry_p) / entry_p * 100.0
+            if is_ytd_bar
+                ytd_closed_pnl := ytd_closed_pnl + closed_pnl
+                ytd_trade_cnt  := ytd_trade_cnt + 1
+                if closed_pnl > 0
+                    ytd_win_cnt := ytd_win_cnt + 1
+            sig_type := 0
+            entry_p  := na
+            sl_level := na
+            tp_level := na
+            hi_p     := na
+            max_pnl  := 0.0
+
+    // 单票综合收益：已平仓兑现 + 当前浮动
+    float cur_float_pnl = sig_type > 0 ? (close - entry_p) / entry_p * 100.0 : 0.0
+    float total_ytd_pnl = ytd_closed_pnl + (sig_type > 0 ? cur_float_pnl : 0.0)
+    
+    [sig_type, entry_p, close, cur_float_pnl, sl_level, total_ytd_pnl, ytd_closed_pnl, rs_rating, ytd_trade_cnt, ytd_win_cnt]
+
+// ==================== 4. ⚡ 批量 40 个标的跨图表轮询 ====================
+[s01, ent01, c01, pnl01, sl01, yp01, cl01, rs01, tc01, wc01] = request.security(t01, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s02, ent02, c02, pnl02, sl02, yp02, cl02, rs02, tc02, wc02] = request.security(t02, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s03, ent03, c03, pnl03, sl03, yp03, cl03, rs03, tc03, wc03] = request.security(t03, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s04, ent04, c04, pnl04, sl04, yp04, cl04, rs04, tc04, wc04] = request.security(t04, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s05, ent05, c05, pnl05, sl05, yp05, cl05, rs05, tc05, wc05] = request.security(t05, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s06, ent06, c06, pnl06, sl06, yp06, cl06, rs06, tc06, wc06] = request.security(t06, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s07, ent07, c07, pnl07, sl07, yp07, cl07, rs07, tc07, wc07] = request.security(t07, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s08, ent08, c08, pnl08, sl08, yp08, cl08, rs08, tc08, wc08] = request.security(t08, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s09, ent09, c09, pnl09, sl09, yp09, cl09, rs09, tc09, wc09] = request.security(t09, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s10, ent10, c10, pnl10, sl10, yp10, cl10, rs10, tc10, wc10] = request.security(t10, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+
+[s11, ent11, c11, pnl11, sl11, yp11, cl11, rs11, tc11, wc11] = request.security(t11, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s12, ent12, c12, pnl12, sl12, yp12, cl12, rs12, tc12, wc12] = request.security(t12, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s13, ent13, c13, pnl13, sl13, yp13, cl13, rs13, tc13, wc13] = request.security(t13, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s14, ent14, c14, pnl14, sl14, yp14, cl14, rs14, tc14, wc14] = request.security(t14, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s15, ent15, c15, pnl15, sl15, yp15, cl15, rs15, tc15, wc15] = request.security(t15, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s16, ent16, c16, pnl16, sl16, yp16, cl16, rs16, tc16, wc16] = request.security(t16, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s17, ent17, c17, pnl17, sl17, yp17, cl17, rs17, tc17, wc17] = request.security(t17, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s18, ent18, c18, pnl18, sl18, yp18, cl18, rs18, tc18, wc18] = request.security(t18, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s19, ent19, c19, pnl19, sl19, yp19, cl19, rs19, tc19, wc19] = request.security(t19, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s20, ent20, c20, pnl20, sl20, yp20, cl20, rs20, tc20, wc20] = request.security(t20, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+
+[s21, ent21, c21, pnl21, sl21, yp21, cl21, rs21, tc21, wc21] = request.security(t21, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s22, ent22, c22, pnl22, sl22, yp22, cl22, rs22, tc22, wc22] = request.security(t22, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s23, ent23, c23, pnl23, sl23, yp23, cl23, rs23, tc23, wc23] = request.security(t23, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s24, ent24, c24, pnl24, sl24, yp24, cl24, rs24, tc24, wc24] = request.security(t24, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s25, ent25, c25, pnl25, sl25, yp25, cl25, rs25, tc25, wc25] = request.security(t25, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s26, ent26, c26, pnl26, sl26, yp26, cl26, rs26, tc26, wc26] = request.security(t26, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s27, ent27, c27, pnl27, sl27, yp27, cl27, rs27, tc27, wc27] = request.security(t27, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s28, ent28, c28, pnl28, sl28, yp28, cl28, rs28, tc28, wc28] = request.security(t28, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s29, ent29, c29, pnl29, sl29, yp29, cl29, rs29, tc29, wc29] = request.security(t29, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s30, ent30, c30, pnl30, sl30, yp30, cl30, rs30, tc30, wc30] = request.security(t30, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+
+[s31, ent31, c31, pnl31, sl31, yp31, cl31, rs31, tc31, wc31] = request.security(t31, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s32, ent32, c32, pnl32, sl32, yp32, cl32, rs32, tc32, wc32] = request.security(t32, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s33, ent33, c33, pnl33, sl33, yp33, cl33, rs33, tc33, wc33] = request.security(t33, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s34, ent34, c34, pnl34, sl34, yp34, cl34, rs34, tc34, wc34] = request.security(t34, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s35, ent35, c35, pnl35, sl35, yp35, cl35, rs35, tc35, wc35] = request.security(t35, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s36, ent36, c36, pnl36, sl36, yp36, cl36, rs36, tc36, wc36] = request.security(t36, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s37, ent37, c37, pnl37, sl37, yp37, cl37, rs37, tc37, wc37] = request.security(t37, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s38, ent38, c38, pnl38, sl38, yp38, cl38, rs38, tc38, wc38] = request.security(t38, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s39, ent39, c39, pnl39, sl39, yp39, cl39, rs39, tc39, wc39] = request.security(t39, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s40, ent40, c40, pnl40, sl40, yp40, cl40, rs40, tc40, wc40] = request.security(t40, radar_tf, f_eval_stock(stat_year, use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+
+// ==================== 5. 🎨 界面渲染与全口径 NAV 聚合 ====================
+f_clean_symbol(string raw_sym) =>
+    parts = str.split(raw_sym, ":")
+    array.size(parts) > 1 ? array.get(parts, array.size(parts) - 1) : raw_sym
+
+get_table_pos_radar(string p) =>
+    p == "Top Right" ? position.top_right : p == "Top Left" ? position.top_left : p == "Bottom Right" ? position.bottom_right : position.bottom_left
+
+color c_tbl_bg       = color.new(#131722, 10)
+color c_tbl_frame    = color.new(#2a2e39, 0)
+color c_head_bg      = color.new(#1e222d, 0)
+color c_head_text    = #94a3b8
+color c_row_even     = color.new(#171b26, 20)
+color c_row_odd      = color.new(#131722, 20)
+color c_val_text     = #f1f5f9
+color c_pos_green    = #089981
+color c_neg_red      = #f23645
+color c_sl_warn      = #fbbf24
+color c_b1_badge_bg  = color.new(#f23645, 80)
+color c_b1_badge_fg  = #ff4976
+color c_b2_badge_bg  = color.new(#f59e0b, 80)
+color c_b2_badge_fg  = #fbbf24
+color c_emp_badge_bg = color.new(#2a2e39, 60)
+color c_emp_badge_fg = #64748b
+
+var table radarTable = na
+
+if show_radar and barstate.islast
+    if not na(radarTable)
+        table.delete(radarTable)
+
+    string[] sym_arr  = array.new<string>(40, "")
+    int[]    sig_arr  = array.new<int>(40, 0)
+    float[]  ent_arr  = array.new<float>(40, na)
+    float[]  pnl_arr  = array.new<float>(40, 0.0)
+    float[]  sl_arr   = array.new<float>(40, na)
+    float[]  ypnl_arr = array.new<float>(40, 0.0)
+    float[]  clsd_arr = array.new<float>(40, 0.0)
+    float[]  rs_arr   = array.new<float>(40, 50.0)
+    int[]    tc_arr   = array.new<int>(40, 0)
+    int[]    wc_arr   = array.new<int>(40, 0)
+
+    array.set(sym_arr, 0, t01), array.set(sig_arr, 0, s01), array.set(ent_arr, 0, ent01), array.set(pnl_arr, 0, pnl01), array.set(sl_arr, 0, sl01), array.set(ypnl_arr, 0, yp01), array.set(clsd_arr, 0, cl01), array.set(rs_arr, 0, rs01), array.set(tc_arr, 0, tc01), array.set(wc_arr, 0, wc01)
+    array.set(sym_arr, 1, t02), array.set(sig_arr, 1, s02), array.set(ent_arr, 1, ent02), array.set(pnl_arr, 1, pnl02), array.set(sl_arr, 1, sl02), array.set(ypnl_arr, 1, yp02), array.set(clsd_arr, 1, cl02), array.set(rs_arr, 1, rs02), array.set(tc_arr, 1, tc02), array.set(wc_arr, 1, wc02)
+    array.set(sym_arr, 2, t03), array.set(sig_arr, 2, s03), array.set(ent_arr, 2, ent03), array.set(pnl_arr, 2, pnl03), array.set(sl_arr, 2, sl03), array.set(ypnl_arr, 2, yp03), array.set(clsd_arr, 2, cl03), array.set(rs_arr, 2, rs03), array.set(tc_arr, 2, tc03), array.set(wc_arr, 2, wc03)
+    array.set(sym_arr, 3, t04), array.set(sig_arr, 3, s04), array.set(ent_arr, 3, ent04), array.set(pnl_arr, 3, pnl04), array.set(sl_arr, 3, sl04), array.set(ypnl_arr, 3, yp04), array.set(clsd_arr, 3, cl04), array.set(rs_arr, 3, rs04), array.set(tc_arr, 3, tc04), array.set(wc_arr, 3, wc04)
+    array.set(sym_arr, 4, t05), array.set(sig_arr, 4, s05), array.set(ent_arr, 4, ent05), array.set(pnl_arr, 4, pnl05), array.set(sl_arr, 4, sl05), array.set(ypnl_arr, 4, yp05), array.set(clsd_arr, 4, cl05), array.set(rs_arr, 4, rs05), array.set(tc_arr, 4, tc05), array.set(wc_arr, 4, wc05)
+    array.set(sym_arr, 5, t06), array.set(sig_arr, 5, s06), array.set(ent_arr, 5, ent06), array.set(pnl_arr, 5, pnl06), array.set(sl_arr, 5, sl06), array.set(ypnl_arr, 5, yp06), array.set(clsd_arr, 5, cl06), array.set(rs_arr, 5, rs06), array.set(tc_arr, 5, tc06), array.set(wc_arr, 5, wc06)
+    array.set(sym_arr, 6, t07), array.set(sig_arr, 6, s07), array.set(ent_arr, 6, ent07), array.set(pnl_arr, 6, pnl07), array.set(sl_arr, 6, sl07), array.set(ypnl_arr, 6, yp07), array.set(clsd_arr, 6, cl07), array.set(rs_arr, 6, rs07), array.set(tc_arr, 6, tc07), array.set(wc_arr, 6, wc07)
+    array.set(sym_arr, 7, t08), array.set(sig_arr, 7, s08), array.set(ent_arr, 7, ent08), array.set(pnl_arr, 7, pnl08), array.set(sl_arr, 7, sl08), array.set(ypnl_arr, 7, yp08), array.set(clsd_arr, 7, cl08), array.set(rs_arr, 7, rs08), array.set(tc_arr, 7, tc08), array.set(wc_arr, 7, wc08)
+    array.set(sym_arr, 8, t09), array.set(sig_arr, 8, s09), array.set(ent_arr, 8, ent09), array.set(pnl_arr, 8, pnl09), array.set(sl_arr, 8, sl09), array.set(ypnl_arr, 8, yp09), array.set(clsd_arr, 8, cl09), array.set(rs_arr, 8, rs09), array.set(tc_arr, 8, tc09), array.set(wc_arr, 8, wc09)
+    array.set(sym_arr, 9, t10), array.set(sig_arr, 9, s10), array.set(ent_arr, 9, ent10), array.set(pnl_arr, 9, pnl10), array.set(sl_arr, 9, sl01), array.set(ypnl_arr, 9, yp10), array.set(clsd_arr, 9, cl10), array.set(rs_arr, 9, rs10), array.set(tc_arr, 9, tc10), array.set(wc_arr, 9, wc10)
+
+    array.set(sym_arr, 10, t11), array.set(sig_arr, 10, s11), array.set(ent_arr, 10, ent11), array.set(pnl_arr, 10, pnl11), array.set(sl_arr, 10, sl11), array.set(ypnl_arr, 10, yp11), array.set(clsd_arr, 10, cl11), array.set(rs_arr, 10, rs11), array.set(tc_arr, 10, tc11), array.set(wc_arr, 10, wc11)
+    array.set(sym_arr, 11, t12), array.set(sig_arr, 11, s12), array.set(ent_arr, 11, ent12), array.set(pnl_arr, 11, pnl12), array.set(sl_arr, 11, sl12), array.set(ypnl_arr, 11, yp12), array.set(clsd_arr, 11, cl12), array.set(rs_arr, 11, rs12), array.set(tc_arr, 11, tc12), array.set(wc_arr, 11, wc12)
+    array.set(sym_arr, 12, t13), array.set(sig_arr, 12, s13), array.set(ent_arr, 12, ent13), array.set(pnl_arr, 12, pnl13), array.set(sl_arr, 12, sl13), array.set(ypnl_arr, 12, yp13), array.set(clsd_arr, 12, cl13), array.set(rs_arr, 12, rs13), array.set(tc_arr, 12, tc13), array.set(wc_arr, 12, wc13)
+    array.set(sym_arr, 13, t14), array.set(sig_arr, 13, s14), array.set(ent_arr, 13, ent14), array.set(pnl_arr, 13, pnl14), array.set(sl_arr, 13, sl14), array.set(ypnl_arr, 13, yp14), array.set(clsd_arr, 13, cl14), array.set(rs_arr, 13, rs14), array.set(tc_arr, 13, tc14), array.set(wc_arr, 13, wc14)
+    array.set(sym_arr, 14, t15), array.set(sig_arr, 14, s15), array.set(ent_arr, 14, ent15), array.set(pnl_arr, 14, pnl15), array.set(sl_arr, 14, sl15), array.set(ypnl_arr, 14, yp15), array.set(clsd_arr, 14, cl15), array.set(rs_arr, 14, rs15), array.set(tc_arr, 14, tc15), array.set(wc_arr, 14, wc15)
+    array.set(sym_arr, 15, t16), array.set(sig_arr, 15, s16), array.set(ent_arr, 15, ent16), array.set(pnl_arr, 15, pnl16), array.set(sl_arr, 15, sl16), array.set(ypnl_arr, 15, yp16), array.set(clsd_arr, 15, cl16), array.set(rs_arr, 15, rs16), array.set(tc_arr, 15, tc16), array.set(wc_arr, 15, wc16)
+    array.set(sym_arr, 16, t17), array.set(sig_arr, 16, s17), array.set(ent_arr, 16, ent17), array.set(pnl_arr, 16, pnl17), array.set(sl_arr, 16, sl17), array.set(ypnl_arr, 16, yp17), array.set(clsd_arr, 16, cl17), array.set(rs_arr, 16, rs17), array.set(tc_arr, 16, tc17), array.set(wc_arr, 16, wc17)
+    array.set(sym_arr, 17, t18), array.set(sig_arr, 17, s18), array.set(ent_arr, 17, ent18), array.set(pnl_arr, 17, pnl18), array.set(sl_arr, 17, sl18), array.set(ypnl_arr, 17, yp18), array.set(clsd_arr, 17, cl18), array.set(rs_arr, 17, rs18), array.set(tc_arr, 17, tc18), array.set(wc_arr, 17, wc18)
+    array.set(sym_arr, 18, t19), array.set(sig_arr, 18, s19), array.set(ent_arr, 18, ent19), array.set(pnl_arr, 18, pnl19), array.set(sl_arr, 18, sl19), array.set(ypnl_arr, 18, yp19), array.set(clsd_arr, 18, cl19), array.set(rs_arr, 18, rs19), array.set(tc_arr, 18, tc19), array.set(wc_arr, 18, wc19)
+    array.set(sym_arr, 19, t20), array.set(sig_arr, 19, s20), array.set(ent_arr, 19, ent20), array.set(pnl_arr, 19, pnl20), array.set(sl_arr, 19, sl20), array.set(ypnl_arr, 19, yp20), array.set(clsd_arr, 19, cl20), array.set(rs_arr, 19, rs20), array.set(tc_arr, 19, tc20), array.set(wc_arr, 19, wc20)
+
+    array.set(sym_arr, 20, t21), array.set(sig_arr, 20, s21), array.set(ent_arr, 20, ent21), array.set(pnl_arr, 20, pnl21), array.set(sl_arr, 20, sl21), array.set(ypnl_arr, 20, yp21), array.set(clsd_arr, 20, cl21), array.set(rs_arr, 20, rs21), array.set(tc_arr, 20, tc21), array.set(wc_arr, 20, wc21)
+    array.set(sym_arr, 21, t22), array.set(sig_arr, 21, s22), array.set(ent_arr, 21, ent22), array.set(pnl_arr, 21, pnl22), array.set(sl_arr, 21, sl22), array.set(ypnl_arr, 21, yp22), array.set(clsd_arr, 21, cl22), array.set(rs_arr, 21, rs22), array.set(tc_arr, 21, tc22), array.set(wc_arr, 21, wc22)
+    array.set(sym_arr, 22, t23), array.set(sig_arr, 22, s23), array.set(ent_arr, 22, ent23), array.set(pnl_arr, 22, pnl23), array.set(sl_arr, 22, sl23), array.set(ypnl_arr, 22, yp23), array.set(clsd_arr, 22, cl23), array.set(rs_arr, 22, rs23), array.set(tc_arr, 22, tc23), array.set(wc_arr, 22, wc23)
+    array.set(sym_arr, 23, t24), array.set(sig_arr, 23, s24), array.set(ent_arr, 23, ent24), array.set(pnl_arr, 23, pnl24), array.set(sl_arr, 23, sl24), array.set(ypnl_arr, 23, yp24), array.set(clsd_arr, 23, cl24), array.set(rs_arr, 23, rs24), array.set(tc_arr, 23, tc24), array.set(wc_arr, 23, wc24)
+    array.set(sym_arr, 24, t25), array.set(sig_arr, 24, s25), array.set(ent_arr, 24, ent25), array.set(pnl_arr, 24, pnl25), array.set(sl_arr, 24, sl25), array.set(ypnl_arr, 24, yp25), array.set(clsd_arr, 24, cl25), array.set(rs_arr, 24, rs25), array.set(tc_arr, 24, tc25), array.set(wc_arr, 24, wc25)
+    array.set(sym_arr, 25, t26), array.set(sig_arr, 25, s26), array.set(ent_arr, 25, ent26), array.set(pnl_arr, 25, pnl26), array.set(sl_arr, 25, sl26), array.set(ypnl_arr, 25, yp26), array.set(clsd_arr, 25, cl26), array.set(rs_arr, 25, rs26), array.set(tc_arr, 25, tc26), array.set(wc_arr, 25, wc26)
+    array.set(sym_arr, 26, t27), array.set(sig_arr, 26, s27), array.set(ent_arr, 26, ent27), array.set(pnl_arr, 26, pnl27), array.set(sl_arr, 26, sl27), array.set(ypnl_arr, 26, yp27), array.set(clsd_arr, 26, cl27), array.set(rs_arr, 26, rs27), array.set(tc_arr, 26, tc27), array.set(wc_arr, 26, wc27)
+    array.set(sym_arr, 27, t28), array.set(sig_arr, 27, s28), array.set(ent_arr, 27, ent28), array.set(pnl_arr, 27, pnl28), array.set(sl_arr, 27, sl28), array.set(ypnl_arr, 27, yp28), array.set(clsd_arr, 27, cl28), array.set(rs_arr, 27, rs28), array.set(tc_arr, 27, tc28), array.set(wc_arr, 27, wc28)
+    array.set(sym_arr, 28, t29), array.set(sig_arr, 28, s29), array.set(ent_arr, 28, ent29), array.set(pnl_arr, 28, pnl29), array.set(sl_arr, 28, sl29), array.set(ypnl_arr, 28, yp29), array.set(clsd_arr, 28, cl29), array.set(rs_arr, 28, rs29), array.set(tc_arr, 28, tc29), array.set(wc_arr, 28, wc29)
+    array.set(sym_arr, 29, t30), array.set(sig_arr, 29, s30), array.set(ent_arr, 29, ent30), array.set(pnl_arr, 29, pnl30), array.set(sl_arr, 29, sl30), array.set(ypnl_arr, 29, yp30), array.set(clsd_arr, 29, cl30), array.set(rs_arr, 29, rs30), array.set(tc_arr, 29, tc30), array.set(wc_arr, 29, wc30)
+
+    array.set(sym_arr, 30, t31), array.set(sig_arr, 30, s31), array.set(ent_arr, 30, ent31), array.set(pnl_arr, 30, pnl31), array.set(sl_arr, 30, sl31), array.set(ypnl_arr, 30, yp31), array.set(clsd_arr, 30, cl31), array.set(rs_arr, 30, rs31), array.set(tc_arr, 30, tc31), array.set(wc_arr, 30, wc31)
+    array.set(sym_arr, 31, t32), array.set(sig_arr, 31, s32), array.set(ent_arr, 31, ent32), array.set(pnl_arr, 31, pnl32), array.set(sl_arr, 31, sl32), array.set(ypnl_arr, 31, yp32), array.set(clsd_arr, 31, cl32), array.set(rs_arr, 31, rs32), array.set(tc_arr, 31, tc32), array.set(wc_arr, 31, wc32)
+    array.set(sym_arr, 32, t33), array.set(sig_arr, 32, s33), array.set(ent_arr, 32, ent33), array.set(pnl_arr, 32, pnl33), array.set(sl_arr, 32, sl33), array.set(ypnl_arr, 32, yp33), array.set(clsd_arr, 32, cl33), array.set(rs_arr, 32, rs33), array.set(tc_arr, 32, tc33), array.set(wc_arr, 32, wc33)
+    array.set(sym_arr, 33, t34), array.set(sig_arr, 33, s34), array.set(ent_arr, 33, ent34), array.set(pnl_arr, 33, pnl34), array.set(sl_arr, 33, sl34), array.set(ypnl_arr, 33, yp34), array.set(clsd_arr, 33, cl34), array.set(rs_arr, 33, rs34), array.set(tc_arr, 33, tc34), array.set(wc_arr, 33, wc34)
+    array.set(sym_arr, 34, t35), array.set(sig_arr, 34, s35), array.set(ent_arr, 34, ent35), array.set(pnl_arr, 34, pnl35), array.set(sl_arr, 34, sl35), array.set(ypnl_arr, 34, yp35), array.set(clsd_arr, 34, cl35), array.set(rs_arr, 34, rs35), array.set(tc_arr, 34, tc35), array.set(wc_arr, 34, wc35)
+    array.set(sym_arr, 35, t36), array.set(sig_arr, 35, s36), array.set(ent_arr, 35, ent36), array.set(pnl_arr, 35, pnl36), array.set(sl_arr, 35, sl36), array.set(ypnl_arr, 35, yp36), array.set(clsd_arr, 35, cl36), array.set(rs_arr, 35, rs36), array.set(tc_arr, 35, tc36), array.set(wc_arr, 35, wc36)
+    array.set(sym_arr, 36, t37), array.set(sig_arr, 36, s37), array.set(ent_arr, 36, ent37), array.set(pnl_arr, 36, pnl37), array.set(sl_arr, 36, sl37), array.set(ypnl_arr, 36, yp37), array.set(clsd_arr, 36, cl37), array.set(rs_arr, 36, rs37), array.set(tc_arr, 36, tc37), array.set(wc_arr, 36, wc37)
+    array.set(sym_arr, 37, t38), array.set(sig_arr, 37, s38), array.set(ent_arr, 37, ent38), array.set(pnl_arr, 37, pnl38), array.set(sl_arr, 37, sl38), array.set(ypnl_arr, 37, yp38), array.set(clsd_arr, 37, cl38), array.set(rs_arr, 37, rs38), array.set(tc_arr, 37, tc38), array.set(wc_arr, 37, wc38)
+    array.set(sym_arr, 38, t39), array.set(sig_arr, 38, s39), array.set(ent_arr, 38, ent39), array.set(pnl_arr, 38, pnl39), array.set(sl_arr, 38, sl39), array.set(ypnl_arr, 38, yp39), array.set(clsd_arr, 38, cl39), array.set(rs_arr, 38, rs39), array.set(tc_arr, 38, tc39), array.set(wc_arr, 38, wc39)
+    array.set(sym_arr, 39, t40), array.set(sig_arr, 39, s40), array.set(ent_arr, 39, ent40), array.set(pnl_arr, 39, pnl40), array.set(sl_arr, 39, sl40), array.set(ypnl_arr, 39, yp40), array.set(clsd_arr, 39, cl40), array.set(rs_arr, 39, rs40), array.set(tc_arr, 39, tc40), array.set(wc_arr, 39, wc40)
+
+    // 🏆 1. 统计当前在持活跃标的与全量已落袋战绩
+    int   active_count   = 0
+    float active_rs_sum  = 0.0
+    float total_clsd_sum = 0.0
+    int   total_trades   = 0
+    int   total_wins     = 0
+
+    for i = 0 to 39
+        total_clsd_sum := total_clsd_sum + array.get(clsd_arr, i)
+        total_trades   := total_trades + array.get(tc_arr, i)
+        total_wins     := total_wins + array.get(wc_arr, i)
+        if array.get(sig_arr, i) > 0
+            active_count  := active_count + 1
+            active_rs_sum := active_rs_sum + array.get(rs_arr, i)
+
+    // 🏆 2. 在持标的 100% 满仓 RS 动态加权浮盈
+    float fund_open_float_pnl = 0.0
+    for i = 0 to 39
+        if array.get(sig_arr, i) > 0 and active_rs_sum > 0
+            float w_ratio = array.get(rs_arr, i) / active_rs_sum
+            fund_open_float_pnl := fund_open_float_pnl + (array.get(pnl_arr, i) * w_ratio)
+
+    // 🏆 3. 全口径 NAV 完美合并：已落袋标准收益 + 当前满仓未实现浮盈
+    float fund_closed_ytd = total_clsd_sum / float(avg_slots)
+    float fund_total_ytd_nav = fund_closed_ytd + (active_count > 0 ? fund_open_float_pnl : 0.0)
+    float fund_win_rate = total_trades > 0 ? (float(total_wins) / float(total_trades)) * 100.0 : 0.0
+
+    // ==================== 6. 表格构建与流线型渲染 ====================
+    int total_rows = (only_active ? active_count : 40) + 3
+    radarTable := table.new(get_table_pos_radar(table_pos), 9, math.max(4, total_rows), bgcolor=c_tbl_bg, frame_color=c_tbl_frame, frame_width=1, border_width=1, border_color=color.new(#2a2e39, 40))
+
+    // 🌟 双行流线型全口径 KPI 战报
+    string kpi_line1 = "👑 美股动能满仓轮动雷达  |  持仓: " + str.tostring(active_count) + "/40  |  当前满仓浮盈: " + (fund_open_float_pnl >= 0 ? "+" : "") + str.tostring(fund_open_float_pnl, "#.##") + "%"
+    string kpi_line2 = "📈 全口径YTD总回报: " + (fund_total_ytd_nav >= 0 ? "+" : "") + str.tostring(fund_total_ytd_nav, "#.##") + "% (已落袋: " + (fund_closed_ytd >= 0 ? "+" : "") + str.tostring(fund_closed_ytd, "#.#") + "% | 浮动: " + (fund_open_float_pnl >= 0 ? "+" : "") + str.tostring(fund_open_float_pnl, "#.#") + "%)  |  实盘战绩: " + str.tostring(total_trades) + "战" + str.tostring(total_wins) + "胜 (" + str.tostring(fund_win_rate, "#0") + "%)"
+    
+    table.cell(radarTable, 0, 0, kpi_line1, text_color=fund_open_float_pnl >= 0 ? #fbbf24 : #ff4976, text_size=size.small, bgcolor=c_head_bg)
+    table.merge_cells(radarTable, 0, 0, 8, 0)
+    table.cell(radarTable, 0, 1, kpi_line2, text_color=#38bdf8, text_size=size.small, bgcolor=c_head_bg)
+    table.merge_cells(radarTable, 0, 1, 8, 1)
+
+    // 表头
+    table.cell(radarTable, 0, 2, "代码", text_color=c_head_text, text_size=size.small, bgcolor=c_head_bg)
+    table.cell(radarTable, 1, 2, "状态", text_color=c_head_text, text_size=size.small, bgcolor=c_head_bg)
+    table.cell(radarTable, 2, 2, "当前仓位", text_color=c_head_text, text_size=size.small, bgcolor=c_head_bg)
+    table.cell(radarTable, 3, 2, "开仓成本", text_color=c_head_text, text_size=size.small, bgcolor=c_head_bg)
+    table.cell(radarTable, 4, 2, "个股浮盈", text_color=c_head_text, text_size=size.small, bgcolor=c_head_bg)
+    table.cell(radarTable, 5, 2, "净值拉动", text_color=c_head_text, text_size=size.small, bgcolor=c_head_bg)
+    table.cell(radarTable, 6, 2, "单票YTD", text_color=c_head_text, text_size=size.small, bgcolor=c_head_bg)
+    table.cell(radarTable, 7, 2, "RS动能", text_color=c_head_text, text_size=size.small, bgcolor=c_head_bg)
+    table.cell(radarTable, 8, 2, "动态止损", text_color=c_head_text, text_size=size.small, bgcolor=c_head_bg)
+
+    int row_idx = 3
+    for i = 0 to 39
+        int    s    = array.get(sig_arr, i)
+        float  ent  = array.get(ent_arr, i)
+        float  pnl  = array.get(pnl_arr, i)
+        float  sl   = array.get(sl_arr, i)
+        float  ypnl = array.get(ypnl_arr, i)
+        float  rs   = array.get(rs_arr, i)
+        string sym  = f_clean_symbol(array.get(sym_arr, i))
+
+        if not only_active or s > 0
+            color row_bg = (row_idx % 2 == 1) ? c_row_even : c_row_odd
+
+            string stat_str = s == 1 ? "❤️ 一买" : (s == 2 ? "⭐️ 二买" : "⚪ 空仓")
+            color  badge_bg = s == 1 ? c_b1_badge_bg : (s == 2 ? c_b2_badge_bg : c_emp_badge_bg)
+            color  badge_fg = s == 1 ? c_b1_badge_fg : (s == 2 ? c_b2_badge_fg : c_emp_badge_fg)
+
+            float  dyn_rs_weight = (s > 0 and active_rs_sum > 0) ? (rs / active_rs_sum * 100.0) : 0.0
+            string pos_str       = s > 0 ? (str.tostring(dyn_rs_weight, "#.#") + "%") : "--"
+            string ent_str       = s > 0 and not na(ent) ? ("$" + str.tostring(ent, "#.##")) : "--"
+            
+            string pnl_str  = s > 0 ? ((pnl >= 0 ? "+" : "") + str.tostring(pnl, "#.##") + "%") : "--"
+            color  pnl_col  = pnl >= 0 ? c_pos_green : c_neg_red
+            
+            float  contrib_val = s > 0 ? (pnl * (dyn_rs_weight / 100.0)) : 0.0
+            string contrib_str = s > 0 ? ((contrib_val >= 0 ? "+" : "") + str.tostring(contrib_val, "#.##") + "%") : "--"
+            color  contrib_col = contrib_val >= 0 ? c_pos_green : c_neg_red
+            
+            string ypnl_str = (ypnl >= 0 ? "+" : "") + str.tostring(ypnl, "#.##") + "%"
+            color  ypnl_col = ypnl >= 0 ? c_pos_green : c_neg_red
+
+            string rs_str   = str.tostring(rs, "#0")
+            color  rs_col   = rs >= 80 ? c_sl_warn : (rs >= 60 ? c_pos_green : c_head_text)
+            
+            string sl_str   = s > 0 and not na(sl) ? ("$" + str.tostring(sl, "#.##")) : "--"
+
+            table.cell(radarTable, 0, row_idx, sym,         text_color=c_val_text,  text_size=size.small, bgcolor=row_bg)
+            table.cell(radarTable, 1, row_idx, stat_str,    text_color=badge_fg,    text_size=size.small, bgcolor=badge_bg)
+            table.cell(radarTable, 2, row_idx, pos_str,     text_color=#93c5fd,     text_size=size.small, bgcolor=row_bg)
+            table.cell(radarTable, 3, row_idx, ent_str,     text_color=c_val_text,  text_size=size.small, bgcolor=row_bg)
+            table.cell(radarTable, 4, row_idx, pnl_str,     text_color=pnl_col,     text_size=size.small, bgcolor=row_bg)
+            table.cell(radarTable, 5, row_idx, contrib_str, text_color=contrib_col, text_size=size.small, bgcolor=row_bg)
+            table.cell(radarTable, 6, row_idx, ypnl_str,    text_color=ypnl_col,    text_size=size.small, bgcolor=row_bg)
+            table.cell(radarTable, 7, row_idx, rs_str,      text_color=rs_col,      text_size=size.small, bgcolor=row_bg)
+            table.cell(radarTable, 8, row_idx, sl_str,      text_color=c_sl_warn,   text_size=size.small, bgcolor=row_bg)
+            
+            row_idx := row_idx + 1

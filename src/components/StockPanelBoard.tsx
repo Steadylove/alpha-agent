@@ -2,6 +2,7 @@
 
 import { Card } from "@/components/Card";
 import type { StockPanelData, StockPanelRow } from "@/lib/dashboard/stockPanel";
+import { actionText } from "@/lib/scoring/mprGuidance";
 import { Accordion, Alert, Stack, Text, Tooltip, UnstyledButton } from "@mantine/core";
 import Link from "next/link";
 import { useState } from "react";
@@ -58,6 +59,40 @@ const DIP_QUALITY_COLOR: Record<string, string> = {
   bottom: "#71717a",
   choppy: "#f59e0b",
 };
+
+/** 12M 估值引擎的定价路径，对齐 MarketCompass Pine 第 490~571 行的分支。 */
+const VALUATION_MODE_LABEL: Record<string, string> = {
+  leader_mean_reversion: "龙头均值修复",
+  bear_conservative: "空头保守 PE22",
+  ps_revaluation: "高 PE 转 PS 重估",
+  high_pe_expansion: "PE 扩张（封顶 75）",
+  peg_growth: "PEG 成长模型",
+  momentum_expansion: "超级动能 PE 扩张",
+  trillion_baseline_pe: "万亿基准 PE30",
+  steady_growth_pe: "稳健成长基准 PE",
+  dynamic_ps: "动态 PS",
+  anti_inversion: "强势防倒挂",
+  trillion_cap: "万亿 +35% 封顶",
+  structural_floor: "结构性兜底",
+  technical_fallback: "纯技术兜底",
+};
+
+const ARCHETYPE_LABEL: Record<string, string> = {
+  value_trend: "价值趋势",
+  tech_only: "纯技术",
+  high_beta_growth: "高贝塔成长",
+  growth_premium: "成长溢价",
+  distribution: "派发",
+};
+
+/** 目标价大多锚在现价上，只有这几条真正独立于当前价格。 */
+const PRICE_INDEPENDENT_MODES = new Set([
+  "peg_growth",
+  "trillion_baseline_pe",
+  "steady_growth_pe",
+  "bear_conservative",
+  "leader_mean_reversion",
+]);
 
 const SECTOR_STATUS_LABEL: Record<string, string> = {
   leader: "领涨主线",
@@ -220,10 +255,24 @@ function DipCell({ row }: { row: StockPanelRow }) {
   }
   const color = DIP_QUALITY_COLOR[row.dipQuality ?? "normal"];
   const discount = ((row.close - (row.dipHigh ?? row.close)) / row.close) * 100;
+  // Pine 第 587 行的 upside>=15% 判定只喂给一个随后被各阶段分支覆盖的背景色，
+  // 从不影响带子本身。这里同样只作提示，不拦截。
+  const thinUpside = row.valuation != null && row.valuation.upsidePct < 15;
+  const tip = (
+    <div className="text-xs">
+      <div>距上沿还需回调 {discount.toFixed(1)}%</div>
+      {thinUpside ? (
+        <div className="mt-1 text-amber-400">
+          12M 上行空间不足 15%，原始模型在此标注「空间不足」，但不改变带子价位。
+        </div>
+      ) : null}
+    </div>
+  );
   return (
-    <Tooltip label={`距上沿还需回调 ${discount.toFixed(1)}%`}>
+    <Tooltip label={tip} multiline>
       <span className="cursor-help font-mono text-xs" style={{ color }}>
         {money(row.dipLow ?? 0)} ~ {money(row.dipHigh ?? 0)}
+        {thinUpside ? <span className="ml-1 text-amber-500">⌁</span> : null}
       </span>
     </Tooltip>
   );
@@ -247,11 +296,21 @@ function slotLines(row: StockPanelRow): string[] {
   return lines;
 }
 
-function TacticalCell({ row }: { row: StockPanelRow }) {
+function TacticalCell({ row, pathId }: { row: StockPanelRow; pathId: number | null }) {
   const lines = slotLines(row);
+  // Pine 第 277~289 行的原版指引，弱势分支要读 MPR 口径的 4Q-Alpha 而非面板的相对 RS
+  const original =
+    pathId == null
+      ? null
+      : actionText(pathId, { rsRating: row.mprAlphaRs, inDowntrend: row.inShortDowntrend });
+  // Pine 第 842 行把目标价写进 Stage C 的右侧防御话术里，用来给分批止盈定锚
+  const detail =
+    row.tacticalAction === "wait_avoid" && row.stage === "C" && row.valuation
+      ? `${TACTICAL_DETAIL.wait_avoid}，分批止盈可参考目标 ${money(row.valuation.primaryTarget)}`
+      : TACTICAL_DETAIL[row.tacticalAction];
   const tip = (
     <div className="max-w-xs text-xs">
-      <div>{TACTICAL_DETAIL[row.tacticalAction]}</div>
+      <div>{detail}</div>
       <div className="mt-1 text-zinc-400">
         判定层：{LAYER_LABEL[row.tacticalLayer]}
         {row.smoothedRsi != null ? ` · 平滑 RSI ${row.smoothedRsi.toFixed(0)}` : ""}
@@ -261,6 +320,16 @@ function TacticalCell({ row }: { row: StockPanelRow }) {
           {l}
         </div>
       ))}
+      {original ? (
+        <div className="mt-2 border-t border-zinc-700 pt-1 text-zinc-400">
+          <div className="text-zinc-500">原版口径指引</div>
+          <div>{original}</div>
+          <div className="text-zinc-500">
+            MPR 4Q-Alpha {row.mprAlphaRs.toFixed(0)}
+            {row.inShortDowntrend ? " · 短期空头排列" : ""}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 
@@ -272,6 +341,64 @@ function TacticalCell({ row }: { row: StockPanelRow }) {
       >
         {TACTICAL_LABEL[row.tacticalAction] ?? row.tacticalAction}
         {lines.length > 0 ? <span className="ml-1 text-zinc-500">●{lines.length}</span> : null}
+      </span>
+    </Tooltip>
+  );
+}
+
+function ValuationCell({ row }: { row: StockPanelRow }) {
+  const v = row.valuation;
+  if (!v) {
+    return (
+      <Tooltip label="基本面数据缺失，或估值任务尚未覆盖该标的">
+        <span className="cursor-help text-xs text-zinc-700">—</span>
+      </Tooltip>
+    );
+  }
+
+  const anchored = !PRICE_INDEPENDENT_MODES.has(v.mode);
+  const tip = (
+    <div className="max-w-xs text-xs">
+      <div>
+        定价路径：{VALUATION_MODE_LABEL[v.mode] ?? v.mode}
+        {v.consensusSmoothed ? " · 已与卖方一致预期五五平滑" : ""}
+      </div>
+      <div className="mt-1 text-zinc-400">
+        画像 {ARCHETYPE_LABEL[v.archetype] ?? v.archetype}
+        {v.currentPe != null ? ` · 当前 PE ${v.currentPe.toFixed(1)}` : ""}
+        {v.calculatedPe != null ? ` → 目标 PE ${v.calculatedPe.toFixed(1)}` : ""}
+        {v.marketCapB != null ? ` · 市值 ${v.marketCapB.toFixed(0)}B` : ""}
+      </div>
+      {v.isHyperMomentum || v.isInLongDowntrend ? (
+        <div className="mt-1 text-zinc-400">
+          {v.isHyperMomentum ? "触发超级动能门槛。" : ""}
+          {v.isInLongDowntrend ? "处于长期下行通道。" : ""}
+        </div>
+      ) : null}
+      <div className="mt-1 text-zinc-400">
+        短线目标 {money(v.shortTermTarget)}
+        {v.squeezeTier === "swing"
+          ? "（波段档：轧空数据无免费数据源，恒按 现价 + 2×ATR 计）"
+          : v.squeezeTier === "warning"
+            ? "（轧空预警）"
+            : "（极高轧空）"}
+      </div>
+      {anchored ? (
+        <div className="mt-1 text-amber-400">
+          该路径的目标价是现价的固定倍数，不构成独立于价格的价值判断。
+        </div>
+      ) : null}
+    </div>
+  );
+
+  return (
+    <Tooltip label={tip} multiline>
+      <span className="cursor-help font-mono text-xs">
+        <span className="text-zinc-300">{money(v.primaryTarget)}</span>
+        <span className="ml-1" style={{ color: v.upsidePct >= 0 ? POS : NEG }}>
+          {pct(v.upsidePct)}
+        </span>
+        {anchored ? <span className="ml-1 text-zinc-600">≈</span> : null}
       </span>
     </Tooltip>
   );
@@ -290,7 +417,7 @@ function SectorCell({ row }: { row: StockPanelRow }) {
   );
 }
 
-function PanelRow({ row }: { row: StockPanelRow }) {
+function PanelRow({ row, pathId }: { row: StockPanelRow; pathId: number | null }) {
   return (
     <tr className="border-t border-zinc-800/60">
       <td className="py-2 pr-3">
@@ -303,12 +430,15 @@ function PanelRow({ row }: { row: StockPanelRow }) {
         <div className="max-w-[9rem] truncate text-xs text-zinc-500">{row.name}</div>
       </td>
       <td className="py-2 pr-3">
-        <TacticalCell row={row} />
+        <TacticalCell row={row} pathId={pathId} />
       </td>
       <td className="py-2 pr-3">
         <DipCell row={row} />
       </td>
       <td className="py-2 pr-3 text-right font-mono text-zinc-300">{money(row.close)}</td>
+      <td className="py-2 pr-3 text-right">
+        <ValuationCell row={row} />
+      </td>
       <td className="py-2 pr-3 text-right">
         <span className="font-mono text-sky-300">{row.rs.toFixed(0)}</span>
         <Tooltip label={row.rsAccelerating ? "21 日超额强于 63 日" : "21 日超额弱于 63 日"}>
@@ -331,7 +461,18 @@ function PanelRow({ row }: { row: StockPanelRow }) {
         <div className="text-xs font-semibold" style={{ color: STAGE_COLOR[row.stage] }}>
           {STAGE_LABEL[row.stage] ?? row.stage}
         </div>
-        <Tooltip label={`距上次跌破 EMA50×0.85 已 ${row.baseDays} 个交易日`}>
+        <Tooltip
+          label={
+            <div className="text-xs">
+              <div>距上次跌破 EMA50×0.85 已 {row.baseDays} 个交易日</div>
+              <div className="mt-1 text-zinc-400">
+                布林 / 肯特纳带宽比 {row.squeezeRatio.toFixed(2)}
+                {row.squeezeRatio > 1.35 ? "（超过 1.35，构成高波震荡条件）" : ""}
+              </div>
+            </div>
+          }
+          multiline
+        >
           <span className="cursor-help text-xs text-zinc-500">{TIER_LABEL[row.baseTier]}</span>
         </Tooltip>
       </td>
@@ -457,6 +598,9 @@ export function StockPanelBoard({ data }: { data: StockPanelData }) {
             </Text>
             <Text size="xs" c="dimmed">
               {data.latestDate} · {data.rows.length}/{data.universeSize} 只 · 点击筛选，组内按相对 RS 降序
+              {data.valuationDate && data.valuationDate !== data.latestDate
+                ? ` · 估值数据截至 ${data.valuationDate}`
+                : ""}
             </Text>
           </Stack>
         }
@@ -508,6 +652,13 @@ export function StockPanelBoard({ data }: { data: StockPanelData }) {
                   <th className="pb-2 pr-3 text-left font-normal">低吸支撑带</th>
                   <th className="pb-2 pr-3 text-right font-normal">现价</th>
                   <th className="pb-2 pr-3 text-right font-normal">
+                    <Tooltip label="12 个月动态估值目标价与上行空间。标 ≈ 的表示该定价路径实为现价的固定倍数，参考价值有限。">
+                      <span className="cursor-help border-b border-dotted border-zinc-600">
+                        12M 目标
+                      </span>
+                    </Tooltip>
+                  </th>
+                  <th className="pb-2 pr-3 text-right font-normal">
                     <Tooltip label="对标 SPY 的四周期加权相对强度。与轮动看板的「动能 RS」是两套算法，数值不可互比。">
                       <span className="cursor-help border-b border-dotted border-zinc-600">
                         相对 RS
@@ -523,7 +674,7 @@ export function StockPanelBoard({ data }: { data: StockPanelData }) {
               </thead>
               <tbody>
                 {g.rows.map((row) => (
-                  <PanelRow key={row.symbol} row={row} />
+                  <PanelRow key={row.symbol} row={row} pathId={data.pathId} />
                 ))}
               </tbody>
             </table>
@@ -576,6 +727,14 @@ export function StockPanelBoard({ data }: { data: StockPanelData }) {
                 大盘进入破位状态时，全池冻结低吸。
               </Text>
               <Text size="xs" c="dimmed">
+                <strong className="text-zinc-300">12M 目标</strong>{" "}
+                是估值引擎按市值、盈利、成长速度选一条定价路径推出的十二个月目标价，
+                再乘大盘环境系数。悬停可以看到走的是哪条路径。
+                标了 ≈ 的表示这条路径本质是现价乘一个固定倍数，
+                <strong className="text-zinc-300">不构成独立于价格的价值判断</strong>，
+                只有 PEG 与市值基准 PE 两类才真正用到每股收益。
+              </Text>
+              <Text size="xs" c="dimmed">
                 <strong className="text-zinc-300">风控</strong>{" "}
                 与轮动持仓页是两套：这里一买、二买各占一个独立仓位槽、可同时持有。
                 每个槽有两条并行防线：硬止损起于成本下方 4 倍波动幅度，浮盈 10%
@@ -613,6 +772,12 @@ export function StockPanelBoard({ data }: { data: StockPanelData }) {
               <Text size="xs" c="dimmed">
                 <strong className="text-zinc-300">部分标的没有行业归属。</strong>{" "}
                 QQQ、GLD、IBIT 这类 ETF 本就不属于任何行业，不参与行业排名，显示为「—」。
+              </Text>
+              <Text size="xs" c="dimmed">
+                <strong className="text-zinc-300">12M 目标价的区分度有限。</strong>{" "}
+                原始模型里绝大多数分支在代数上会退化成现价乘一个系数，末尾的「防倒挂」
+                还会把强势标的的目标强制顶到现价的 1.22 倍。它更接近动能强度的价格投影，
+                不宜当作内在价值来用。基本面覆盖不全时该列显示「—」。
               </Text>
             </Stack>
           </Accordion.Panel>

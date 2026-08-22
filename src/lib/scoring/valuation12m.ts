@@ -106,6 +106,46 @@ export interface ValuationVerdict {
   isDipActive: boolean;
 }
 
+export type SqueezeTier = "extreme" | "warning" | "swing";
+
+export interface ShortTermTarget {
+  /** Pine 第 635 行：close + 2 × current_atr × squeeze_mult */
+  target: number;
+  /** 空头持仓占总股本的百分比，数据缺失时为 0（Pine 的 na 兜底） */
+  shortRatioPct: number;
+  tier: SqueezeTier;
+}
+
+/**
+ * Pine 第 632~635 行的轧空短线目标价。
+ *
+ * **数据源受限：** Pine 用 `request.financial(..., "SHORT_INTEREST", "FQ")`，
+ * 而 FMP 的 stable 接口没有 short interest（`shares-float` 只给流通股本），
+ * Yahoo 的 quoteSummary 需要 crumb + cookie 会话、易碎不值得引入。
+ *
+ * 因此 `shortInterest` 恒为 null，走的是 Pine 自己的 na 分支：
+ * `short_ratio_pct = 0` → `squeeze_mult = 1.0` → 目标价退化为 `close + 2×ATR`，
+ * 档位恒为「波段」。8% 与 15% 两档轧空在当前数据条件下永远不会触发。
+ */
+export function shortTermTarget(
+  close: number,
+  /** Pine 的 current_atr，即 sma(ATR14, 252) */
+  atr: number,
+  shortInterest: number | null,
+  sharesOutstanding: number | null,
+): ShortTermTarget {
+  const shortRatioPct =
+    shortInterest != null && sharesOutstanding != null && sharesOutstanding > 0
+      ? (shortInterest / sharesOutstanding) * 100
+      : 0;
+
+  const mult = shortRatioPct >= 15 ? 1.8 : shortRatioPct >= 8 ? 1.35 : 1.0;
+  const tier: SqueezeTier =
+    shortRatioPct >= 15 ? "extreme" : shortRatioPct >= 8 ? "warning" : "swing";
+
+  return { target: close + 2 * atr * mult, shortRatioPct, tier };
+}
+
 /** Pine 第 462 行：FSM 状态决定的宏观折价。 */
 export function macroMultiplier(fsmState: number): number {
   if (fsmState === 3) return 0.85;

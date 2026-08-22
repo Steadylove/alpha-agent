@@ -6,7 +6,7 @@ import { relativeRsSeries } from "@/lib/scoring/relativeRs";
 import { ROTATION_UNIVERSE } from "@/lib/scoring/rotationUniverse";
 import { atrSeries, emaSeries, smaOfNullable } from "@/lib/scoring/series";
 import { type StockStage, computeStockStageSeries } from "@/lib/scoring/stockStage";
-import { computeValuation } from "@/lib/scoring/valuation12m";
+import { computeValuation, shortTermTarget } from "@/lib/scoring/valuation12m";
 
 /**
  * 每日重算 12M 估值目标。
@@ -198,6 +198,8 @@ export async function runStockValuationJob(): Promise<StockValuationJobResult> {
       calculatedPe: number | null;
       marketCapB: number | null;
       isDipActive: boolean;
+      shortTermTarget: number;
+      squeezeTier: string;
       isInLongDowntrend: boolean;
       isHyperMomentum: boolean;
       tfAlpha: number | null;
@@ -253,6 +255,8 @@ export async function runStockValuationJob(): Promise<StockValuationJobResult> {
         analystCount: f?.analystCount ?? 0,
       });
 
+      const shortTerm = shortTermTarget(last.close, atr252[i] ?? 0, null, f?.sharesOutstanding ?? null);
+
       rows.push({
         date: new Date(`${last.date}T00:00:00.000Z`),
         symbol,
@@ -266,6 +270,9 @@ export async function runStockValuationJob(): Promise<StockValuationJobResult> {
         calculatedPe: verdict.calculatedPe,
         marketCapB: verdict.marketCapB,
         isDipActive: verdict.isDipActive,
+        // short interest 无可用数据源，恒走 Pine 的 na 兜底，详见 shortTermTarget 注释
+        shortTermTarget: shortTerm.target,
+        squeezeTier: shortTerm.tier,
         isInLongDowntrend: gates.isInLongDowntrend,
         isHyperMomentum: gates.isHyperMomentum,
         tfAlpha,

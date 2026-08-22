@@ -1,4 +1,5 @@
-import { PATH_EXPOSURE, type PathExposure } from "@/lib/scoring/macroExposure";
+import { COMMERCIAL_SPEC } from "@/lib/config/commercialSpec";
+import { PATH_EXPOSURE, type PathExposure, macroExposurePct } from "@/lib/scoring/macroExposure";
 import { ROTATION_UNIVERSE } from "@/lib/scoring/rotationUniverse";
 
 /** RotationState 落库的字段子集。 */
@@ -207,8 +208,16 @@ export async function getRotationData(): Promise<RotationData> {
   const active = rows.filter((r) => r.sigType > 0);
   const activeRsSum = active.reduce((sum, r) => sum + r.rs, 0);
 
+  // 商业化文档的 W_i = E_macro(Path) × RS_i/ΣRS_j。默认关闭，见 commercialSpec 注释：
+  // 组合层回测显示照此机械减仓会让收益/波动从 1.18 降到 0.95。
+  const exposureScale =
+    COMMERCIAL_SPEC.macroExposureScaling && macroLatest != null
+      ? macroExposurePct(macroLatest.pathId) / 100
+      : 1;
+
   const toHolding = (row: (typeof rows)[number]): RotationHolding => {
-    const weightPct = row.sigType > 0 && activeRsSum > 0 ? (row.rs / activeRsSum) * 100 : 0;
+    const weightPct =
+      row.sigType > 0 && activeRsSum > 0 ? (row.rs / activeRsSum) * 100 * exposureScale : 0;
     return {
       symbol: row.symbol,
       close: row.close,

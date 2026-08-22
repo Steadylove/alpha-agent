@@ -22,6 +22,13 @@ export type MacroPhaseSnapshot = {
   leadPersist: number;
   leadQuality: number;
   transVel: number;
+  /** 传导深度 0~3，路径判定的中间量 */
+  transDepth: number;
+  couplingRatio: number;
+  /** 三域 σ 分级：0 平静 / 1 异动 / 2 极端 */
+  sigmaVol: number;
+  sigmaCred: number;
+  sigmaSpot: number;
 };
 
 /** 时间轴用的一天：MPR 快照加上当日 SPY 收盘，便于看路径判定是否滞后于价格。 */
@@ -99,6 +106,11 @@ export async function getMprData(): Promise<MprData> {
       leadPersist: row.leadPersist,
       leadQuality: row.leadQuality,
       transVel: row.transVel,
+      transDepth: row.transDepth,
+      couplingRatio: row.couplingRatio,
+      sigmaVol: row.sigmaVol,
+      sigmaCred: row.sigmaCred,
+      sigmaSpot: row.sigmaSpot,
     }))
     .reverse();
 

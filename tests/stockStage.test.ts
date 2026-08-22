@@ -1,6 +1,8 @@
 import {
   type StageBar,
+  type StageFlags,
   computeStockStageSeries,
+  dipStageOf,
   institutionalVwap,
 } from "@/lib/scoring/stockStage";
 import { describe, expect, it } from "vitest";
@@ -179,6 +181,63 @@ describe("institutionalVwap", () => {
       { close: 30, volume: 0 },
     ];
     expect(institutionalVwap(bars, 3)[2]).toBeCloseTo(20, 10);
+  });
+});
+
+describe("dipStageOf 低吸带阶段消歧", () => {
+  const flags = (on: ("a" | "b" | "c" | "d" | "e" | "w")[]): StageFlags => ({
+    a: on.includes("a"),
+    b: on.includes("b"),
+    c: on.includes("c"),
+    d: on.includes("d"),
+    e: on.includes("e"),
+    w: on.includes("w"),
+  });
+
+  it("单一标志时与该标志一致", () => {
+    for (const s of ["a", "b", "c", "d", "e", "w"] as const) {
+      expect(dipStageOf(flags([s]))).toBe(s.toUpperCase());
+    }
+  });
+
+  it("A 优先于其余全部（Pine 第 595 行在链首）", () => {
+    for (const other of ["c", "d", "e", "w"] as const) {
+      expect(dipStageOf(flags(["a", other]))).toBe("A");
+    }
+  });
+
+  it("W 与 E 同真时走 E，这是与展示优先级最主要的分歧", () => {
+    expect(dipStageOf(flags(["e", "w"]))).toBe("E");
+  });
+
+  it("C 排在链尾，与任何其他标志同真都被让位", () => {
+    for (const other of ["d", "e", "w"] as const) {
+      expect(dipStageOf(flags(["c", other]))).not.toBe("C");
+    }
+  });
+
+  it("与展示阶段在重叠时确实会分道扬镳", () => {
+    // 展示优先级 C > D > W > A > E > B 会判 W，低吸链条判 E
+    const both = flags(["e", "w"]);
+    expect(dipStageOf(both)).toBe("E");
+  });
+});
+
+describe("阶段原始标志", () => {
+  it("B 是其余五个的补集，任何一天恰好至少有一个标志为真", () => {
+    const bars = makeBars(400, 0.15);
+    for (const day of computeStockStageSeries(bars, flatRs(400, 55))) {
+      const { a, b, c, d, e, w } = day.flags;
+      expect(a || b || c || d || e || w).toBe(true);
+      if (b) expect([a, c, d, e, w].some(Boolean)).toBe(false);
+    }
+  });
+
+  it("展示阶段总能在标志里找到对应项为真", () => {
+    const bars = makeBars(400, -0.2);
+    for (const day of computeStockStageSeries(bars, flatRs(400, 25))) {
+      expect(day.flags[day.stage.toLowerCase() as keyof StageFlags]).toBe(true);
+    }
   });
 });
 

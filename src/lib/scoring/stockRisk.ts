@@ -41,7 +41,17 @@ export interface StockRiskParams {
   /** 平滑 RSI 低于此值时禁止开仓 */
   rsiMin: number;
   enableRsiFilter: boolean;
+  /**
+   * 商业化文档独有：Path 2 或 5 日下跌概率 >= 60% 时，保本触发提前到 +5%。
+   * MarketCompass Pine 只有 +10%（第 34 行的 be_trigger_pct），默认关闭。
+   */
+  useEarlyBreakeven: boolean;
+  /** 启用提前保本时，逐日提供当日宏观条件；未提供视为不满足。 */
+  earlyBreakevenActive?: (index: number) => boolean;
 }
+
+/** 商业化文档第 217 行的提前保本档。 */
+export const EARLY_BREAKEVEN_TRIGGER_PCT = 5;
 
 /** 取自 Pine 第 28~38 行的 input 默认值。 */
 export const DEFAULT_STOCK_RISK_PARAMS: StockRiskParams = {
@@ -56,6 +66,7 @@ export const DEFAULT_STOCK_RISK_PARAMS: StockRiskParams = {
   rsiLength: 14,
   rsiMin: 30,
   enableRsiFilter: true,
+  useEarlyBreakeven: false,
 };
 
 /** 单个仓位槽的状态，空仓时全为 null。 */
@@ -182,7 +193,11 @@ export function computeStockRisk(
         // 只上移不下移
         slot.trailLevel = Math.max(slot.trailLevel ?? -Infinity, slot.highestHigh - mult * a);
 
-        if (slot.maxProfitPct >= params.breakevenTriggerPct) {
+        const breakevenTrigger =
+          params.useEarlyBreakeven && (params.earlyBreakevenActive?.(i) ?? false)
+            ? EARLY_BREAKEVEN_TRIGGER_PCT
+            : params.breakevenTriggerPct;
+        if (slot.maxProfitPct >= breakevenTrigger) {
           const breakeven = slot.entryPrice * 1.01;
           if (breakeven > (slot.stopLossLevel ?? -Infinity)) {
             slot.stopLossLevel = breakeven;

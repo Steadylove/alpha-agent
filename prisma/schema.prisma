@@ -101,6 +101,13 @@ model MacroPhaseState {
   leadPersist     Int
   leadQuality     Float
   transVel        Float
+  /// 传导深度 0~3 与耦合率，路径判定的中间量；默认值仅用于此前落库的历史行
+  transDepth      Int      @default(0)
+  couplingRatio   Float    @default(0)
+  /// 三域各自的 σ 分级：0 平静 / 1 异动 / 2 极端
+  sigmaVol        Int      @default(0)
+  sigmaCred       Int      @default(0)
+  sigmaSpot       Int      @default(0)
   createdAt       DateTime @default(now())
 
   @@index([date])
@@ -140,6 +147,10 @@ model StockPanelState {
   /// 对标 SPY 的相对强度，1~99
   rs             Float
   rsAccelerating Boolean
+  /// MPR 口径的 4Q-Alpha 评分，1~99。与 rs 是两套算法，不可互比
+  mprAlphaRs     Float   @default(50)
+  /// Pine 的 stock_in_downtrend：close < EMA20 且 EMA20 < EMA50
+  inShortDowntrend Boolean @default(false)
   /// T-CUBE 趋势打分，0~10
   trendScore     Int
 
@@ -246,6 +257,10 @@ model StockValuation {
   calculatedPe      Float?
   marketCapB        Float?
   isDipActive       Boolean
+  /// Pine 第 635 行的轧空短线目标价 close + 2×ATR×倍数
+  shortTermTarget   Float    @default(0)
+  /// extreme / warning / swing。缺 short interest 数据源，实际恒为 swing
+  squeezeTier       String   @default("swing")
   /// 门槛判定的中间量，便于面板解释目标价为何是这个数
   isInLongDowntrend Boolean
   isHyperMomentum   Boolean

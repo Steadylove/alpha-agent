@@ -1,7 +1,15 @@
+import { COMMERCIAL_SPEC } from "@/lib/config/commercialSpec";
 import { getPrisma } from "@/lib/db/prisma";
+import { loadEarlyBreakevenDates } from "@/lib/jobs/earlyBreakeven";
 import { computeLogMacdSeries } from "@/lib/scoring/logMacd";
+import { percentileRsBySymbol } from "@/lib/scoring/percentileRs";
 import { rotationRsSeries } from "@/lib/scoring/rotationRs";
-import { computeRotationTrades, type ClosedTrade, type TradeBar } from "@/lib/scoring/rotationTrade";
+import {
+  DEFAULT_TRADE_PARAMS,
+  computeRotationTrades,
+  type ClosedTrade,
+  type TradeBar,
+} from "@/lib/scoring/rotationTrade";
 import { ROTATION_UNIVERSE } from "@/lib/scoring/rotationUniverse";
 
 /**
@@ -79,6 +87,30 @@ async function loadBars(): Promise<{ loaded: Loaded[]; skipped: string[] }> {
 
 const toDate = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
 
+/** 截面 RS 的基准，只在 `COMMERCIAL_SPEC.percentileRs` 打开时才需要加载。 */
+const BENCHMARK_SYMBOL = "SPY";
+
+async function loadBenchmark(): Promise<{ dates: string[]; closes: number[] }> {
+  const prisma = getPrisma();
+  const instrument = await prisma.instrument.findUnique({
+    where: { symbol: BENCHMARK_SYMBOL },
+    select: { id: true },
+  });
+  if (!instrument) {
+    throw new Error(`截面 RS 需要基准 ${BENCHMARK_SYMBOL}，请先执行 npm run backfill:rotation`);
+  }
+  const bars = await prisma.dailyBar.findMany({
+    where: { instrumentId: instrument.id },
+    orderBy: { date: "asc" },
+    select: { date: true, close: true },
+  });
+  return {
+    dates: bars.map((b) => b.date.toISOString().slice(0, 10)),
+    closes: bars.map((b) => b.close),
+  };
+}
+
+
 export async function runRotationRadarJob(): Promise<RotationRadarJobResult> {
   const prisma = getPrisma();
   const startedAt = new Date();
@@ -117,12 +149,32 @@ export async function runRotationRadarJob(): Promise<RotationRadarJobResult> {
     const exitedToday: { symbol: string; pnlPct: number }[] = [];
     let activePositions = 0;
 
+    // 商业化开关全部默认关闭，此时下面两处都不产生额外查询，口径与 Pine 一致。
+    const percentileRs = COMMERCIAL_SPEC.percentileRs
+      ? percentileRsBySymbol(
+          loaded.map((l) => ({
+            symbol: l.symbol,
+            dates: l.bars.map((b) => b.date),
+            closes: l.bars.map((b) => b.close),
+          })),
+          await loadBenchmark(),
+        )
+      : null;
+    const earlyBreakevenDates = COMMERCIAL_SPEC.earlyBreakeven
+      ? await loadEarlyBreakevenDates()
+      : null;
+
     for (const { symbol, bars } of loaded) {
       const macd = computeLogMacdSeries(bars);
-      const rs = rotationRsSeries(bars.map((b) => b.close));
+      const rs = percentileRs?.get(symbol) ?? rotationRsSeries(bars.map((b) => b.close));
       const buy1 = macd.map((d) => d.buy1);
       const buy2 = macd.map((d) => d.buy2);
-      const { days, closed } = computeRotationTrades(symbol, bars, buy1, buy2, rs);
+      const { days, closed } = computeRotationTrades(symbol, bars, buy1, buy2, rs, {
+        ...DEFAULT_TRADE_PARAMS,
+        useCommercialRsGate: COMMERCIAL_SPEC.rsEntryVeto,
+        useEarlyBreakeven: COMMERCIAL_SPEC.earlyBreakeven,
+        earlyBreakevenActive: (i) => earlyBreakevenDates?.has(bars[i].date) ?? false,
+      });
 
       allTrades.push(...closed);
 

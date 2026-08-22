@@ -98,7 +98,7 @@ describe("computeRotationTrades", () => {
       fireAt(n, 40),
       noSignals(n),
       new Array(n).fill(5),
-      { minRs: 0 },
+      { ...DEFAULT_TRADE_PARAMS, minRs: 0 },
     );
     expect(days[40].entered).toBe(true);
   });
@@ -253,5 +253,113 @@ describe("computeRotationTrades", () => {
 
   it("空输入不抛错", () => {
     expect(computeRotationTrades("TEST", [], [], [], [])).toEqual({ days: [], closed: [] });
+  });
+});
+
+describe("商业化文档独有开关（默认关闭）", () => {
+  it("默认参数不启用任何商业化规则", () => {
+    expect(DEFAULT_TRADE_PARAMS.useCommercialRsGate).toBe(false);
+    expect(DEFAULT_TRADE_PARAMS.useEarlyBreakeven).toBe(false);
+  });
+
+  it("RS 闸门关闭时用 minRs=30，RS 50 可以开仓", () => {
+    const n = 120;
+    const bars = makeBars(new Array(n).fill(100));
+    const { days } = computeRotationTrades(
+      "TEST",
+      bars,
+      fireAt(n, 40),
+      noSignals(n),
+      new Array(n).fill(50),
+    );
+    expect(days[40].entered).toBe(true);
+  });
+
+  it("RS 闸门打开后 RS 50 被拦下，RS 70 才放行", () => {
+    const n = 120;
+    const bars = makeBars(new Array(n).fill(100));
+    const gate = { ...DEFAULT_TRADE_PARAMS, useCommercialRsGate: true };
+
+    const blocked = computeRotationTrades(
+      "TEST",
+      bars,
+      fireAt(n, 40),
+      noSignals(n),
+      new Array(n).fill(50),
+      gate,
+    );
+    expect(blocked.days[40].entered).toBe(false);
+
+    const passed = computeRotationTrades(
+      "TEST",
+      bars,
+      fireAt(n, 40),
+      noSignals(n),
+      new Array(n).fill(70),
+      gate,
+    );
+    expect(passed.days[40].entered).toBe(true);
+  });
+
+  it("RS 跌破 40 触发一票否决清仓", () => {
+    const n = 120;
+    const bars = makeBars(new Array(n).fill(100));
+    const rs = new Array(n).fill(80);
+    for (let i = 60; i < n; i += 1) rs[i] = 35;
+
+    const { closed } = computeRotationTrades(
+      "TEST",
+      bars,
+      fireAt(n, 40),
+      noSignals(n),
+      rs,
+      { ...DEFAULT_TRADE_PARAMS, useCommercialRsGate: true },
+    );
+    expect(closed).toHaveLength(1);
+    expect(closed[0].exitIndex).toBe(60);
+  });
+
+  it("提前保本开关关闭时，浮盈 +6% 不锁保本", () => {
+    const n = 120;
+    const closes = new Array(n).fill(100);
+    for (let i = 41; i < n; i += 1) closes[i] = 106;
+    const { days } = computeRotationTrades(
+      "TEST",
+      makeBars(closes),
+      fireAt(n, 40),
+      noSignals(n),
+      allPass(n),
+    );
+    expect(days[50].breakevenLocked).toBe(false);
+  });
+
+  it("提前保本开关打开且宏观条件成立时，浮盈 +6% 即锁保本", () => {
+    const n = 120;
+    const closes = new Array(n).fill(100);
+    for (let i = 41; i < n; i += 1) closes[i] = 106;
+    const { days } = computeRotationTrades(
+      "TEST",
+      makeBars(closes),
+      fireAt(n, 40),
+      noSignals(n),
+      allPass(n),
+      { ...DEFAULT_TRADE_PARAMS, useEarlyBreakeven: true, earlyBreakevenActive: () => true },
+    );
+    expect(days[50].breakevenLocked).toBe(true);
+  });
+
+  it("提前保本打开但宏观条件不成立时，仍按 +10% 触发", () => {
+    const n = 120;
+    const closes = new Array(n).fill(100);
+    for (let i = 41; i < n; i += 1) closes[i] = 106;
+    const { days } = computeRotationTrades(
+      "TEST",
+      makeBars(closes),
+      fireAt(n, 40),
+      noSignals(n),
+      allPass(n),
+      { ...DEFAULT_TRADE_PARAMS, useEarlyBreakeven: true, earlyBreakevenActive: () => false },
+    );
+    expect(days[50].breakevenLocked).toBe(false);
   });
 });

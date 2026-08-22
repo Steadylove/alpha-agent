@@ -18,6 +18,26 @@ import {
 export type StockStage = "A" | "B" | "C" | "D" | "E" | "W";
 export type BaseTier = "T1" | "T2" | "T3";
 
+/** 六个阶段闸的原始判定，可同时为真——Pine 在不同场景下用不同优先级消歧。 */
+export type StageFlags = Record<Lowercase<StockStage>, boolean>;
+
+/**
+ * 低吸带专用的阶段消歧。
+ *
+ * Pine 有两套优先级：第 302 行的形态展示用 C > D > W > A > E > B，
+ * 第 594~630 行的低吸带链条却是 A > E > D > W > C（`is_stage_b` 是其余五个
+ * 的补集，只在全假时命中）。真实数据上 7.35% 的交易日两者判定不同，
+ * 绝大多数是展示为 W 而低吸带应走 E，因此不能拿展示阶段驱动低吸带。
+ */
+export function dipStageOf(flags: StageFlags): StockStage {
+  if (flags.a) return "A";
+  if (flags.b) return "B";
+  if (flags.e) return "E";
+  if (flags.d) return "D";
+  if (flags.w) return "W";
+  return "C";
+}
+
 export interface StageBar {
   high: number;
   low: number;
@@ -35,7 +55,9 @@ export interface StockStageDay {
   /** 距上次跌破 EMA50×0.85 的交易日数，从未发生记 30（Pine 语义） */
   baseDays: number;
   baseTier: BaseTier;
+  /** 形态展示阶段，按 Pine 第 302 行的 C > D > W > A > E > B 消歧 */
   stage: StockStage;
+  flags: StageFlags;
 }
 
 function trendScoreAt(
@@ -120,6 +142,7 @@ export function computeStockStageSeries(
     const isD = close < e200 && trendScore <= 3 && vwapSlope < -0.03;
     const isE = close < e200 && !isD && (vwapSlope >= -0.03 || baseDays > 40);
     const isW = squeezeRatio > 1.35 && !isSuperLeader && trendScore < 6;
+    const isB = !(isC || isD || isW || isA || isE);
 
     // 展示优先级取自 Pine 第 302 行的三元嵌套顺序：C > D > W > A > E > B
     const stage: StockStage = isC
@@ -134,7 +157,15 @@ export function computeStockStageSeries(
               ? "E"
               : "B";
 
-    return { trendScore, distFrom52wHigh, squeezeRatio, baseDays, baseTier, stage };
+    return {
+      trendScore,
+      distFrom52wHigh,
+      squeezeRatio,
+      baseDays,
+      baseTier,
+      stage,
+      flags: { a: isA, b: isB, c: isC, d: isD, e: isE, w: isW },
+    };
   });
 }
 

@@ -1,0 +1,217 @@
+### 🏛️ 一、 商业化产品架构闭环（三层决策漏斗）
+
+产品在用户端呈现为一个统一的 Web 交互终端，分为三个自上而下的决策层级：
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│ 🧭 顶层：宏观相变与风控中枢 (MarketCompass MPR V2)                     │
+│  - 5 大力场 ➔ 3 大物理域 ➔ 几何张力 ➔ 传导路径 (Path 0 ~ Path 4)       │
+│  - 输出全局决策：系统风险分 (0~100)、5D 跳水概率、建议股票总敞口上限   │
+└──────────────────────────────────┬─────────────────────────────────────┘
+                                   │ 动态风控与准入约束 (Top-Down Constraint)
+                                   ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│ 📊 中层：100 标的动态轮动雷达 (Universe Momentum & Rotation)           │
+│  - 4Q-Alpha 截面排序榜单 (对标 SPY 的 1~99 相对强度分位)               │
+│  - 盘中微观点火：对数 MACD 底背离（❤️ 一买 / ⭐️ 二买）、VCP 极限收缩   │
+│  - 组合全口径 NAV 动态核算、在持标的 RS 动态加权、+10% 浮盈保本锁      │
+└──────────────────────────────────┬─────────────────────────────────────┘
+                                   │ 单票下钻检索
+                                   ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│ 🔍 底层：个股全景量化体检页 (Single-Stock Deep-Dive Panel)              │
+│  - 输入任意代码 (如 NVDA)：自动匹配 12M 估值引擎、目标价与期望回报空间 │
+│  - 机构 VWAP (90D/250D) 支撑带、右侧回踩低吸区间、Hurst 分形与短线目标 │
+└────────────────────────────────────────────────────────────────────────┘
+
+```
+
+---
+
+### ⚙️ 二、 轻量级技术落地与低成本 AI 编排
+
+为保证极低运营成本与高响应速度，采用 **“本地纯数学高频计算 + 关键事件驱动 AI 决策”** 架构：
+
+```
+┌───────────────────────────┐     行情推流      ┌───────────────────────────┐
+│ 外部数据源 (Polygon/FMP)  │ ───────────────► │ Python 后端引擎 (FastAPI)  │
+└───────────────────────────┘                  └─────────────┬─────────────┘
+                                                             │ 内存向量化高频运算
+                                                             ▼
+                                               ┌───────────────────────────┐
+                                               │ 事件过滤器 (Event Gate)   │
+                                               └─────────────┬─────────────┘
+                                                             │ 仅在产生买卖/保本/相变时放行 (每天 5~20 次)
+                                                             ▼
+┌───────────────────────────┐     毫秒级推送    ┌───────────────────────────┐
+│ Web 终端 / Telegram Bot   │ ◄─────────────── │ AI 大模型 API (Gemini Flash)│
+└───────────────────────────┘                  └───────────────────────────┘
+
+```
+
+* **数据接入**：使用 `Financial Modeling Prep (FMP)` 每日获取财报与宏观指数，使用 `Polygon.io` 接入 100 只标的的实时行情流。
+* **量化计算引擎**：Python 异步任务（FastAPI + NumPy）在服务器内存中毫秒级跑完 ECDF、对数 MACD、RS 截面排序与状态机。
+* **AI 决策推理**：绝不每分钟盲目调用大模型。仅在触发一买/二买、保本锁启动、大盘跳水预警时，把结构化 JSON 发给 `Gemini 1.5 Flash` 或 `GPT-4o-mini`，生成一段 120 字的直观指令（单月大模型 Token 成本 $< \$1$ 美元）。
+
+---
+
+### 📐 三、 核心算法数学模型与判定逻辑
+
+#### 1. MPR 状态拓扑与概率决策算法 (Macro Phase Radar V2)
+
+* **五大基础风险力场计算**：
+* **$F_1$（量价推进效率）**：计算 SPY 价格位移与相对成交量的非线性比率：
+
+
+
+$$F_{1\text{, raw}} = \text{PriceLoc} \times \ln\left(1.0 + \frac{1.0}{\text{PriceEff} + 0.05}\right) \implies F_1 = \text{ECDF}_{252}(F_{1\text{, raw}})$$
+
+
+
+* **$F_2$（隐波期限倒挂）**：取短端与远端波动率比率 $\text{Term} = \frac{\text{VIX9D}}{\text{VIX3M}}$，结合 $\text{VIX} > 16$ 执行真实阈值滤波，输出 $F_2$。
+
+
+* **$F_3$（跨资产避险脱节）**：度量股市下行或极端异动时，国债（TLT）与美元（DXY）的非对称避险拉升，输出 $F_3$。
+
+
+* **$F_4$（信用利差紧缩）**：度量中短期国债与高收益垃圾债比率 $\text{Credit} = \frac{\text{IEI}}{\text{HYG}}$，输出 $F_4$。
+
+
+* **$F_5$（现货广度背离）**：度量市值加权 SPY 与等权重 RSP 的动量扩散 $\text{Dispersion} = \text{ROC}_5(\text{SPY}) - \text{ROC}_5(\text{RSP})$，输出 $F_5$。
+
+
+
+
+* **三大物理域聚合与耦合度**：
+* **衍生品域**：$\mathcal{D}_{\text{vol}} = F_2$
+
+* **信用避险域**：$\mathcal{D}_{\text{credit}} = \max(F_4, F_3)$
+
+* **现货广度量价域**：$\mathcal{D}_{\text{spot}} = \max(F_5, F_1)$
+
+* 每个物理域状态为 $\sigma_k \in \{0, 1, 2\}$（$0$: 正常, $1$: 异动 $\ge 50\%$, $2$: 临界 $\ge 75\%$）。跨域几何张力与耦合系数（Coupling Ratio, $\mathcal{C}$）定义为：
+
+
+
+$$\mathcal{C} = \frac{\sum_{k} \mathbb{I}(\sigma_k \ge 1)}{3} \times \left(\frac{\mathcal{D}_{\text{vol}}}{100} \times \frac{\mathcal{D}_{\text{credit}}}{100} \times \frac{\mathcal{D}_{\text{spot}}}{100}\right)^{1/3}$$
+
+
+
+
+
+* **传导拓扑路径（Transmission Graph）与概率映射**：
+结合 SPY 真实破坏度 $\mathcal{P}_{\text{damage}}$ 与 50EMA 均线闸门，判定唯一拓扑路径：
+
+
+* **Path 0（稳态自洽）**：三大域均处于稳态 $\sigma_k = 0$。
+
+
+* **Path 1（跨市场暗流）**：$(\sigma_{\text{vol}} \ge 1 \lor \sigma_{\text{credit}} \ge 1) \land \sigma_{\text{spot}} = 0$。
+
+
+* **Path 2（相变临界扩散）**：$(\sigma_{\text{vol}} \ge 1 \lor \sigma_{\text{credit}} \ge 1) \land \sigma_{\text{spot}} \ge 1 \land \mathcal{P}_{\text{damage}} < 60\%$（核心吹哨）。
+
+
+* **Path 3（微观滞涨漂移）**：$\sigma_{\text{spot}} \ge 1 \land \sigma_{\text{vol}} = 0 \land \sigma_{\text{credit}} = 0$。
+
+
+* **Path 4（全面破位确认）**：SPY 跌破 50EMA 且 $\mathcal{P}_{\text{damage}} \ge 70\%$。
+
+
+
+
+输出 5 日跳水后验概率 $P(\text{Down}_{5\text{D}})$ 与系统性风险评分 $\text{RiskScore} \in [0, 100]$：
+
+
+
+$$P(\text{Down}_{5\text{D}}) = \frac{1}{1 + \exp\left(-\left(\alpha_{\text{Path}} + 0.90\mathcal{C} + 0.35\ln(\text{Persist} + 1)\right)\right)}$$
+
+
+
+$$\text{RiskScore} = \min\left(100, \ P(\text{Down}_{5\text{D}}) \times \text{Severity}(\text{Path}) \times (1 + 0.15 \cdot \text{Depth})\right)$$
+
+
+
+
+---
+
+#### 2. 4Q-Alpha 截面动能评分算法
+
+* **统一对标 SPY 的 4 周期加权超额强度**：
+
+$$\text{AlphaScore}_i = 0.10 \left(\frac{P_{i, 0} / P_{i, 21}}{P_{\text{SPY}, 0} / P_{\text{SPY}, 21}}\right) + 0.40 \left(\frac{P_{i, 0} / P_{i, 63}}{P_{\text{SPY}, 0} / P_{\text{SPY}, 63}}\right) + 0.30 \left(\frac{P_{i, 0} / P_{i, 126}}{P_{\text{SPY}, 0} / P_{\text{SPY}, 126}}\right) + 0.20 \left(\frac{P_{i, 0} / P_{i, 252}}{P_{\text{SPY}, 0} / P_{\text{SPY}, 252}}\right)$$
+
+
+
+* **全股票池截面分位数排序**：
+
+$$\text{RS}_i = \text{PercentileRank}(\text{AlphaScore}_i, \text{Universe}_{100}) \in [1, 99]$$
+
+
+
+强制策略只在 $\text{RS}_i \ge 70$ 的领跑阵营中选股，一票否决 $\text{RS}_i < 40$ 的弱势标的。
+
+
+
+---
+
+#### 3. 对数 MACD 底部背离点火算法 (Buy 1 / Buy 2)
+
+* **量化特征提取**：
+
+$$\text{LogDigit} = \lfloor \log_{10}(\vert{}\text{LLV}(\text{DIF})\vert{}) \rfloor - 1$$
+
+
+
+$$\text{ScaledDIF} = \lfloor \text{DIF} / 10^{\text{LogDigit}} \rfloor, \quad \text{ScaledLLV} = \lfloor \text{LLV}(\text{DIF}) / 10^{\text{LogDigit}} \rfloor$$
+
+
+
+* **❤️ 一买信号（Buy 1 - 绝对左侧底背离）**：
+当满足 $\text{MACD} < 0$ 时，价格创出新低（$C_{\text{low1}} < C_{\text{low2}}$），但规约后的动能指标拒绝创新低（$\text{ScaledDIF} > \text{ScaledLLV}$），且 DEA 向上拐头确认。
+
+
+* **⭐️ 二买信号（Buy 2 - 右侧共振确认）**：
+在一买底背离形态确立后，DIF 向上金叉 DEA，且股价回踩未跌破前期结构低点，形成右侧二次起涨点。
+
+
+
+---
+
+#### 4. 12M 动态估值定价算法
+
+* **高成长模型（High Growth / PEG）**：针对净利润增速 $>15\%$ 标的，$\text{PE}_{\text{target}} = \min(\text{EPS Growth} \times \text{PEG}_{\text{target}}, 60)$，目标价 $P_{\text{target}} = \text{EPS} \times \text{PE}_{\text{target}}$。
+
+
+* **高估值/SaaS 动态 PS 重估**：针对高 PE/亏损高成长标的，按每股营收与 RS 动能溢价进行 PS 扩张定价：$P_{\text{target}} = \text{SPS} \times \text{PS}_{\text{current}} \times (1.20)$。
+
+
+* **万亿巨头防倒挂与上限压制**：引入市值上限压制（$\le +35\%$），同时若动能极强，自动匹配龙头动能防倒挂基准价（$P \times 1.22$）。
+
+
+* **宏观动态折现**：最终目标价乘上宏观力场折现系数 $P_{\text{target, final}} = P_{\text{target}} \times \text{MacroMult}$（Path 0 为 1.05，Path 2 为 0.92，Path 4 为 0.85）。
+
+
+
+---
+
+#### 5. 动态风控、保本锁与组合头寸分配算法
+
+* **宏观总敞口与单标的头寸**：
+
+$$W_i = E_{\text{macro}}(\text{Path}) \times \frac{\text{RS}_i}{\sum_{j \in \text{Active}} \text{RS}_j}$$
+
+
+
+$$E_{\text{macro}} = \begin{cases} 80\% \sim 100\% & (\text{Path 0: 稳态顺风}) \\ 60\% \sim 80\% & (\text{Path 1: 暗流 / Path 3: 滞涨}) \\ 30\% \sim 50\% & (\text{Path 2: 临界扩散，禁止开新仓}) \\ 0\% \sim 20\% & (\text{Path 4: 破位确认，现金防御}) \end{cases}$$
+
+
+
+* **自适应风控与保本锁定**：
+* **初始硬止损**：$\text{SL}_{\text{init}} = \text{EntryPrice} - 4.0 \times \text{ATR}_{14}$。
+
+
+* **吊灯移动止盈**：$\text{TP}_{\text{trail}} = \text{HighestHigh} - \text{Multiplier}(\text{Profit}\%) \times \text{ATR}_{14}$。
+
+
+* **动态保本锁**：常态下个股浮盈达到 $+10\%$ 时，$\text{SL} \ge \text{EntryPrice} \times 1.01$ 锁定保本；当大盘处于 Path 2 或 $P(\text{Down}_{5\text{D}}) \ge 60\%$ 时，保本触发阈值自动提前至浮盈 $+5\%$ 强制激活。

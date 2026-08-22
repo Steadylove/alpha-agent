@@ -23,6 +23,11 @@ const snapshot = (over: Partial<MacroPhaseSnapshot> = {}): MacroPhaseSnapshot =>
   leadPersist: 0,
   leadQuality: 0,
   transVel: 0,
+  transDepth: 0,
+  couplingRatio: 0,
+  sigmaVol: 0,
+  sigmaCred: 0,
+  sigmaSpot: 0,
   ...over,
 });
 

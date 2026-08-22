@@ -1,6 +1,7 @@
 import { getPrisma } from "@/lib/db/prisma";
 import { computeDipZone } from "@/lib/scoring/dipZone";
 import { computeLogMacdSeries } from "@/lib/scoring/logMacd";
+import { inShortTermDowntrend, mprAlphaRsSeries } from "@/lib/scoring/mprAlphaRs";
 import { isRsAccelerating, relativeRsSeries } from "@/lib/scoring/relativeRs";
 import { ROTATION_UNIVERSE } from "@/lib/scoring/rotationUniverse";
 import {
@@ -15,8 +16,10 @@ import {
 } from "@/lib/scoring/sectorUniverse";
 import { atrSeries, emaSeries, smaOfNullable } from "@/lib/scoring/series";
 import { computeStockRegimeSeries } from "@/lib/scoring/stockRegime";
-import { computeStockRisk } from "@/lib/scoring/stockRisk";
-import { computeStockStageSeries, institutionalVwap } from "@/lib/scoring/stockStage";
+import { COMMERCIAL_SPEC } from "@/lib/config/commercialSpec";
+import { loadEarlyBreakevenDates } from "@/lib/jobs/earlyBreakeven";
+import { DEFAULT_STOCK_RISK_PARAMS, computeStockRisk } from "@/lib/scoring/stockRisk";
+import { computeStockStageSeries, dipStageOf, institutionalVwap } from "@/lib/scoring/stockStage";
 import { computeTacticalGuide } from "@/lib/scoring/tacticalGuide";
 
 /**
@@ -109,6 +112,11 @@ export async function runStockPanelJob(): Promise<StockPanelJobResult> {
     }
     const benchByDate = new Map(benchBars.map((b) => [b.date, b.close]));
 
+    // 商业化开关默认关闭，此时不产生额外查询，口径与 Pine 一致。
+    const earlyBreakevenDates = COMMERCIAL_SPEC.earlyBreakeven
+      ? await loadEarlyBreakevenDates()
+      : null;
+
     // 低吸带的 Path 4 冻结取自 MPR。缺当日 Path 时按 0 处理（不冻结）。
     const phases = await prisma.macroPhaseState.findMany({ select: { date: true, pathId: true } });
     const pathByDate = new Map(
@@ -146,6 +154,8 @@ export async function runStockPanelJob(): Promise<StockPanelJobResult> {
       close: number;
       rs: number;
       rsAccelerating: boolean;
+      mprAlphaRs: number;
+      inShortDowntrend: boolean;
       trendScore: number;
       stage: string;
       baseTier: string;
@@ -202,13 +212,19 @@ export async function runStockPanelJob(): Promise<StockPanelJobResult> {
       const bench = bars.map((b) => benchByDate.get(b.date)!);
 
       const rs = relativeRsSeries(closes, bench);
+      // MPR 口径的 4Q-Alpha 是另一套权重与映射，只用于原版实战指引的弱势分支
+      const mprRs = mprAlphaRsSeries(closes, bench);
       const stages = computeStockStageSeries(bars, rs);
       const regimes = computeStockRegimeSeries(bars);
 
       const macd = computeLogMacdSeries(bars);
       const buy1 = macd.map((d) => d.buy1);
       const buy2 = macd.map((d) => d.buy2);
-      const { days: risk } = computeStockRisk(bars, buy1, buy2);
+      const { days: risk } = computeStockRisk(bars, buy1, buy2, {
+        ...DEFAULT_STOCK_RISK_PARAMS,
+        useEarlyBreakeven: COMMERCIAL_SPEC.earlyBreakeven,
+        earlyBreakevenActive: (i) => earlyBreakevenDates?.has(bars[i].date) ?? false,
+      });
 
       const clockId = clockIdBySymbol.get(symbol) ?? null;
 
@@ -232,7 +248,7 @@ export async function runStockPanelJob(): Promise<StockPanelJobResult> {
         const zone = computeDipZone({
           close: bars[i].close,
           atr: atr252[i] ?? 0,
-          stage: stage.stage,
+          stage: dipStageOf(stage.flags),
           trendScore: stage.trendScore,
           volumeRatio: regime.volumeRatio,
           pathId: pathByDate.get(bars[i].date) ?? 0,
@@ -265,6 +281,8 @@ export async function runStockPanelJob(): Promise<StockPanelJobResult> {
           close: bars[i].close,
           rs: rs[i],
           rsAccelerating: isRsAccelerating(closes, bench, i),
+          mprAlphaRs: mprRs[i],
+          inShortDowntrend: inShortTermDowntrend(bars[i].close, ema20[i], ema50[i]),
           trendScore: stage.trendScore,
           stage: stage.stage,
           baseTier: stage.baseTier,

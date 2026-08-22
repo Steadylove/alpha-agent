@@ -12,9 +12,30 @@ import { atrSeries, smaSeries } from "./series";
 export type TradeBar = { date: string; high: number; low: number; close: number };
 
 export type RotationTradeParams = {
-  /** RS 低于此值的点火不开仓。设为 0 等同于 Pine 原版（无闸门）。 */
+  /**
+   * RS 低于此值的点火不开仓。设为 0 等同于 Pine 原版（无闸门）。
+   *
+   * **这一项不在任何一份规格里**，是本项目自加的校准项：轮动 Pine 只有一个
+   * 默认关闭的 `RSI > 30` 过滤，与 RS 评分无关。
+   */
   minRs: number;
+  /**
+   * 商业化文档独有：`RS >= 70` 才准入场、`RS < 40` 一票否决。
+   * 两份 Pine 都没有这条，默认关闭以保持回测口径不变。
+   */
+  useCommercialRsGate: boolean;
+  /**
+   * 商业化文档独有：Path 2 或 5 日下跌概率 >= 60% 时，保本触发从 +10% 提前到 +5%。
+   * 两份 Pine 都只有 +10%，默认关闭。
+   */
+  useEarlyBreakeven: boolean;
+  /** 启用提前保本时，逐日提供当日宏观条件；未提供视为不满足。 */
+  earlyBreakevenActive?: (index: number) => boolean;
 };
+
+/** 商业化文档第 148~152 行的截面 RS 门槛。 */
+export const COMMERCIAL_RS_ENTRY = 70;
+export const COMMERCIAL_RS_VETO = 40;
 
 /**
  * 交易层回测结论：30 是唯一让胜率、均值、盈亏比三项同时改善的档位
@@ -24,7 +45,11 @@ export type RotationTradeParams = {
  * 信号层看裸前向收益时低 RS 显得更糟，但 4×ATR 止损已经处理了同一个问题，
  * 闸门与止损是替代关系，叠太狠只是白丢样本。
  */
-export const DEFAULT_TRADE_PARAMS: RotationTradeParams = { minRs: 30 };
+export const DEFAULT_TRADE_PARAMS: RotationTradeParams = {
+  minRs: 30,
+  useCommercialRsGate: false,
+  useEarlyBreakeven: false,
+};
 
 const ATR_LENGTH = 14;
 const ATR_SMOOTH = 14;
@@ -38,6 +63,8 @@ const TRAIL_MULT_TIERS = [
 ];
 /** 浮盈达到该百分比后，止损上移到开仓价之上锁定。 */
 const BREAKEVEN_TRIGGER_PCT = 10;
+/** 商业化文档第 217 行的提前档。 */
+const EARLY_BREAKEVEN_TRIGGER_PCT = 5;
 const BREAKEVEN_LOCK_RATIO = 1.01;
 
 export type SignalType = 0 | 1 | 2;
@@ -103,9 +130,16 @@ export function computeRotationTrades(
     const atr = atrRisk[i];
     let entered = false;
     let exited = false;
+    const breakevenTrigger =
+      params.useEarlyBreakeven && (params.earlyBreakevenActive?.(i) ?? false)
+        ? EARLY_BREAKEVEN_TRIGGER_PCT
+        : BREAKEVEN_TRIGGER_PCT;
 
     // 开仓：仅在空仓时点火，ATR 未预热完成则跳过（Pine 中 na 会让止损失效）
-    if (sigType === 0 && atr != null && atr > 0 && rs[i] >= params.minRs) {
+    const rsGateOk = params.useCommercialRsGate
+      ? rs[i] >= COMMERCIAL_RS_ENTRY
+      : rs[i] >= params.minRs;
+    if (sigType === 0 && atr != null && atr > 0 && rsGateOk) {
       const fired: SignalType = buy1[i] ? 1 : buy2[i] ? 2 : 0;
       if (fired !== 0) {
         sigType = fired;
@@ -125,11 +159,13 @@ export function computeRotationTrades(
       maxPnlPct = Math.max(maxPnlPct, ((bar.close - entryPrice) / entryPrice) * 100);
 
       trailLevel = Math.max(trailLevel!, highWater - trailMultFor(maxPnlPct) * atr);
-      if (maxPnlPct >= BREAKEVEN_TRIGGER_PCT) {
+      if (maxPnlPct >= breakevenTrigger) {
         stopLevel = Math.max(stopLevel!, entryPrice * BREAKEVEN_LOCK_RATIO);
       }
 
-      if (bar.close < stopLevel! || bar.close < trailLevel) {
+      // 商业化文档的一票否决：RS 跌破 40 直接清仓，与止损条件并列
+      const vetoed = params.useCommercialRsGate && rs[i] < COMMERCIAL_RS_VETO;
+      if (vetoed || bar.close < stopLevel! || bar.close < trailLevel) {
         closed.push({
           symbol,
           sigType: sigType as 1 | 2,
@@ -158,7 +194,7 @@ export function computeRotationTrades(
         stopLevel != null && trailLevel != null ? Math.max(stopLevel, trailLevel) : null,
       maxPnlPct,
       floatPnlPct,
-      breakevenLocked: maxPnlPct >= BREAKEVEN_TRIGGER_PCT,
+      breakevenLocked: maxPnlPct >= breakevenTrigger,
       entered,
       exited,
     });

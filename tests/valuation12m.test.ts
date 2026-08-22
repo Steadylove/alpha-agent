@@ -3,8 +3,41 @@ import {
   type ValuationInput,
   computeValuation,
   macroMultiplier,
+  shortTermTarget,
 } from "@/lib/scoring/valuation12m";
 import { describe, expect, it } from "vitest";
+
+describe("shortTermTarget 轧空短线目标", () => {
+  it("无 short interest 数据时退化为 close + 2×ATR，档位为波段", () => {
+    const r = shortTermTarget(100, 3, null, 1_000_000);
+    expect(r.target).toBeCloseTo(106, 10);
+    expect(r.shortRatioPct).toBe(0);
+    expect(r.tier).toBe("swing");
+  });
+
+  it("空头占比 >= 8% 走 1.35 倍", () => {
+    const r = shortTermTarget(100, 3, 80_000, 1_000_000);
+    expect(r.shortRatioPct).toBeCloseTo(8, 10);
+    expect(r.target).toBeCloseTo(100 + 2 * 3 * 1.35, 10);
+    expect(r.tier).toBe("warning");
+  });
+
+  it("空头占比 >= 15% 走 1.8 倍", () => {
+    const r = shortTermTarget(100, 3, 150_000, 1_000_000);
+    expect(r.target).toBeCloseTo(100 + 2 * 3 * 1.8, 10);
+    expect(r.tier).toBe("extreme");
+  });
+
+  it("档位边界取闭区间，7.99% 仍是波段", () => {
+    expect(shortTermTarget(100, 3, 79_900, 1_000_000).tier).toBe("swing");
+    expect(shortTermTarget(100, 3, 149_900, 1_000_000).tier).toBe("warning");
+  });
+
+  it("股本为 0 或缺失时按 na 兜底，不产生除零", () => {
+    expect(shortTermTarget(100, 3, 50_000, 0).tier).toBe("swing");
+    expect(Number.isFinite(shortTermTarget(100, 3, 50_000, null).target)).toBe(true);
+  });
+});
 
 const base: ValuationInput = {
   close: 100,
