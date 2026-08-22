@@ -178,6 +178,17 @@ export async function runStockValuationJob(): Promise<StockValuationJobResult> {
       loadFourHourAlpha(eligible),
     ]);
 
+    // 空头持仓由 short-interest 任务双月刷新，这里只读缓存；缺失即退回 Pine 的 na 分支
+    const shortRows = await prisma.shortInterest.findMany({
+      where: { symbol: { in: eligible } },
+      orderBy: { settlementDate: "desc" },
+      select: { symbol: true, sharesShort: true, sharesOutstanding: true },
+    });
+    const shortBySymbol = new Map<string, { sharesShort: number; sharesOutstanding: number | null }>();
+    for (const r of shortRows) {
+      if (!shortBySymbol.has(r.symbol)) shortBySymbol.set(r.symbol, r);
+    }
+
     const latestPhase = await prisma.macroPhaseState.findFirst({
       orderBy: { date: "desc" },
       select: { pathId: true, fsmState: true },
@@ -255,7 +266,13 @@ export async function runStockValuationJob(): Promise<StockValuationJobResult> {
         analystCount: f?.analystCount ?? 0,
       });
 
-      const shortTerm = shortTermTarget(last.close, atr252[i] ?? 0, null, f?.sharesOutstanding ?? null);
+      const si = shortBySymbol.get(symbol);
+      const shortTerm = shortTermTarget(
+        last.close,
+        atr252[i] ?? 0,
+        si?.sharesShort ?? null,
+        si?.sharesOutstanding ?? null,
+      );
 
       rows.push({
         date: new Date(`${last.date}T00:00:00.000Z`),

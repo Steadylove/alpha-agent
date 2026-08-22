@@ -62,9 +62,13 @@ export type StockValuationCell = {
   calculatedPe: number | null;
   marketCapB: number | null;
   isDipActive: boolean;
-  /** 轧空短线目标价。缺 short interest 数据源，实为 close + 2×ATR */
+  /** 轧空短线目标价，close + 2×ATR×档位倍数 */
   shortTermTarget: number;
   squeezeTier: string;
+  /** 空头持仓占在外股本的百分比；ETF 等无 SEC 申报的标的为 null */
+  shortInterestPct: number | null;
+  /** FINRA 结算日，双月一期且滞后 2~3 周，用于提示时效 */
+  shortInterestDate: string | null;
   isInLongDowntrend: boolean;
   isHyperMomentum: boolean;
 };
@@ -114,9 +118,17 @@ type StockValuationRow = {
   isHyperMomentum: boolean;
 };
 
-function valuationCell(v: StockValuationRow | undefined): StockValuationCell | null {
+function valuationCell(
+  v: StockValuationRow | undefined,
+  si: { settlementDate: Date; sharesShort: number; sharesOutstanding: number | null } | undefined,
+): StockValuationCell | null {
   if (!v) return null;
   return {
+    shortInterestPct:
+      si?.sharesOutstanding != null && si.sharesOutstanding > 0
+        ? (si.sharesShort / si.sharesOutstanding) * 100
+        : null,
+    shortInterestDate: si?.settlementDate.toISOString().slice(0, 10) ?? null,
     primaryTarget: v.primaryTarget,
     upsidePct: v.upsidePct,
     mode: v.mode,
@@ -168,10 +180,19 @@ export async function getStockPanelData(): Promise<StockPanelData> {
     prisma.macroPhaseState.findFirst({ orderBy: { date: "desc" }, select: { pathId: true } }),
   ]);
 
-  const valuations = newestValuation
-    ? await prisma.stockValuation.findMany({ where: { date: newestValuation.date } })
-    : [];
+  const [valuations, shortInterest] = await Promise.all([
+    newestValuation
+      ? prisma.stockValuation.findMany({ where: { date: newestValuation.date } })
+      : [],
+    prisma.shortInterest.findMany({ orderBy: { settlementDate: "desc" } }),
+  ]);
   const valuationBySymbol = new Map(valuations.map((v) => [v.symbol, v]));
+
+  // 每只标的只留最新一期
+  const shortBySymbol = new Map<string, (typeof shortInterest)[number]>();
+  for (const r of shortInterest) {
+    if (!shortBySymbol.has(r.symbol)) shortBySymbol.set(r.symbol, r);
+  }
   const nameBySymbol = new Map(ROTATION_UNIVERSE.map((t) => [t.symbol, t.name]));
   const sectorNameById = new Map(SECTOR_UNIVERSE.map((s) => [s.id as string, s.name]));
 
@@ -219,7 +240,7 @@ export async function getStockPanelData(): Promise<StockPanelData> {
       tacticalAction: s.tacticalAction,
       tacticalTone: s.tacticalTone,
       tacticalLayer: s.tacticalLayer,
-      valuation: valuationCell(valuationBySymbol.get(s.symbol)),
+      valuation: valuationCell(valuationBySymbol.get(s.symbol), shortBySymbol.get(s.symbol)),
     }))
     .sort((a, b) => b.rs - a.rs);
 

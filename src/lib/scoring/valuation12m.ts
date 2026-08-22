@@ -119,13 +119,16 @@ export interface ShortTermTarget {
 /**
  * Pine 第 632~635 行的轧空短线目标价。
  *
- * **数据源受限：** Pine 用 `request.financial(..., "SHORT_INTEREST", "FQ")`，
- * 而 FMP 的 stable 接口没有 short interest（`shares-float` 只给流通股本），
- * Yahoo 的 quoteSummary 需要 crumb + cookie 会话、易碎不值得引入。
+ * 数据来自 FINRA 双月度合并空头持仓 + SEC 在外股本（见 `jobs/shortInterest.ts`），
+ * 比 Pine 的 `request.financial(..., "SHORT_INTEREST", "FQ")` 季度口径更新鲜。
  *
- * 因此 `shortInterest` 恒为 null，走的是 Pine 自己的 na 分支：
- * `short_ratio_pct = 0` → `squeeze_mult = 1.0` → 目标价退化为 `close + 2×ATR`，
- * 档位恒为「波段」。8% 与 15% 两档轧空在当前数据条件下永远不会触发。
+ * 两个入参任一为 null 时走 Pine 自己的 na 分支：`short_ratio_pct = 0`
+ * → `squeeze_mult = 1.0` → 目标价退化为 `close + 2×ATR`、档位记「波段」。
+ * ETF 无 SEC 申报，恒走这条路径。
+ *
+ * **占比高不等于要轧空。** 发过大额可转债的标的（轮动池里的 IREN、NBIS 均是）
+ * 空头持仓里含大量做市商的中性对冲仓，原样代入会把目标价放大到虚高。
+ * 这里如实反映 Pine 的算法，判断留给使用者。
  */
 export function shortTermTarget(
   close: number,

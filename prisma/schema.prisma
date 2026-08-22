@@ -238,6 +238,29 @@ model StockFundamentals {
   updatedAt DateTime @updatedAt
 }
 
+/// 空头持仓缓存，FINRA 双月度结算 + SEC 在外股本。
+///
+/// 单独建表而不塞进 StockFundamentals：两者刷新节奏不同（季报按周、
+/// 空头持仓双月一期），分母也不是同一口径——这里的 sharesOutstanding
+/// 取自 SEC 封面页实际股数，而非 FMP 的加权平均稀释股本。
+model ShortInterest {
+  id     String @id @default(cuid())
+  symbol String
+
+  /// FINRA 的结算日，非发布日；发布常滞后 2~3 周
+  settlementDate    DateTime
+  sharesShort       Float
+  /// SEC 取不到时为 null（ETF 无 XBRL 申报），此时占比按 0 处理
+  sharesOutstanding Float?
+  fetchedAt         DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([symbol, settlementDate])
+  @@index([symbol])
+}
+
 /// 12M 估值引擎的每日快照。
 ///
 /// 与面板其余字段不同，这张表只有最新一天：基本面是当期值，

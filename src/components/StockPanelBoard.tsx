@@ -378,11 +378,20 @@ function ValuationCell({ row }: { row: StockPanelRow }) {
       <div className="mt-1 text-zinc-400">
         短线目标 {money(v.shortTermTarget)}
         {v.squeezeTier === "swing"
-          ? "（波段档：轧空数据无免费数据源，恒按 现价 + 2×ATR 计）"
+          ? "（波段档 ×1.0）"
           : v.squeezeTier === "warning"
-            ? "（轧空预警）"
-            : "（极高轧空）"}
+            ? "（轧空预警 ×1.35）"
+            : "（极高轧空 ×1.8）"}
+        {v.shortInterestPct != null
+          ? ` · 空头占股本 ${v.shortInterestPct.toFixed(1)}%`
+          : " · 无 SEC 股本申报，占比按 0 计"}
+        {v.shortInterestDate ? ` · FINRA ${v.shortInterestDate} 结算` : ""}
       </div>
+      {v.shortInterestPct != null && v.shortInterestPct >= 8 ? (
+        <div className="mt-1 text-amber-400">
+          发过大额可转债的标的，空头持仓含做市商中性对冲仓，占比会虚高。
+        </div>
+      ) : null}
       {anchored ? (
         <div className="mt-1 text-amber-400">
           该路径的目标价是现价的固定倍数，不构成独立于价格的价值判断。

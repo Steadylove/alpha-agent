@@ -66,22 +66,36 @@ MPR Pine 的 `act_text` 会根据 Path 给出明确的方向性和仓位建议�
 
 两者都保留：`mprGuidance.ts` 忠实移植了 Pine 原文并在 UI 上标为「原版指引」，`mprReading.ts` 的证据结论并列展示，附上预测力的说明。用户看得到原版说了什么，也看得到我们为什么不照做。
 
-## 三、未实现项
+## 三、数据源替换
 
-### short interest 驱动的轧空放大
+### short interest 走 FINRA + SEC，而非 Pine 的 TradingView 财务字段
 
-Compass Pine 的 `target_atr_st` 会根据 short interest 百分比放大目标价倍数。FMP 的 stable API 不提供 short interest，Yahoo 的 `quoteSummary` 需要 crumb/cookie 绕行且很脆弱。
+Compass Pine 用 `request.financial(..., "SHORT_INTEREST", "FQ")`，这是 TradingView 的季度财务字段，项目外拿不到。替换为两个免费源：
 
-`shortTermTarget` 已实现，但 `squeeze_mult` 恒为 1.0、tier 恒为 `swing`——这正是 Pine 在数据为 `na` 时的 fallback 分支，所以行为是对的，只是永远走不到放大分支。目标价 = `close + 2 × ATR`，仍是有效的 ATR 投影，只是没有轧空维度。
+| 数据 | 来源 | 说明 |
+| --- | --- | --- |
+| 空头持仓股数 | FINRA `consolidatedShortInterest` | 免费无鉴权，覆盖全美股 22341 只，轮动池 40 只无缺口 |
+| 在外股本 | SEC XBRL companyconcept / companyfacts | 免费，需 User-Agent；仅 ETF 无申报 |
 
-拿到 short interest 数据源后这一项可以直接激活，代码路径已经在了。
+**比 Pine 原版更新鲜**：Pine 是季度口径，FINRA 是双月度（每月 15 日与月末结算，结算后第 7 个交易日发布，滞后 2~3 周）。
 
-### MarketCompass 的 MPR 变体
+实测轮动池档位分布：`extreme` 2 只（IREN 27.5%、ASTS 19.0%）、`warning` 3 只（IONQ 13.2%、CRWD 10.0%、LITE 9.5%）、其余 `swing`。大盘股普遍在 1% 上下。
+
+两个实现细节值得记一笔：
+
+- SEC 在概念不存在时返回 **HTTP 200 但 body 是 XML**，只看 `res.ok` 会踩空
+- 多类别股公司（META、GOOG）不报封面页合计股数，只能回落到加权平均稀释股本。这类都是万亿级大盘、空头占比约 1%，离 8% 档差一个数量级，近似误差不改变档位
+
+**已知失真：** 发过大额可转债的标的（IREN、NBIS），空头持仓里含做市商的中性对冲仓，不是方向性空头，占比会系统性虚高。Pine 的算法照实移植，UI 上对 >=8% 的标的给出提示，判断留给使用者。
+
+### MarketCompass 的 MPR 变体（未实现）
 
 Compass Pine 里内嵌了一套简化版 MPR，与 MPR Pine 的完整版口径不同。没有单独建模块——两套并存只会让用户困惑，且完整版是超集。差异点记录在此，不做实现。
 
 ## 四、验证
 
 - `npx tsc --noEmit`
-- `npx vitest run`（386 项）
+- `npx vitest run`（396 项）
 - `npx eslint .`
+
+空头持仓由 `short-interest` 任务刷新，双月一期，已有当期数据时自动跳过回源。
