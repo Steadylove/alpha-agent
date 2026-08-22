@@ -122,6 +122,17 @@ export async function getStockSignalChart(symbol: string): Promise<StockSignalCh
     });
   }
 
+  // 离场当根 days[i] 的槽已被重置为空，防线读数是 null，线会断在离场箭头前一根，
+  // 看不到收盘跌破防线的那一下。把前一根仍生效的防线补到离场当根。
+  for (const t of closed) {
+    if (!inWindow(t.exitIndex) || t.exitIndex === 0) continue;
+    const prevDay = days[t.exitIndex - 1];
+    const prevSlot = t.slot === "buy1" ? prevDay.buy1Slot : prevDay.buy2Slot;
+    const point = (t.slot === "buy1" ? buy1Stops : buy2Stops)[t.exitIndex - start];
+    point.stop = prevSlot.stopLossLevel;
+    point.trail = prevSlot.trailLevel;
+  }
+
   const markers: SignalMarker[] = [];
   for (let i = start; i < rows.length; i += 1) {
     // Pine 的信号成型与实际建仓是两回事：RSI 闸门会拦下一部分点火。

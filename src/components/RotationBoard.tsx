@@ -58,13 +58,8 @@ function HoldingRow({ holding }: { holding: RotationHolding }) {
 export function RotationBoard({ data }: { data: RotationData }) {
   if (data.latestDate == null) {
     return (
-      <Alert color="yellow" variant="light" title="尚无轮动数据">
-        <Stack gap={4}>
-          <Text size="sm">
-            请先执行 <code>npm run backfill:rotation</code> 回填 40 只标的的日线，
-            再触发 <code>POST /api/jobs/rotation-radar</code>。
-          </Text>
-        </Stack>
+      <Alert color="gray" variant="light" title="数据生成中">
+        <Text size="sm">当日的轮动结果还没算出来，请稍后刷新。</Text>
       </Alert>
     );
   }
@@ -124,8 +119,7 @@ export function RotationBoard({ data }: { data: RotationData }) {
         </div>
 
         <Text size="xs" c="dimmed" mt="md">
-          已落袋按历史平均满仓 8 只摊薄到组合口径（与 Pine 的 avg_slots 一致）。
-          这是模型跟踪盘,非实盘记录。
+          已落袋收益按平均满仓 8 只摊薄到组合层面。这是模型跟踪的结果，不是实盘记录。
         </Text>
 
         {data.macroExposure ? (
@@ -143,9 +137,8 @@ export function RotationBoard({ data }: { data: RotationData }) {
                 </Text>
               </Group>
               <Text size="xs" c="dimmed">
-                仅作提示,上表仓位未按此缩放。3927 个交易日的组合回测（已去除未来函数）显示
-                照此机械减仓会把收益/波动从 1.18 降到 0.95——回撤确实从 39.4% 收窄到 19.3%,
-                但让出的收益更多。
+                仅作参考，上表仓位并未按此缩放。回测显示照此机械减仓虽然能把最大回撤从
+                39% 收窄到 19%，但让出的收益更多，风险调整后的收益反而下降。
               </Text>
             </Stack>
           </Alert>
@@ -201,13 +194,13 @@ export function RotationBoard({ data }: { data: RotationData }) {
 
         {holdings.some((h) => h.sigType === 2) ? (
           <Alert color="gray" variant="light" mt="md">
-            <Text size="xs">
+            {/* Text 默认渲染 <p>，而 Badge 是 <div>，套在一起是非法嵌套、会导致 hydration 失败 */}
+            <Text size="xs" component="div">
               <Badge size="xs" color="yellow" variant="light" mr={6}>
                 ⭐️ 二买
               </Badge>
-              历史无超额:信号层回测显示二买在裸持有口径下相对基准无正超额
-              （前向 5/10/20 日均值分别为 −0.42% / +0.27% / +1.46%,均不优于同期基准）。
-              交易层带止损后表现尚可,但样本仅 234 笔,仍按保守口径标注。
+              历史表现弱于一买：单看信号本身，二买后续走势并不优于同期大盘；
+              配上止损后勉强能用，但盈亏比明显更差。持有这类仓位时建议更保守。
             </Text>
           </Alert>
         ) : null}

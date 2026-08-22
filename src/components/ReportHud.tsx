@@ -81,7 +81,7 @@ function FactorBar({
     <Popover position="right" withArrow shadow="md" width={280} radius="md">
       <Popover.Target>
         <UnstyledButton className="w-full">
-          <Stack gap={4} className="rounded px-2 py-1 -mx-2 hover:bg-zinc-900 transition-colors">
+          <Stack gap={4} className="rounded px-2 py-1 -mx-2 hover:bg-[var(--surface-hover)] transition-colors">
             <Group justify="space-between">
               <Text size="xs" c="dimmed">
                 {factor.label}
@@ -282,7 +282,7 @@ export function ReportHud({
                 <ClickPopover
                   key={sector.symbol}
                   trigger={
-                    <Stack gap={2} className="rounded px-2 py-1 -mx-2 hover:bg-zinc-900 transition-colors">
+                    <Stack gap={2} className="rounded px-2 py-1 -mx-2 hover:bg-[var(--surface-hover)] transition-colors">
                       <Group justify="space-between">
                         <Text size="sm" c="gray.2">
                           {medal} {sector.name}

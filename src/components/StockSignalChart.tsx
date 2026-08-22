@@ -23,9 +23,26 @@ const BUY2 = "#fbbf24";
 const STOP = "#f23645";
 const TRAIL = "#a855f7";
 
-/** 止损线只在持仓期间存在，用 whitespace 断开而不是连成一条横跨空仓期的直线。 */
-function stepData(points: { time: string; value: number | null }[]) {
-  return points.map((p) => (p.value == null ? { time: p.time as Time } : { time: p.time as Time, value: p.value }));
+/**
+ * 把一条含空洞的序列切成若干连续持仓段。
+ *
+ * 不能靠 whitespace（`{ time }` 无值点）来断线：lightweight-charts 的 whitespace
+ * 只是占住时间槽，折线渲染时会被跳过，相邻两个有值点仍然直连。空仓期长达数年时
+ * 就会拉出一条横跨全图的斜线。每段单独建一条 series 才能真正断开。
+ */
+function segments(points: { time: string; value: number | null }[]) {
+  const out: { time: Time; value: number }[][] = [];
+  let cur: { time: Time; value: number }[] = [];
+  for (const p of points) {
+    if (p.value == null) {
+      if (cur.length > 0) out.push(cur);
+      cur = [];
+    } else {
+      cur.push({ time: p.time as Time, value: p.value });
+    }
+  }
+  if (cur.length > 0) out.push(cur);
+  return out;
 }
 
 export function StockSignalChart({ data }: { data: StockSignalChartData }) {
@@ -85,7 +102,7 @@ export function StockSignalChart({ data }: { data: StockSignalChartData }) {
       })),
     );
 
-    // 两个仓位槽各画两条防线：硬止损（红）与移动止盈（紫）。
+    // 两个仓位槽各画两条防线：硬止损（红）与移动止损（紫，Pine 里误名为「止盈线」）。
     const lines: { points: { time: string; value: number | null }[]; color: string; dashed: boolean }[] = [
       { points: data.buy1Stops.map((p) => ({ time: p.time, value: p.stop })), color: STOP, dashed: false },
       { points: data.buy1Stops.map((p) => ({ time: p.time, value: p.trail })), color: TRAIL, dashed: false },
@@ -93,16 +110,17 @@ export function StockSignalChart({ data }: { data: StockSignalChartData }) {
       { points: data.buy2Stops.map((p) => ({ time: p.time, value: p.trail })), color: TRAIL, dashed: true },
     ];
     for (const line of lines) {
-      if (line.points.every((p) => p.value == null)) continue;
-      const series = chart.addSeries(LineSeries, {
-        color: line.color,
-        lineWidth: 1,
-        lineStyle: line.dashed ? LineStyle.Dashed : LineStyle.Solid,
-        priceLineVisible: false,
-        lastValueVisible: false,
-        crosshairMarkerVisible: false,
-      });
-      series.setData(stepData(line.points));
+      for (const seg of segments(line.points)) {
+        const series = chart.addSeries(LineSeries, {
+          color: line.color,
+          lineWidth: 1,
+          lineStyle: line.dashed ? LineStyle.Dashed : LineStyle.Solid,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+        });
+        series.setData(seg);
+      }
     }
 
     const markers: SeriesMarker<Time>[] = data.markers.map((m) => {
@@ -172,9 +190,10 @@ export function StockSignalChart({ data }: { data: StockSignalChartData }) {
         </Group>
         <Group gap={6}>
           <span className="inline-block h-px w-4" style={{ background: TRAIL }} />
-          <Text size="xs" c="dimmed">移动止盈 5.5 → 3.8 → 2.8 ×ATR</Text>
+          <Text size="xs" c="dimmed">移动止损 5.5 → 3.8 → 2.8 ×ATR（跟随最高价上抬）</Text>
         </Group>
         <Text size="xs" c="dimmed">实线为一买槽，虚线为二买槽</Text>
+        <Text size="xs" c="dimmed">跌破两条中任意一条即离场，故生效的是更高的那条</Text>
       </Group>
     </Card>
   );

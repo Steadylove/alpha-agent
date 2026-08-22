@@ -11,7 +11,21 @@ const money = (v: number) => `$${v.toFixed(2)}`;
 const pct = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
 
 const SLOT_LABEL = { buy1: "❤️ 一买", buy2: "⭐️ 二买" } as const;
-const REASON_LABEL = { stop_loss: "硬止损", trail: "移动止盈" } as const;
+
+/**
+ * Pine 源码把第二条线叫「止盈线」，但它的初值是开仓价 − 5.5×ATR，在硬止损
+ * （− 4×ATR）**下方**，跟着最高价上抬、只升不降——本质是一条更宽的移动止损，
+ * 跟止盈没有关系。界面按实际语义命名，避免读成「止盈比止损还低」。
+ */
+const REASON_LABEL = { stop_loss: "硬止损", trail: "移动止损" } as const;
+
+function Binding() {
+  return (
+    <span className="ml-1.5 rounded bg-zinc-700/60 px-1.5 py-0.5 align-middle text-[10px] font-sans text-zinc-200">
+      当前生效
+    </span>
+  );
+}
 
 export default async function StockSignalPage({
   params,
@@ -41,24 +55,36 @@ export default async function StockSignalPage({
 
       {data.openSlots.length > 0 ? (
         <Card title="当前持仓">
-          <div className="space-y-2">
-            {data.openSlots.map((s) => (
-              <div key={s.slot} className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-sm">
-                <span className="font-semibold text-zinc-200">{SLOT_LABEL[s.slot]}</span>
-                <span className="font-mono text-zinc-400">
-                  成本 {money(s.entryPrice)}
-                </span>
-                <span
-                  className="font-mono"
-                  style={{ color: s.pnlPct >= 0 ? "#089981" : "#f23645" }}
-                >
-                  浮盈 {pct(s.pnlPct)}
-                </span>
-                <span className="font-mono text-red-400">止损 {money(s.stop)}</span>
-                <span className="font-mono text-purple-400">移动止盈 {money(s.trail)}</span>
-              </div>
-            ))}
+          <div className="space-y-3">
+            {data.openSlots.map((s) => {
+              // 两条防线任一被跌破就离场，所以真正约束价格的是更高的那条
+              const stopBinds = s.stop >= s.trail;
+              return (
+                <div key={s.slot} className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-sm">
+                  <span className="font-semibold text-zinc-200">{SLOT_LABEL[s.slot]}</span>
+                  <span className="font-mono text-zinc-400">成本 {money(s.entryPrice)}</span>
+                  <span
+                    className="font-mono"
+                    style={{ color: s.pnlPct >= 0 ? "#089981" : "#f23645" }}
+                  >
+                    浮盈 {pct(s.pnlPct)}
+                  </span>
+                  <span className="font-mono text-red-400">
+                    硬止损 {money(s.stop)}
+                    {stopBinds ? <Binding /> : null}
+                  </span>
+                  <span className="font-mono text-purple-400">
+                    移动止损 {money(s.trail)}
+                    {stopBinds ? null : <Binding />}
+                  </span>
+                </div>
+              );
+            })}
           </div>
+          <p className="mt-3 text-xs leading-relaxed text-zinc-500">
+            两条防线是并行的，跌破任意一条即离场，因此当前真正生效的是更高的那条。
+            移动止损起点比硬止损更低（5.5 倍波动幅度 vs 4 倍），只有在价格走出足够涨幅后才会反超。
+          </p>
         </Card>
       ) : null}
 

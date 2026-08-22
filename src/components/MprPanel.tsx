@@ -120,7 +120,7 @@ function ForceBar({ force, day }: { force: ForceDef; day: MacroPhaseSnapshot }) 
   return (
     <ClickPopover
       trigger={
-        <Stack gap={4} className="rounded px-2 py-1 -mx-2 hover:bg-zinc-900 transition-colors">
+        <Stack gap={4} className="rounded px-2 py-1 -mx-2 hover:bg-[var(--surface-hover)] transition-colors">
           <Group justify="space-between">
             <Text size="xs" c="dimmed">
               {force.label}
@@ -149,7 +149,7 @@ function ForceBar({ force, day }: { force: ForceDef; day: MacroPhaseSnapshot }) 
         ) : null}
         <Text size="xs" c="gray.2">
           <b>当前分位：</b>
-          {value.toFixed(1)}%（252 日 ECDF）
+          {value.toFixed(1)}%（在过去一年中的排位）
         </Text>
         <Text size="xs" c="gray.2">
           <b>解读：</b>
@@ -180,23 +180,10 @@ export function MprPanel({
 }) {
   const { latest, missingSymbols } = data;
 
-  if (missingSymbols.length > 0) {
+  if (missingSymbols.length > 0 || !latest) {
     return (
-      <Alert color="yellow" title="宏观日线数据缺失">
-        <Text size="sm">
-          缺少标的：{missingSymbols.join(", ")}。执行 <code>npm run backfill:macro</code> 回填后刷新。
-        </Text>
-      </Alert>
-    );
-  }
-
-  if (!latest) {
-    return (
-      <Alert color="yellow" title="尚未生成 MPR 快照">
-        <Text size="sm">
-          宏观日线已就绪，但 macro-phase 任务还没跑过。执行{" "}
-          <code>POST /api/jobs/macro-phase</code>（需带 <code>x-cron-secret</code> 头）后刷新。
-        </Text>
+      <Alert color="gray" variant="light" title="数据生成中">
+        <Text size="sm">当日的市场环境评估还没算出来，请稍后刷新。</Text>
       </Alert>
     );
   }
@@ -210,7 +197,7 @@ export function MprPanel({
         title={
           <Stack gap={2}>
             <Text size="sm" fw={700} c="gray.1">
-              Market Phase Radar
+              当前市场状态
             </Text>
             <Text size="xs" c="dimmed">
               {latest.date} 收盘 · 点击路径与力场查看说明
@@ -244,7 +231,7 @@ export function MprPanel({
           <Stack gap="xs" style={{ flex: 1, minWidth: 0 }}>
             <ClickPopover
               trigger={
-                <Stack gap={2} className="rounded px-2 py-1 -mx-2 hover:bg-zinc-900 transition-colors">
+                <Stack gap={2} className="rounded px-2 py-1 -mx-2 hover:bg-[var(--surface-hover)] transition-colors">
                   <Text size="xs" c="dimmed">
                     传导路径
                   </Text>
@@ -291,10 +278,10 @@ export function MprPanel({
         title={
           <Stack gap={2}>
             <Text size="sm" fw={700} c="gray.1">
-              五力场分位
+              五个维度的紧张程度
             </Text>
             <Text size="xs" c="dimmed">
-              252 日滚动 ECDF · 点击查看数据源与原始值
+              数值为过去一年中的排位，越高越紧张 · 点击查看数据来源
             </Text>
           </Stack>
         }

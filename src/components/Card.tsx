@@ -15,7 +15,7 @@ export function Card({
   action?: ReactNode;
 }) {
   return (
-    <Paper p="md" className={className}>
+    <Paper p="lg" className={`lift ${className}`}>
       {title ? (
         <Group justify="space-between" mb="md">
           {typeof title === "string" ? (
@@ -46,10 +46,18 @@ export function MetricCard({
 }) {
   return (
     <Card>
-      <Text size="sm" fw={500} c="dimmed">
+      <Text size="xs" fw={500} c="dimmed" style={{ letterSpacing: "0.03em" }}>
         {label}
       </Text>
-      <Text mt="xs" size="1.75rem" fw={600} c={valueColor} lh={1.1}>
+      <Text
+        mt={10}
+        size="1.75rem"
+        fw={600}
+        c={valueColor}
+        lh={1.1}
+        // 等宽字体只给数字用，套在中文上会显得松散别扭
+        ff={/^[+\-\d]/.test(value) ? "monospace" : undefined}
+      >
         {value}
       </Text>
       {hint ? (

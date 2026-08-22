@@ -6,11 +6,34 @@ import { Group, Paper, Stack, Text } from "@mantine/core";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 
-const TONE_CLASS: Record<MacroReadingTone, string> = {
-  positive: "border-emerald-500/30 bg-emerald-500/5",
-  caution: "border-amber-500/30 bg-amber-500/5",
-  warning: "border-orange-500/30 bg-orange-500/5",
-  danger: "border-rose-500/30 bg-rose-500/5",
+/**
+ * 主题给 Paper 设了内联底色，Tailwind 的类名压不过它，
+ * 所以这里的色调必须走 style 才生效。
+ */
+const TONE_STYLE: Record<MacroReadingTone, { borderColor: string; background: string }> = {
+  positive: {
+    borderColor: "rgba(16,185,129,0.35)",
+    background: "linear-gradient(180deg, rgba(16,185,129,0.10), rgba(16,185,129,0.02))",
+  },
+  caution: {
+    borderColor: "rgba(245,158,11,0.35)",
+    background: "linear-gradient(180deg, rgba(245,158,11,0.10), rgba(245,158,11,0.02))",
+  },
+  warning: {
+    borderColor: "rgba(249,115,22,0.35)",
+    background: "linear-gradient(180deg, rgba(249,115,22,0.10), rgba(249,115,22,0.02))",
+  },
+  danger: {
+    borderColor: "rgba(244,63,94,0.40)",
+    background: "linear-gradient(180deg, rgba(244,63,94,0.12), rgba(244,63,94,0.03))",
+  },
+};
+
+const TONE_DOT: Record<MacroReadingTone, string> = {
+  positive: "#10b981",
+  caution: "#f59e0b",
+  warning: "#f97316",
+  danger: "#f43f5e",
 };
 
 const TONE_TEXT: Record<MacroReadingTone, string> = {
@@ -26,10 +49,14 @@ export function MacroPhaseBanner({ latest }: { latest: MacroPhaseSnapshot | null
   const reading = macroPhaseReading(latest);
 
   return (
-    <Paper p="md" className={`border ${TONE_CLASS[reading.tone]}`}>
+    <Paper p="lg" className="lift" style={TONE_STYLE[reading.tone]}>
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <Stack gap={4} style={{ minWidth: 0 }}>
+        <Stack gap={6} style={{ minWidth: 0 }}>
           <Group gap="sm" wrap="wrap">
+            <span
+              className="h-2 w-2 shrink-0 rounded-full"
+              style={{ backgroundColor: TONE_DOT[reading.tone] }}
+            />
             <Text size="sm" fw={700} c={TONE_TEXT[reading.tone]}>
               {reading.pathLabel}
             </Text>
@@ -47,9 +74,10 @@ export function MacroPhaseBanner({ latest }: { latest: MacroPhaseSnapshot | null
 
         <Link
           href="/mpr"
-          className="inline-flex shrink-0 items-center gap-2 text-sm text-zinc-400 hover:text-zinc-50 transition-colors"
+          className="group inline-flex shrink-0 items-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 py-1.5 text-sm text-zinc-300 transition-colors hover:border-[var(--border-strong)] hover:text-zinc-50"
         >
-          Radar <ArrowRight className="h-4 w-4" />
+          查看详情
+          <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
         </Link>
       </div>
     </Paper>

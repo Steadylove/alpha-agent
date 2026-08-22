@@ -2,7 +2,7 @@
 
 import { Card } from "@/components/Card";
 import type { StockPanelData, StockPanelRow } from "@/lib/dashboard/stockPanel";
-import { Alert, Stack, Text, Tooltip, UnstyledButton } from "@mantine/core";
+import { Accordion, Alert, Stack, Text, Tooltip, UnstyledButton } from "@mantine/core";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -434,11 +434,8 @@ export function StockPanelBoard({ data }: { data: StockPanelData }) {
 
   if (data.latestDate == null) {
     return (
-      <Alert color="yellow" variant="light" title="尚无个股面板数据">
-        <Text size="sm">
-          请先执行 <code>npm run backfill:rotation</code> 回填日线，再触发{" "}
-          <code>POST /api/jobs/stock-panel</code>。
-        </Text>
+      <Alert color="gray" variant="light" title="数据生成中">
+        <Text size="sm">当日的个股面板还没算出来，请稍后刷新。</Text>
       </Alert>
     );
   }
@@ -544,70 +541,83 @@ export function StockPanelBoard({ data }: { data: StockPanelData }) {
 
       {data.skippedSymbols.length > 0 ? (
         <Text size="xs" c="dimmed">
-          上市不足 900 根日线、EMA576 无法预热，未纳入计算：{data.skippedSymbols.join("、")}
+          上市时间太短、长周期均线无法计算，暂未纳入：{data.skippedSymbols.join("、")}
         </Text>
       ) : null}
 
-      <Card title="口径说明">
-        <Stack gap="xs">
-          <Text size="xs" c="dimmed">
-            <strong className="text-zinc-300">战术指令</strong> 是全套系统的出口，三层仲裁、持仓优先：
-            有持仓只看宏观路径，空仓遇点火看路径决定放行/轻仓/冻结，其余情况由路径与形态共同决定。
-            悬停可见判定层、平滑 RSI 与当前两条防线的价位。上方四个分组按「今天该做什么」归并，
-            与判定层不是一回事。
-          </Text>
-          <Text size="xs" c="dimmed">
-            <strong className="text-zinc-300">相对 RS</strong> 是对标 SPY 的四周期加权相对强度
-            （0.10/0.40/0.30/0.20 @ 21/63/126/252 日），1~99。这与轮动看板上的「动能 RS」
-            是两套不同算法——那边不设基准、只看绝对涨幅，两个数字不可互相比较。
-          </Text>
-          <Text size="xs" c="dimmed">
-            <strong className="text-zinc-300">特征</strong> 列只渲染偏离基线的读数。分形态判为「随机」
-            （当日约占 46%）、波动形态判为「正常」（约 20%）都不占位，净流入/流出压缩成 ▲▼，
-            只有机构点火与极度锁仓才给标签。三项合计的标签数因此减半，留下的才是真正偏离常态的信号。
-          </Text>
-          <Text size="xs" c="dimmed">
-            <strong className="text-zinc-300">分形态</strong> 用 30 日 R/S 重标极差法。Pine
-            原版把 R/S 直接套在收盘价上，实测 99.2% 的交易日都被判成「强趋势」——价格是累积量、
-            自带趋势，套在它上面必然偏高。这里改喂日收益率，中位数落回 0.51，
-            三档分布为随机 57% / 趋势 26% / 回归 17%。悬停可见原口径数值。
-          </Text>
-          <Text size="xs" c="dimmed">
-            <strong className="text-zinc-300">距 52 周高</strong> 的基准是 Pine 的{" "}
-            <code>highest(close[1], 252)</code>，只排除当日。标的在年内高点下方时这个数如实反映距离；
-            一旦逼近或刷新高点，基准就退化成昨收，读数只剩当日涨幅——因此正值极小，p95 仅 +0.41%。
-            受影响的是 Stage C：它的 +18% 门槛等于要求单日跳空 18% 以上突破年内新高，
-            10 万个 bar-day 里只触发 23 次，实际含义是「单日爆量跳空」而非「高位延伸」。
-          </Text>
-          <Text size="xs" c="dimmed">
-            <strong className="text-zinc-300">低吸支撑带</strong> 按形态阶段切换锚点：
-            Stage A 锚 max(EMA20, VWAP90)，Stage B 锚 EMA50 与 Vegas 隧道，Stage E 下沉到
-            EMA576 与 VWAP250×0.9。缓冲用的是 <code>sma(ATR14, 252)</code> 而非当期 ATR，
-            因此带子不会随最近几天的波动大幅漂移。MPR 处于 Path 4 时全池冻结低吸。
-          </Text>
-          <Text size="xs" c="dimmed">
-            <strong className="text-zinc-300">行业时钟</strong> 的归属取自 FMP 的 GICS 分类，映射规则
-            照搬 Pine 的字符串匹配链。QQQ / GLD / IBIT 这类 ETF 本就没有行业归属
-            （FMP 一律返回 Financial Services），不参与排名，显示为「—」。
-          </Text>
-          <Text size="xs" c="dimmed">
-            <strong className="text-zinc-300">与 Pine 的一处偏离：</strong>Pine 的风控段跑在仲裁段之前，
-            点火当根就已把开仓价填上，导致第 2 层「买点触发」永远够不着——而它的注释明写着
-            「空仓状态下出现信号」。全历史 771 次点火里 584 次本该落在第 2 层、实际 0 次。
-            这里改为排除「本根刚开的仓位」后再判持仓，让建仓当根正常给出 ⚡/⚠️/🚨 三条建仓指令。
-          </Text>
-          <Text size="xs" c="dimmed">
-            <strong className="text-zinc-300">风控</strong> 与轮动看板是两套：这里一买、二买各占一个
-            独立仓位槽可同时持有，硬止损 4×ATR，移动止损随浮盈三级收紧
-            （5.5 → 20% 后 3.8 → 40% 后 2.8），浮盈 10% 上移硬止损至成本 ×1.01 锁保本。
-            ATR 用的是 <code>sma(ATR14, 14)</code>，入场闸门是 <code>sma(RSI14, 14) &gt; 30</code>。
-          </Text>
-          <Text size="xs" c="dimmed">
-            标的池是轮动雷达那 40 只，为 2026 年选定，<strong className="text-zinc-300">幸存者偏差很重</strong>
-            ——四成时间落在 Stage A 是标的池的性质，不是闸门宽松。
-          </Text>
-        </Stack>
-      </Card>
+      <Accordion variant="separated" chevronPosition="left">
+        <Accordion.Item value="how">
+          <Accordion.Control>
+            <Text size="sm" fw={600} c="gray.2">
+              这些指标怎么读
+            </Text>
+          </Accordion.Control>
+          <Accordion.Panel>
+            <Stack gap="sm">
+              <Text size="xs" c="dimmed">
+                <strong className="text-zinc-300">战术指令</strong>{" "}
+                是整套系统的结论。持仓优先：已有仓位时只看大盘环境决定守还是撤；空仓遇到买点，
+                由大盘环境决定放行、轻仓还是冻结；其余情况看形态。悬停可以看到判定依据和防线价位。
+              </Text>
+              <Text size="xs" c="dimmed">
+                <strong className="text-zinc-300">相对 RS</strong>{" "}
+                衡量的是跑赢标普 500 的程度，1~99。轮动持仓页上的「动能 RS」不设基准、只看绝对涨幅，
+                两个数字算法不同，<strong className="text-zinc-300">不能互相比较</strong>。
+              </Text>
+              <Text size="xs" c="dimmed">
+                <strong className="text-zinc-300">特征</strong>{" "}
+                只显示偏离常态的信号。分形态为「随机」、波动为「正常」这类没有信息量的读数一律不占位，
+                资金净流入流出压缩成 ▲▼，只有机构点火和极度锁仓才给标签。
+              </Text>
+              <Text size="xs" c="dimmed">
+                <strong className="text-zinc-300">低吸支撑带</strong>{" "}
+                会随形态切换锚点：强势股锚在短期均线与成交量加权成本上，筑底股则下沉到长期成本区。
+                缓冲用的是一年期的平均波动率，所以带子不会因为最近几天的剧烈波动大幅漂移。
+                大盘进入破位状态时，全池冻结低吸。
+              </Text>
+              <Text size="xs" c="dimmed">
+                <strong className="text-zinc-300">风控</strong>{" "}
+                与轮动持仓页是两套：这里一买、二买各占一个独立仓位槽、可同时持有。
+                每个槽有两条并行防线：硬止损起于成本下方 4 倍波动幅度，浮盈 10%
+                后上移到成本之上锁定保本；另一条移动止损起点更低（5.5 倍），跟随持仓期最高价上抬、
+                只升不降，并随浮盈三级收紧（20% 和 40% 各收一次）。跌破任意一条即离场。
+              </Text>
+            </Stack>
+          </Accordion.Panel>
+        </Accordion.Item>
+
+        <Accordion.Item value="limits">
+          <Accordion.Control>
+            <Text size="sm" fw={600} c="gray.2">
+              使用前请了解的局限
+            </Text>
+          </Accordion.Control>
+          <Accordion.Panel>
+            <Stack gap="sm">
+              <Text size="xs" c="dimmed">
+                <strong className="text-zinc-300">标的池存在幸存者偏差。</strong>{" "}
+                这 40 只是为 2026 年挑选的，其中不少是事后才看得出的赢家，且有六只 2020
+                年后才上市、整个生命周期都在牛市里。历史统计因此系统性偏乐观。
+              </Text>
+              <Text size="xs" c="dimmed">
+                <strong className="text-zinc-300">近两年跑输买入持有。</strong>{" "}
+                同期直接持有这些标的中位收益 +124%，而策略只有 +25%，40 只里仅 6
+                只跑赢。平均在场时间只有两成，单边上涨行情中空仓就是成本。
+                这套方法的价值在控制回撤，而不是在牛市里放大收益。
+              </Text>
+              <Text size="xs" c="dimmed">
+                <strong className="text-zinc-300">「距 52 周高」在创新高时会失真。</strong>{" "}
+                它的基准不含当日，所以标的在高点下方时如实反映距离，一旦刷新高点，
+                读数就只剩当日涨幅。
+              </Text>
+              <Text size="xs" c="dimmed">
+                <strong className="text-zinc-300">部分标的没有行业归属。</strong>{" "}
+                QQQ、GLD、IBIT 这类 ETF 本就不属于任何行业，不参与行业排名，显示为「—」。
+              </Text>
+            </Stack>
+          </Accordion.Panel>
+        </Accordion.Item>
+      </Accordion>
     </Stack>
   );
 }

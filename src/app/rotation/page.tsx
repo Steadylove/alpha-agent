@@ -10,9 +10,12 @@ export default async function RotationPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-zinc-50">动能满仓轮动雷达</h1>
-        <span className="text-sm text-zinc-500">40 只标的 · 日线</span>
+      <div className="rise-in">
+        <h1 className="text-3xl font-semibold tracking-tight text-zinc-50">动能轮动雷达</h1>
+        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-400">
+          在 40 只标的里挑出动能最强的持有，按相对强度分配仓位，靠移动止损控制回撤。
+          下面是当前持仓、每只的防线价位，以及年内的净值走势。
+        </p>
       </div>
 
       <RotationBoard data={data} />

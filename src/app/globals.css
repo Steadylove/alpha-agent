@@ -3,12 +3,29 @@
 
 :root {
   color-scheme: dark;
+
+  /* 三级表面：页面 → 卡片 → 悬停。原先三者同色，整站看起来是一块死黑的平面。 */
+  --surface-base: #101114;
+  --surface-raised: #17181d;
+  --surface-hover: #1e1f26;
+  --surface-sunken: #0c0d10;
+
+  --border-subtle: #26272e;
+  --border-strong: #3a3c45;
+
+  --accent: #5b8def;
+  --accent-soft: rgba(91, 141, 239, 0.12);
+
+  --pos: #089981;
+  --neg: #f23645;
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 body {
   margin: 0;
-  background-color: #09090b; /* zinc-950 */
-  color: #fafafa; /* zinc-50 */
+  background-color: var(--surface-base);
+  color: #fafafa;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
@@ -24,7 +41,7 @@ table {
 
 th, td {
   padding: 0.625rem 1rem;
-  border-bottom: 1px solid #27272a; /* zinc-800 */
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 th {
@@ -39,13 +56,78 @@ td {
 }
 
 tbody tr {
-  transition: background-color 0.15s ease;
+  transition: background-color 0.18s var(--ease-out);
 }
 
 tbody tr:hover {
-  background-color: #18181b; /* zinc-900 */
+  background-color: var(--surface-hover);
 }
 
 ::selection {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(91, 141, 239, 0.25);
+}
+
+/* 细滚动条，默认的在深色背景上过于抢眼 */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+  border: 2px solid var(--surface-base);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 进场动画。--rise-delay 用于让同排卡片依次浮现。 */
+.rise-in {
+  animation: rise-in 0.5s var(--ease-out) both;
+  animation-delay: var(--rise-delay, 0ms);
+}
+
+/* 卡片悬停抬升，配合 Card 组件的边框提亮 */
+.lift {
+  transition:
+    transform 0.22s var(--ease-out),
+    border-color 0.22s var(--ease-out),
+    background-color 0.22s var(--ease-out),
+    box-shadow 0.22s var(--ease-out);
+}
+
+.lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px -12px rgba(0, 0, 0, 0.7);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .lift:hover {
+    transform: none;
+  }
 }

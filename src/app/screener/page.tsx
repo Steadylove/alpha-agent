@@ -10,13 +10,10 @@ export default async function ScreenerPage() {
   if (!data) {
     return (
       <div className="space-y-6 px-1">
-        <h1 className="text-2xl font-semibold text-zinc-50">每日 RPS 筛选</h1>
-        <Card title="暂无数据">
+        <h1 className="text-3xl font-semibold tracking-tight text-zinc-50">每日筛选</h1>
+        <Card title="数据生成中">
           <Text size="sm" c="dimmed">
-            还没有落库结果。请先触发：
-          </Text>
-          <Text size="xs" c="dimmed" mt="sm" ff="monospace">
-            POST /api/jobs/alpha-screener
+            当日的筛选结果还没算出来，请稍后刷新。
           </Text>
         </Card>
       </div>
@@ -26,27 +23,19 @@ export default async function ScreenerPage() {
   return (
     <div className="space-y-6 px-1">
       <div>
-        <h1 className="text-2xl font-semibold text-zinc-50">每日 RPS 筛选</h1>
-        <Text size="sm" c="dimmed" mt={4}>
-          日期 {data.date} · 四周期 RPS 均 &gt; {data.baseThreshold}
-        </Text>
+        <h1 className="text-3xl font-semibold tracking-tight text-zinc-50">每日筛选</h1>
+        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-400">
+          从全市场找出在 20 / 50 / 120 / 250 日四个周期上同时跑赢
+          {data.baseThreshold}% 以上个股的标的——短中长期动能一致向上，说明资金在持续流入。
+        </p>
       </div>
 
-      <div className="grid gap-3 grid-cols-3">
-        <MetricCard label="股票池" value={String(data.universeSize)} />
-        <MetricCard
-          label={`命中 >${data.baseThreshold}`}
-          value={String(data.elite.length)}
-          valueColor="yellow.4"
-        />
-        <MetricCard
-          label="日线失败"
-          value={String(data.dailyFetchErrors)}
-          valueColor={data.dailyFetchErrors > 0 ? "yellow.4" : "teal.4"}
-        />
+      <div className="grid gap-3 grid-cols-2">
+        <MetricCard label="扫描股票池" value={String(data.universeSize)} />
+        <MetricCard label="四周期共振" value={String(data.elite.length)} valueColor="yellow.4" />
       </div>
 
-      <Card title={`四周期共振 · ${data.elite.length} 只`}>
+      <Card title={`${data.date} · 共 ${data.elite.length} 只`}>
         {data.elite.length === 0 ? (
           <Text size="sm" c="dimmed">
             今日无符合条件标的。
@@ -56,7 +45,7 @@ export default async function ScreenerPage() {
             {data.elite.map((row, idx) => (
               <div
                 key={row.symbol}
-                className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3 sm:p-4"
+                className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-3 sm:p-4"
               >
                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                   <Text size="xs" c="dimmed">

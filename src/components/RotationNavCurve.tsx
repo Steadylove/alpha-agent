@@ -24,7 +24,7 @@ function NavTooltip({ active, payload }: { active?: boolean; payload?: TooltipPa
   if (!active || !point) return null;
 
   return (
-    <div className="rounded border border-zinc-700 bg-zinc-900/95 px-3 py-2 text-xs">
+    <div className="rounded border border-[var(--border-strong)] bg-[var(--surface-hover)]/95 px-3 py-2 text-xs">
       <div className="font-mono text-zinc-400">{point.date}</div>
       <div className="mt-1 font-mono" style={{ color: point.navPct >= 0 ? POS : NEG }}>
         净值 {point.navPct >= 0 ? "+" : ""}
@@ -113,7 +113,12 @@ export function RotationNavCurve({
               tickFormatter={(v: number) => `${v.toFixed(0)}%`}
             />
             <ReferenceLine y={0} stroke="#3f3f46" />
-            <Tooltip content={<NavTooltip />} cursor={{ stroke: "#52525b" }} />
+            {/* Tooltip 自带 400ms 的 transform 过渡，不关掉的话每次都从上一个位置滑过来 */}
+            <Tooltip
+              content={<NavTooltip />}
+              cursor={{ stroke: "#52525b" }}
+              isAnimationActive={false}
+            />
             <Area
               type="monotone"
               dataKey="navPct"
@@ -138,7 +143,11 @@ export function RotationNavCurve({
               width={48}
               tickFormatter={(v: number) => `${v.toFixed(0)}%`}
             />
-            <Tooltip content={<NavTooltip />} cursor={{ stroke: "#52525b" }} />
+            <Tooltip
+              content={<NavTooltip />}
+              cursor={{ stroke: "#52525b" }}
+              isAnimationActive={false}
+            />
             <Area
               type="monotone"
               dataKey="drawdownPct"
@@ -153,11 +162,10 @@ export function RotationNavCurve({
       </div>
 
       <Text size="xs" c="dimmed" mt="xs">
-        下方为水下回撤带。这里全程按 8 个等权仓位记账，
-        <strong className="text-zinc-300">末点与上方「全口径 YTD」不相等</strong>
-        ——那个数字的已落袋部分按 8 仓摊薄、浮盈部分却按当日持仓 RS 满仓加权，两半不同尺度。
-        沿用它画曲线的话，持仓从 8 只掉到 2 只时每只权重会从 12% 跳到 50%，
-        画出来的回撤是持仓数变化的假象。另外这是模型跟踪盘，不是实盘：没有滑点、手续费与仓位取整。
+        下方红色区域是相对历史最高点的回撤深度。曲线全程按 8 个等权仓位记账，
+        因此末点与上方「全口径 YTD」略有出入——后者的浮盈部分按当日持仓加权，
+        持仓只剩两三只时权重会被放大，不适合拉成时间序列。
+        这是模型跟踪的结果，未计入滑点、手续费与仓位取整。
       </Text>
     </Card>
   );
