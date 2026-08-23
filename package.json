@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && next build",
+    "build": "prisma generate && npx --yes tsx scripts/fetch-panel-cache.ts && next build",
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
@@ -18,6 +18,7 @@
     "membership:import": "npx --yes tsx scripts/import-index-membership.ts",
     "backfill:panel": "npx --yes tsx scripts/backfill-sp500-panel.ts",
     "panel:cache": "npx --yes tsx scripts/build-panel-cache.ts",
+    "panel:fetch": "npx --yes tsx scripts/fetch-panel-cache.ts",
     "lab": "NODE_OPTIONS=--max-old-space-size=6144 npx --yes tsx scripts/backtest-lab.ts",
     "lab:search": "NODE_OPTIONS=--max-old-space-size=6144 npx --yes tsx scripts/search-params.ts",
     "calibrate:mpr": "npx --yes tsx scripts/calibrate-mpr.ts",

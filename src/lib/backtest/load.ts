@@ -77,8 +77,31 @@ async function getSnapshot(): Promise<PanelSnapshot> {
     }
   }
 
+  /*
+   * 部署环境不许回落数据库。
+   *
+   * 那里文件系统只读，落盘必然失败，于是每个新实例冷启动都要重新下载完整面板
+   * （72MB）。Neon 免费档 5GB/月按这个用法约 70 次冷启动就见底，实测确实被打满，
+   * 连带把仪表盘的额度一起吃掉。面板必须作为构建产物随部署带上。
+   */
+  if (process.env.VERCEL) {
+    throw new Error(
+      `面板缓存缺失：${PANEL_CACHE_PATH}。` +
+        "部署环境不从数据库拉面板（每次冷启动 72MB 会打满配额），" +
+        "请把快照作为构建产物打进函数包。",
+    );
+  }
+
   const t0 = Date.now();
   const fresh = await fetchSnapshot();
+
+  // 空面板一律当失败：读降级（见 lib/db/degrade）会把配额耗尽变成空数组，
+  // 而 getPreparedUniverse 会把解析成功的结果一直缓存下去——
+  // 不在这里拦住，实验室就会静默显示一个 0 只标的的空池，且直到实例回收都不恢复。
+  if (fresh.panels.length === 0) {
+    throw new Error("数据库返回空面板：数据源不可用或配额耗尽，未落盘。");
+  }
+
   const written = writeSnapshot(PANEL_CACHE_PATH, fresh);
   console.log(
     `[panel] 从数据库拉取 ${fresh.panels.length} 只 ${Date.now() - t0}ms` +
