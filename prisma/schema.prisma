@@ -261,6 +261,61 @@ model ShortInterest {
   @@index([symbol])
 }
 
+/// 标普 500 的时点成分资格区间，供调参回测使用。
+///
+/// 存区间而不是逐日快照：原始数据是 2719 个变更日各一份完整名单，
+/// 展开成 (ticker, date) 有 130 万行，压成区间只有两千余行，
+/// 而「某日是否为成分」这个唯一的查询需求两种形式都能回答。
+///
+/// 同一 ticker 可能多次进出指数，因此一个 ticker 会有多行。
+model IndexMembership {
+  id     String @id @default(cuid())
+  index  String @default("SP500")
+  ticker String
+
+  startDate DateTime
+  /// null 表示仍在指数内
+  endDate   DateTime?
+
+  /// 日线回填是否成功。退市标的在 Yahoo 取不到价格，回测时必须排除
+  hasBars  Boolean @default(false)
+  barCount Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([index, ticker, startDate])
+  @@index([ticker])
+  @@index([hasBars])
+}
+
+/// 调参回测的行情面板，每只标的一行，序列按二进制打包。
+///
+/// 为什么不复用 DailyBar：标普池 700 只 × 20 年约 280 万行，在 DailyBar 的
+/// 逐行结构下约 900MB，且冷加载要上百秒——回测工具需要一次把全池读进内存。
+/// 打包成 Float32 后单只 80KB、全池约 56MB，一次查询即可载入。
+///
+/// DailyBar 仍是线上面板的数据源，两张表刻意不共用：面板要按日期范围查单只，
+/// 回测要一次读全池，访问模式相反。
+model BacktestPanel {
+  id     String @id @default(cuid())
+  ticker String @unique
+
+  firstDate DateTime
+  lastDate  DateTime
+  barCount  Int
+
+  /// 自 1970-01-01 起的天数，Int32LE
+  days  Bytes
+  /// 以下三列均为 Float32LE，长度与 barCount 一致
+  high  Bytes
+  low   Bytes
+  close Bytes
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 /// 12M 估值引擎的每日快照。
 ///
 /// 与面板其余字段不同，这张表只有最新一天：基本面是当期值，

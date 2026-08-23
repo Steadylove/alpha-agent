@@ -2,7 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Crosshair, FileText, LayoutDashboard, Microscope, Radar, Repeat } from "lucide-react";
+import {
+  Crosshair,
+  FileText,
+  FlaskConical,
+  LayoutDashboard,
+  Microscope,
+  Radar,
+  Repeat,
+} from "lucide-react";
 
 /** 量化面板本身。 */
 const primaryNav = [
@@ -10,6 +18,7 @@ const primaryNav = [
   { href: "/mpr", label: "市场雷达", icon: Radar },
   { href: "/rotation", label: "轮动持仓", icon: Repeat },
   { href: "/depth", label: "个股面板", icon: Microscope },
+  { href: "/lab", label: "调参实验室", icon: FlaskConical },
 ];
 
 /**

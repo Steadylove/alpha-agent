@@ -363,3 +363,159 @@ describe("商业化文档独有开关（默认关闭）", () => {
     expect(days[50].breakevenLocked).toBe(false);
   });
 });
+
+describe("R 倍数止盈", () => {
+  /** 第 40 根开仓后单调上行，用来触发止盈。 */
+  function rallyAfterEntry(n: number, entry: number, target: number) {
+    const closes = new Array(n).fill(100);
+    for (let i = entry + 1; i < n; i += 1) {
+      closes[i] = Math.min(target, 100 + (i - entry) * 0.5);
+    }
+    return closes;
+  }
+
+  it("takeProfitR 为 null 时不产生止盈，行为与原版一致", () => {
+    const n = 160;
+    const closes = rallyAfterEntry(n, 40, 200);
+    const base = computeRotationTrades(
+      "TEST",
+      makeBars(closes),
+      fireAt(n, 40),
+      noSignals(n),
+      allPass(n),
+      DEFAULT_TRADE_PARAMS,
+    );
+    expect(base.days.every((d) => d.targetLevel === null)).toBe(true);
+    expect(base.closed.every((t) => t.exitReason !== "target")).toBe(true);
+  });
+
+  it("止盈价等于开仓价加 R 倍初始风险", () => {
+    const n = 160;
+    const closes = rallyAfterEntry(n, 40, 200);
+    const { days } = computeRotationTrades(
+      "TEST",
+      makeBars(closes),
+      fireAt(n, 40),
+      noSignals(n),
+      allPass(n),
+      { ...DEFAULT_TRADE_PARAMS, takeProfitR: 2 },
+    );
+
+    const entry = days[40];
+    // stopLevel 在开仓当根即为 entry - 1R，故 1R = entryPrice - stopLevel
+    const oneR = entry.entryPrice! - entry.stopLevel!;
+    expect(entry.targetLevel).toBeCloseTo(entry.entryPrice! + 2 * oneR, 6);
+  });
+
+  it("触及止盈时按收盘价离场并标记 exitReason", () => {
+    const n = 160;
+    const closes = rallyAfterEntry(n, 40, 200);
+    const { closed } = computeRotationTrades(
+      "TEST",
+      makeBars(closes),
+      fireAt(n, 40),
+      noSignals(n),
+      allPass(n),
+      { ...DEFAULT_TRADE_PARAMS, takeProfitR: 1 },
+    );
+
+    expect(closed).toHaveLength(1);
+    expect(closed[0].exitReason).toBe("target");
+    // 1R 止盈落地的 R 倍数应在 1 附近；收盘触发会略微过冲
+    expect(closed[0].pnlPct / closed[0].riskPct).toBeGreaterThanOrEqual(1);
+    expect(closed[0].pnlPct / closed[0].riskPct).toBeLessThan(1.5);
+  });
+
+  it("R 越小越早离场，且落地收益随之递减", () => {
+    const n = 200;
+    const closes = rallyAfterEntry(n, 40, 300);
+    const run = (r: number) =>
+      computeRotationTrades("TEST", makeBars(closes), fireAt(n, 40), noSignals(n), allPass(n), {
+        ...DEFAULT_TRADE_PARAMS,
+        takeProfitR: r,
+      }).closed[0];
+
+    const tight = run(0.5);
+    const loose = run(3);
+    expect(tight.barsHeld).toBeLessThan(loose.barsHeld);
+    expect(tight.pnlPct).toBeLessThan(loose.pnlPct);
+  });
+});
+
+describe("止损倍数可调", () => {
+  it("省略 stopMult/trailMult 时与 Pine 原值 4.0 / 5.5 一致", () => {
+    const n = 120;
+    const bars = makeBars(new Array(n).fill(100));
+    const omitted = computeRotationTrades(
+      "TEST",
+      bars,
+      fireAt(n, 40),
+      noSignals(n),
+      allPass(n),
+      DEFAULT_TRADE_PARAMS,
+    );
+    const explicit = computeRotationTrades(
+      "TEST",
+      bars,
+      fireAt(n, 40),
+      noSignals(n),
+      allPass(n),
+      { ...DEFAULT_TRADE_PARAMS, stopMult: 4.0, trailMult: 5.5 },
+    );
+    expect(explicit.days[40].stopLevel).toBeCloseTo(omitted.days[40].stopLevel!, 10);
+    expect(explicit.days[40].trailLevel).toBeCloseTo(omitted.days[40].trailLevel!, 10);
+  });
+
+  it("收紧 stopMult 会抬高止损位并缩短持仓", () => {
+    const n = 160;
+    const closes = new Array(n).fill(100);
+    // 开仓后缓慢下行，止损越紧越早出局
+    for (let i = 41; i < n; i += 1) closes[i] = 100 - (i - 40) * 0.3;
+
+    const run = (stopMult: number) =>
+      computeRotationTrades("TEST", makeBars(closes), fireAt(n, 40), noSignals(n), allPass(n), {
+        ...DEFAULT_TRADE_PARAMS,
+        stopMult,
+        trailMult: 5.5,
+      });
+
+    const tight = run(1.5);
+    const loose = run(4);
+    expect(tight.days[40].stopLevel!).toBeGreaterThan(loose.days[40].stopLevel!);
+    expect(tight.closed[0].barsHeld).toBeLessThan(loose.closed[0].barsHeld);
+  });
+
+  it("吊灯位随 trailMult 按 ATR 线性外移", () => {
+    const n = 120;
+    const bars = makeBars(new Array(n).fill(100));
+    const run = (trailMult: number) =>
+      computeRotationTrades("TEST", bars, fireAt(n, 40), noSignals(n), allPass(n), {
+        ...DEFAULT_TRADE_PARAMS,
+        trailMult,
+      }).days[40];
+
+    const narrow = run(5.5);
+    const wide = run(11);
+    const entry = narrow.entryPrice!;
+    // 止损位不受当根最高价影响，可反推 ATR：stopLevel = close - stopMult * atr
+    const atr = (entry - narrow.stopLevel!) / DEFAULT_TRADE_PARAMS.stopMult!;
+
+    expect(narrow.trailLevel! - wide.trailLevel!).toBeCloseTo((11 - 5.5) * atr, 6);
+  });
+
+  it("放宽 trailMult 会延后吊灯出局", () => {
+    const n = 200;
+    const closes = new Array(n).fill(100);
+    // 先冲高进入分档收紧区，再回落触发吊灯
+    for (let i = 41; i < 100; i += 1) closes[i] = 100 + (i - 40) * 1.5;
+    for (let i = 100; i < n; i += 1) closes[i] = closes[99] - (i - 99) * 1.5;
+
+    const run = (trailMult: number) =>
+      computeRotationTrades("TEST", makeBars(closes), fireAt(n, 40), noSignals(n), allPass(n), {
+        ...DEFAULT_TRADE_PARAMS,
+        trailMult,
+      }).closed[0];
+
+    expect(run(11).barsHeld).toBeGreaterThan(run(5.5).barsHeld);
+  });
+});
