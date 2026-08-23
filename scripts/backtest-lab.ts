@@ -7,7 +7,12 @@ import {
   type PreparedUniverse,
   type WindowResult,
 } from "@/lib/backtest/engine";
-import { loadPreparedUniverse } from "@/lib/backtest/load";
+import {
+  DEFAULT_INDEX,
+  INDEXES,
+  loadPreparedUniverse,
+  type IndexKey,
+} from "@/lib/backtest/load";
 import { getPrisma } from "@/lib/db/prisma";
 
 import { parseArgs } from "./backtest-args";
@@ -108,11 +113,23 @@ function sweep(universe: PreparedUniverse, base: BacktestConfig) {
   }
 }
 
+/** `--index=NDX100` 切换标的池，默认标普。 */
+function parseIndexArg(): IndexKey {
+  const raw = (
+    process.argv.find((a) => a.startsWith("--index="))?.split("=")[1] ?? DEFAULT_INDEX
+  ).toUpperCase();
+  if (!(raw in INDEXES)) {
+    throw new Error(`未知标的池 ${raw}，可用: ${Object.keys(INDEXES).join(", ")}`);
+  }
+  return raw as IndexKey;
+}
+
 async function main() {
   const config: BacktestConfig = { ...DEFAULT_BACKTEST_CONFIG, ...parseArgs() };
+  const index = parseIndexArg();
 
   let t = Date.now();
-  const universe = await loadPreparedUniverse();
+  const universe = await loadPreparedUniverse(index);
   const prepMs = Date.now() - t;
 
   t = Date.now();
@@ -120,7 +137,7 @@ async function main() {
   const runMs = Date.now() - t;
 
   console.log(
-    `\n准备 ${prepMs}ms   回测 ${runMs}ms   ` +
+    `\n标的池 ${INDEXES[index].label} (${index})   准备 ${prepMs}ms   回测 ${runMs}ms   ` +
       `池内 ${result.universeSize} 只   日期轴 ${universe.axis.length} 天   ` +
       `采纳信号 ${result.signalCount} 个`,
   );
@@ -128,6 +145,11 @@ async function main() {
     `参数  RPS>=${config.rpsMin}  止损 ${config.stopMult}×ATR  吊灯 ${config.trailMult}×ATR  ` +
       `止盈 ${config.takeProfitR == null ? "无" : `${config.takeProfitR}R`}  ` +
       `信号 ${[config.useBuy1 && "一买", config.useBuy2 && "二买"].filter(Boolean).join("+") || "无"}`,
+  );
+  console.log(
+    `初筛  成交额 ${config.minAdtvUsd > 0 ? `>=$${(config.minAdtvUsd / 1e6).toFixed(0)}M/日` : "不筛"}  ` +
+      `价格 ${config.minPrice > 0 ? `>=$${config.minPrice}` : "不筛"}  ` +
+      `趋势 ${config.requireTrend ? "须站上 MA200 或 MA850" : "不筛"}`,
   );
 
   verifyCrossSection(universe, "2015-06-30");

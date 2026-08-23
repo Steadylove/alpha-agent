@@ -6,7 +6,8 @@ import {
   type BacktestConfig,
   type EquityPoint,
 } from "@/lib/backtest/engine";
-import { getPreparedUniverse } from "@/lib/backtest/load";
+import { DEFAULT_INDEX, INDEXES, getPreparedUniverse, type IndexKey } from "@/lib/backtest/load";
+import type { ClosedTrade } from "@/lib/scoring/rotationTrade";
 
 /**
  * 调参回测接口。
@@ -42,7 +43,41 @@ function parseConfig(body: Record<string, unknown>): BacktestConfig {
         : clamp(body.takeProfitR, 0.25, 20, 2),
     useBuy1: typeof body.useBuy1 === "boolean" ? body.useBuy1 : d.useBuy1,
     useBuy2: typeof body.useBuy2 === "boolean" ? body.useBuy2 : d.useBuy2,
+    minAdtvUsd: clamp(body.minAdtvUsd, 0, 5e9, d.minAdtvUsd),
+    minPrice: clamp(body.minPrice, 0, 200, d.minPrice),
+    requireTrend:
+      typeof body.requireTrend === "boolean" ? body.requireTrend : d.requireTrend,
   };
+}
+
+/**
+ * 明细行。丢掉 entryIndex/exitIndex（那是每个标的自己的下标，前端无从解读），
+ * 补上 R 倍数与所属窗口，省得前端各算一遍。
+ */
+function tradeRows(trades: readonly ClosedTrade[], splitDate: string) {
+  return trades.map((t) => ({
+    symbol: t.symbol,
+    sigType: t.sigType,
+    entryDate: t.entryDate,
+    entryPrice: t.entryPrice,
+    exitDate: t.exitDate,
+    exitPrice: t.exitPrice,
+    pnlPct: t.pnlPct,
+    barsHeld: t.barsHeld,
+    exitReason: t.exitReason,
+    riskPct: t.riskPct,
+    r: t.riskPct > 0 ? t.pnlPct / t.riskPct : 0,
+    isOutOfSample: t.entryDate >= splitDate,
+  }));
+}
+
+/**
+ * 标的池不进 BacktestConfig：它决定载入哪批数据（缓存键），
+ * 而 config 里的参数都是在同一批数据上重算的，两者生命周期不同。
+ */
+function parseIndex(body: Record<string, unknown>): IndexKey {
+  const raw = typeof body.index === "string" ? body.index.toUpperCase() : "";
+  return raw in INDEXES ? (raw as IndexKey) : DEFAULT_INDEX;
 }
 
 /** 净值曲线抽稀到约 700 点：日线全传是四千多点，画到屏幕上分辨不出差别。 */
@@ -65,16 +100,21 @@ export async function POST(request: Request) {
   }
 
   const config = parseConfig(body);
+  const index = parseIndex(body);
 
   try {
-    const universe = await getPreparedUniverse();
+    const universe = await getPreparedUniverse(index);
     const started = Date.now();
     const result = runBacktest(universe, config);
 
     return NextResponse.json({
       config,
+      index,
+      indexLabel: INDEXES[index].label,
+      symbolCount: universe.symbols.length,
       ...result,
       equity: downsample(result.equity),
+      trades: tradeRows(result.trades, config.splitDate),
       elapsedMs: Date.now() - started,
     });
   } catch (error) {

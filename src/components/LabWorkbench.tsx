@@ -6,6 +6,7 @@ import {
   Button,
   Group,
   Loader,
+  Pagination,
   SegmentedControl,
   Slider,
   Stack,
@@ -13,7 +14,16 @@ import {
   Table,
   Text,
 } from "@mantine/core";
-import { Eye, EyeOff, RotateCcw, TriangleAlert } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  Download,
+  Eye,
+  EyeOff,
+  RotateCcw,
+  TriangleAlert,
+} from "lucide-react";
 import {
   CartesianGrid,
   Line,
@@ -59,9 +69,30 @@ type Stats = {
   days: number;
 };
 
+type ExitReason = "stop" | "target" | "veto" | "rsWeak";
+
+type TradeRow = {
+  symbol: string;
+  sigType: 1 | 2;
+  entryDate: string;
+  entryPrice: number;
+  exitDate: string;
+  exitPrice: number;
+  pnlPct: number;
+  barsHeld: number;
+  exitReason: ExitReason;
+  /** 开仓时 1R 占开仓价的百分比 */
+  riskPct: number;
+  r: number;
+  isOutOfSample: boolean;
+};
+
 type Result = {
   /** 服务端实际生效的参数，切分日以它为准，避免前后端各存一份 */
   config: { splitDate: string };
+  index: IndexKey;
+  indexLabel: string;
+  trades: TradeRow[];
   inSample: WindowResult;
   outOfSample: WindowResult;
   byYear: {
@@ -85,6 +116,9 @@ type Params = {
   takeProfitR: number | null;
   useBuy1: boolean;
   useBuy2: boolean;
+  minAdtvUsd: number;
+  minPrice: number;
+  requireTrend: boolean;
 };
 
 /** 与 engine.ts 的 DEFAULT_BACKTEST_CONFIG 保持一致，来源见那里的注释。 */
@@ -93,27 +127,52 @@ const DEFAULTS: Params = {
   rpsExit: null,
   stopMult: 3.5,
   trailMult: 2.5,
-  takeProfitR: 2.5,
+  takeProfitR: 3,
   useBuy1: true,
   useBuy2: false,
+  minAdtvUsd: 0,
+  minPrice: 0,
+  requireTrend: false,
 };
 
 /** Pine 原值，用于一键对照。 */
 const PINE_DEFAULTS: Params = {
+  ...DEFAULTS,
   rpsMin: 0,
-  rpsExit: null,
   stopMult: 4,
   trailMult: 5.5,
   takeProfitR: null,
-  useBuy1: true,
   useBuy2: true,
 };
+
+/**
+ * 「全市场流动性初筛」规格第一阶段的原始阈值。
+ * 市值 >= 20 亿那条没实现（面板无历史股本，且标普成分极少跌破），故不在此列。
+ */
+const SPEC_FILTERS: Pick<Params, "minAdtvUsd" | "minPrice" | "requireTrend"> = {
+  minAdtvUsd: 30_000_000,
+  minPrice: 5,
+  requireTrend: true,
+};
+
+type IndexKey = "UNION" | "SP500" | "NDX100";
+
+/**
+ * 标的池不并入 Params：它决定载入哪批数据，而 Params 是在同一批数据上重算的
+ * 引擎参数。并进去的话，「Pine 原值」「复原」这类整体替换会把池子一起重置。
+ */
+const POOLS: { value: IndexKey; label: string }[] = [
+  { value: "UNION", label: "两者并集" },
+  { value: "SP500", label: "标普 500" },
+  { value: "NDX100", label: "纳斯达克 100" },
+];
 
 const pct = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
 const tone = (v: number) => (v >= 0 ? POS : NEG);
 
 export function LabWorkbench() {
   const [params, setParams] = useState<Params>(DEFAULTS);
+  const [index, setIndex] = useState<IndexKey>("UNION");
   const [result, setResult] = useState<Result | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -124,14 +183,14 @@ export function LabWorkbench() {
   const [trialCount, setTrialCount] = useState(0);
   const [peekCount, setPeekCount] = useState(0);
 
-  const run = useCallback(async (p: Params) => {
+  const run = useCallback(async (p: Params, idx: IndexKey) => {
     setLoading(true);
     setError(null);
     try {
       const res = await fetch("/api/lab/backtest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(p),
+        body: JSON.stringify({ ...p, index: idx }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "回测失败");
@@ -145,16 +204,17 @@ export function LabWorkbench() {
 
   // 滑块连续拖动时不必每帧都打接口
   useEffect(() => {
-    const key = JSON.stringify(params);
+    // 换池子也算一次试验：在另一个池子上重测同一组参数同样是在挑结果
+    const key = JSON.stringify({ params, index });
     const timer = setTimeout(() => {
       if (!tried.current.has(key)) {
         tried.current.add(key);
         setTrialCount(tried.current.size);
       }
-      void run(params);
+      void run(params, index);
     }, 350);
     return () => clearTimeout(timer);
-  }, [params, run]);
+  }, [params, index, run]);
 
   const set = <K extends keyof Params>(key: K, value: Params[K]) =>
     setParams((prev) => ({ ...prev, [key]: value }));
@@ -199,6 +259,31 @@ export function LabWorkbench() {
           </Group>
         }
       >
+        <Stack gap="xs" mb="lg">
+          <Group gap="sm" align="center">
+            <Text size="sm" fw={500}>
+              标的池
+            </Text>
+            <SegmentedControl
+              size="xs"
+              value={index}
+              onChange={(v) => setIndex(v as IndexKey)}
+              data={POOLS}
+            />
+            {result ? (
+              <Text size="xs" c="dimmed" ff="monospace">
+                池内 {result.universeSize} 只
+              </Text>
+            ) : null}
+          </Group>
+          <Text size="xs" c="dimmed">
+            三个池子都用时点成分，不含后见之明。换池子同时换掉基准：基准恒为
+            <b>同一池子</b>的等权买入持有，所以「超额」在不同池子之间不可直接比大小。
+            池子的作用是给 RPS 提供候选，候选越多它越有得选；单用纳斯达克 100
+            只有约 190 只，仓位常填不满，而且它的成分规则是市值与上市地、不衡量强弱。
+          </Text>
+        </Stack>
+
         <div className="grid gap-x-10 gap-y-6 md:grid-cols-2">
           <Knob
             label="截面 RPS 门槛"
@@ -308,6 +393,82 @@ export function LabWorkbench() {
         </div>
       </Card>
 
+      <Card
+        title={
+          <Stack gap={2}>
+            <Text size="sm" fw={700} c="gray.1">
+              第一阶段 · 标的池初筛
+            </Text>
+            <Text size="xs" c="dimmed">
+              只影响入场资格，不改变基准——基准始终是完整时点成分池的等权买入持有
+            </Text>
+          </Stack>
+        }
+        action={
+          <Button
+            size="compact-xs"
+            variant="default"
+            onClick={() => setParams((p) => ({ ...p, ...SPEC_FILTERS }))}
+          >
+            套用规格阈值
+          </Button>
+        }
+      >
+        <div className="grid gap-x-10 gap-y-6 md:grid-cols-2">
+          <Knob
+            label="50 日日均成交额"
+            value={params.minAdtvUsd / 1e6}
+            display={params.minAdtvUsd === 0 ? "不筛选" : `≥ $${params.minAdtvUsd / 1e6}M`}
+            hint="规格原值 $3000万。标普成分内部这条并非空转：成交额偏低的成分股（如 HUBB 中位约 $30M）会被切掉，早年名义成交额普遍更低，被切的更多。"
+            min={0}
+            max={200}
+            step={10}
+            onChange={(v) => set("minAdtvUsd", v * 1e6)}
+          />
+          <div>
+            <Group justify="space-between" mb={4}>
+              <Text size="sm" fw={600} c="gray.2">
+                最低收盘价
+              </Text>
+              <Text size="sm" ff="monospace" c="gray.4">
+                {params.minPrice === 0 ? "不筛选" : `≥ $${params.minPrice}`}
+              </Text>
+            </Group>
+            <SegmentedControl
+              fullWidth
+              size="xs"
+              value={String(params.minPrice)}
+              onChange={(v) => set("minPrice", Number(v))}
+              data={[
+                { label: "关", value: "0" },
+                { label: "$5", value: "5" },
+                { label: "$10", value: "10" },
+                { label: "$20", value: "20" },
+              ]}
+            />
+            <Text size="xs" c="dimmed" mt={6}>
+              规格原值 $5，用于剔除仙股。标普成分里几乎没有低于 $5 的，
+              这条在本池内基本空转，留着是为了口径完整。
+            </Text>
+          </div>
+
+          <div className="md:col-span-2">
+            <Switch
+              size="sm"
+              label="要求收盘价站上 MA200 或 MA850"
+              checked={params.requireTrend}
+              onChange={(e) => set("requireTrend", e.currentTarget.checked)}
+            />
+            <Text size="xs" c="dimmed" mt={6}>
+              规格里我们原先完全没有的一条，也是我认为最值得测的一条。用「或」而非「且」
+              是照抄规格：站上 850 日线却跌破 200 日线，正是长期牛股回踩中继的形态，
+              恰好是抄底信号想要的场景。它针对的是本策略已知的最大弱点——
+              在 V 型反转里被反复打（2009 超额 −17.29%、2025 −13.76%）。
+            </Text>
+          </div>
+        </div>
+      </Card>
+
       {error ? (
         <Card>
           <Text size="sm" c="red.4">
@@ -359,8 +520,10 @@ export function LabWorkbench() {
 
           <YearTable rows={result.byYear} maskOos={!showOos} />
 
+          <TradeBlotter trades={result.trades} maskOos={!showOos} />
+
           <Text size="xs" c="dimmed">
-            池内 {result.universeSize} 只，采纳信号 {result.signalCount} 个。
+            {result.indexLabel}池内 {result.universeSize} 只，采纳信号 {result.signalCount} 个。
             基准为同一时点成分池的等权买入持有，与策略吃同一批数据、同一个窗口，
             因此二者的幸存者偏差大体相抵——可信的是二者之差，不是任何一方的绝对水平。
             未计入手续费、滑点与冲击成本。
@@ -652,6 +815,307 @@ function EquityTooltip({
         {(p.strategy - p.benchmark).toFixed(2)}x
       </div>
     </div>
+  );
+}
+
+const EXIT_LABEL: Record<ExitReason, string> = {
+  stop: "止损",
+  target: "止盈",
+  rsWeak: "转弱",
+  veto: "否决",
+};
+
+const EXIT_COLOR: Record<ExitReason, string> = {
+  stop: "red",
+  target: "teal",
+  rsWeak: "yellow",
+  veto: "gray",
+};
+
+type SortKey = "entryDate" | "pnlPct" | "r" | "barsHeld";
+
+const PAGE_SIZE = 50;
+
+function TradeBlotter({ trades, maskOos }: { trades: TradeRow[]; maskOos: boolean }) {
+  const [scope, setScope] = useState<"all" | "in" | "out">("all");
+  const [reason, setReason] = useState<"all" | ExitReason>("all");
+  const [sortKey, setSortKey] = useState<SortKey>("entryDate");
+  const [desc, setDesc] = useState(true);
+  const [page, setPage] = useState(1);
+
+  const rows = useMemo(() => {
+    // 盖住保留区时整行剔除，而不是打码——和净值曲线一致，遮挡挡不住眼睛
+    let out = maskOos ? trades.filter((t) => !t.isOutOfSample) : trades;
+    if (scope !== "all") out = out.filter((t) => t.isOutOfSample === (scope === "out"));
+    if (reason !== "all") out = out.filter((t) => t.exitReason === reason);
+
+    const dir = desc ? -1 : 1;
+    return [...out].sort((a, b) => {
+      const x = a[sortKey];
+      const y = b[sortKey];
+      return x === y ? 0 : (x < y ? -1 : 1) * dir;
+    });
+  }, [trades, maskOos, scope, reason, sortKey, desc]);
+
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const shown = rows.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  const sortBy = (key: SortKey) => {
+    if (key === sortKey) setDesc((v) => !v);
+    else {
+      setSortKey(key);
+      setDesc(true);
+    }
+    setPage(1);
+  };
+
+  const exportCsv = () => {
+    const head = [
+      "入场日",
+      "标的",
+      "信号",
+      "入场价",
+      "出场日",
+      "出场价",
+      "持仓根数",
+      "收益%",
+      "R倍数",
+      "1R%",
+      "离场原因",
+      "窗口",
+    ];
+    const body = rows.map((t) =>
+      [
+        t.entryDate,
+        t.symbol,
+        t.sigType === 1 ? "一买" : "二买",
+        t.entryPrice.toFixed(4),
+        t.exitDate,
+        t.exitPrice.toFixed(4),
+        t.barsHeld,
+        t.pnlPct.toFixed(4),
+        t.r.toFixed(4),
+        t.riskPct.toFixed(4),
+        EXIT_LABEL[t.exitReason],
+        t.isOutOfSample ? "保留区" : "训练区",
+      ].join(","),
+    );
+
+    // \ufeff 是 BOM：没有它 Excel 会把 UTF-8 中文读成乱码
+    const url = URL.createObjectURL(
+      new Blob([`\ufeff${[head.join(","), ...body].join("\n")}`], {
+        type: "text/csv;charset=utf-8",
+      }),
+    );
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `trades-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const wins = rows.filter((t) => t.pnlPct > 0).length;
+
+  return (
+    <Card
+      title={
+        <Stack gap={2}>
+          <Text size="sm" fw={700} c="gray.1">
+            成交明细
+          </Text>
+          <Text size="xs" c="dimmed">
+            {rows.length} 笔
+            {rows.length > 0
+              ? ` · 胜 ${wins} 负 ${rows.length - wins} · 均值 ${pct(
+                  rows.reduce((a, t) => a + t.pnlPct, 0) / rows.length,
+                )}`
+              : ""}
+            {maskOos ? " · 保留区已剔除" : ""}
+          </Text>
+        </Stack>
+      }
+      action={
+        <Button
+          size="compact-xs"
+          variant="default"
+          leftSection={<Download className="h-3 w-3" />}
+          onClick={exportCsv}
+          disabled={rows.length === 0}
+        >
+          导出 CSV
+        </Button>
+      }
+    >
+      <Group gap="sm" mb="sm">
+        <SegmentedControl
+          size="xs"
+          value={maskOos ? "in" : scope}
+          disabled={maskOos}
+          onChange={(v) => {
+            setScope(v as typeof scope);
+            setPage(1);
+          }}
+          data={[
+            { label: "全部", value: "all" },
+            { label: "训练区", value: "in" },
+            { label: "保留区", value: "out" },
+          ]}
+        />
+        <SegmentedControl
+          size="xs"
+          value={reason}
+          onChange={(v) => {
+            setReason(v as typeof reason);
+            setPage(1);
+          }}
+          data={[
+            { label: "全部离场", value: "all" },
+            { label: "止损", value: "stop" },
+            { label: "止盈", value: "target" },
+            { label: "转弱", value: "rsWeak" },
+          ]}
+        />
+      </Group>
+
+      <div className="overflow-x-auto">
+        <Table verticalSpacing={5} fz="xs" highlightOnHover striped stripedColor="#18181b">
+          <Table.Thead>
+            <Table.Tr>
+              <SortTh label="入场日" k="entryDate" active={sortKey} desc={desc} onSort={sortBy} />
+              <Table.Th>标的</Table.Th>
+              <Table.Th>信号</Table.Th>
+              <Table.Th ta="right">入场价</Table.Th>
+              <Table.Th>出场日</Table.Th>
+              <Table.Th ta="right">出场价</Table.Th>
+              <SortTh
+                label="持仓"
+                k="barsHeld"
+                active={sortKey}
+                desc={desc}
+                onSort={sortBy}
+                right
+              />
+              <SortTh label="收益" k="pnlPct" active={sortKey} desc={desc} onSort={sortBy} right />
+              <SortTh label="R" k="r" active={sortKey} desc={desc} onSort={sortBy} right />
+              <Table.Th ta="right">1R</Table.Th>
+              <Table.Th>离场</Table.Th>
+            </Table.Tr>
+          </Table.Thead>
+          <Table.Tbody>
+            {shown.map((t) => (
+              <Table.Tr key={`${t.symbol}-${t.entryDate}-${t.exitDate}`}>
+                <Table.Td ff="monospace" c="gray.4">
+                  {t.entryDate}
+                </Table.Td>
+                <Table.Td ff="monospace" fw={600} c="gray.1">
+                  {t.symbol}
+                </Table.Td>
+                <Table.Td>
+                  <Badge size="xs" variant="light" color={t.sigType === 1 ? "blue" : "grape"}>
+                    {t.sigType === 1 ? "一买" : "二买"}
+                  </Badge>
+                </Table.Td>
+                <Table.Td ta="right" ff="monospace" c="gray.3">
+                  {t.entryPrice.toFixed(2)}
+                </Table.Td>
+                <Table.Td ff="monospace" c="gray.5">
+                  {t.exitDate}
+                </Table.Td>
+                <Table.Td ta="right" ff="monospace" c="gray.3">
+                  {t.exitPrice.toFixed(2)}
+                </Table.Td>
+                <Table.Td ta="right" ff="monospace" c="dimmed">
+                  {t.barsHeld}
+                </Table.Td>
+                <Table.Td ta="right" ff="monospace" style={{ color: tone(t.pnlPct) }}>
+                  {pct(t.pnlPct)}
+                </Table.Td>
+                <Table.Td ta="right" ff="monospace" style={{ color: tone(t.r) }}>
+                  {t.r >= 0 ? "+" : ""}
+                  {t.r.toFixed(2)}
+                </Table.Td>
+                <Table.Td ta="right" ff="monospace" c="dimmed">
+                  {t.riskPct.toFixed(1)}%
+                </Table.Td>
+                <Table.Td>
+                  <Badge size="xs" variant="light" color={EXIT_COLOR[t.exitReason]}>
+                    {EXIT_LABEL[t.exitReason]}
+                  </Badge>
+                </Table.Td>
+              </Table.Tr>
+            ))}
+          </Table.Tbody>
+        </Table>
+      </div>
+
+      {rows.length === 0 ? (
+        <Text size="xs" c="dimmed" ta="center" py="lg">
+          当前筛选下没有成交
+        </Text>
+      ) : null}
+
+      {totalPages > 1 ? (
+        <Group justify="space-between" mt="sm">
+          <Text size="xs" c="dimmed" ff="monospace">
+            {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, rows.length)} /{" "}
+            {rows.length}
+          </Text>
+          <Pagination
+            size="xs"
+            color="gray"
+            value={safePage}
+            onChange={setPage}
+            total={totalPages}
+            siblings={1}
+          />
+        </Group>
+      ) : null}
+
+      <Text size="xs" c="dimmed" mt="sm">
+        入场价与出场价均为当根收盘价——信号在收盘后才确认，用当根开盘或最高价成交是穿越。
+        「1R」是开仓时止损距离占开仓价的比例，收益除以它就是 R 倍数；导出的 CSV
+        保留四位小数，页面上做了取整。
+      </Text>
+    </Card>
+  );
+}
+
+function SortTh({
+  label,
+  k,
+  active,
+  desc,
+  onSort,
+  right,
+}: {
+  label: string;
+  k: SortKey;
+  active: SortKey;
+  desc: boolean;
+  onSort: (k: SortKey) => void;
+  right?: boolean;
+}) {
+  const on = active === k;
+  return (
+    <Table.Th ta={right ? "right" : undefined}>
+      <button
+        type="button"
+        onClick={() => onSort(k)}
+        className={`inline-flex items-center gap-1 hover:text-zinc-200 ${on ? "text-zinc-200" : ""}`}
+      >
+        {label}
+        {on ? (
+          desc ? (
+            <ArrowDown className="h-3 w-3" />
+          ) : (
+            <ArrowUp className="h-3 w-3" />
+          )
+        ) : (
+          <ArrowUpDown className="h-3 w-3 opacity-30" />
+        )}
+      </button>
+    </Table.Th>
   );
 }
 

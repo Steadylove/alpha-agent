@@ -5,7 +5,10 @@ import { fetchYahooDailyBars } from "@/lib/data-sources/yahoo";
 import { getPrisma } from "@/lib/db/prisma";
 
 /**
- * 回填标普池的回测面板。
+ * 回填回测面板，覆盖 IndexMembership 里**所有**已导入指数的成分（SP500 + NDX100）。
+ *
+ * 面板按 ticker 存、不分指数：价格数据与指数归属无关，两个指数重叠的标的
+ * （AAPL、MSFT 之类）只需一份。指数归属留在 IndexMembership 里按 index 列区分。
  *
  * 只抓成分资格与回测窗口有交集的 ticker：在 2006 年前就已离开指数的标的
  * 对 20 年窗口没有影响，抓了也用不上。
@@ -24,7 +27,29 @@ const EXTRA_TICKERS = ["SPY"];
 /** 对数 MACD 的 EMA90 与 RS 的 252 根回看，短于此的样本信号不可信。 */
 const MIN_BARS = 400;
 
-type Outcome = { ticker: string; ok: boolean; bars: number; reason?: string };
+type Outcome = {
+  ticker: string;
+  ok: boolean;
+  bars: number;
+  reason?: string;
+  /** 首末日之间缺失的交易日数，按周一至周五粗算 */
+  gaps?: number;
+};
+
+/**
+ * 粗算首末日之间缺了多少个交易日。
+ *
+ * 用工作日数当基准而非真实交易日历：这里只要一个「有没有洞」的量级信号，
+ * 每年 9~10 个法定休市日会让所有标的都显示约 190 天的虚假缺口，
+ * 因此阈值取得足够高，只报真正异常的。
+ */
+function countGaps(dates: readonly string[]): number {
+  const first = Date.parse(`${dates[0]}T00:00:00Z`);
+  const last = Date.parse(`${dates[dates.length - 1]}T00:00:00Z`);
+  const days = Math.round((last - first) / 86_400_000) + 1;
+  const weekdays = Math.round((days / 7) * 5);
+  return Math.max(0, weekdays - dates.length);
+}
 
 async function loadTargets(): Promise<string[]> {
   const prisma = getPrisma();
@@ -62,6 +87,7 @@ async function backfillOne(ticker: string): Promise<Outcome> {
     high: packed.high,
     low: packed.low,
     close: packed.close,
+    volume: packed.volume,
   };
 
   await prisma.backtestPanel.upsert({
@@ -69,25 +95,57 @@ async function backfillOne(ticker: string): Promise<Outcome> {
     update: data,
     create: { ticker, ...data },
   });
-  await prisma.indexMembership.updateMany({
-    where: { ticker },
-    data: { hasBars: true, barCount: packed.barCount },
+  return {
+    ticker,
+    ok: true,
+    bars: packed.barCount,
+    gaps: countGaps(bars.map((b) => b.date)),
+  };
+}
+
+/**
+ * 按面板表回刷 IndexMembership 的 hasBars / barCount。
+ *
+ * hasBars 必须是从面板**推导**出来的，不能当作抓取的副作用来写：面板按
+ * ticker 存、成分段按 (index, ticker) 存，本轮被跳过的 ticker（面板已齐备）
+ * 不会触发抓取，若只在抓取时回写，新导入指数的成分段会永远停在 false。
+ * NDX100 刚导入时 102 个现役成分只认出 50 段，就是这个原因。
+ */
+async function reconcileHasBars(): Promise<void> {
+  const prisma = getPrisma();
+  const panels = await prisma.backtestPanel.findMany({
+    select: { ticker: true, barCount: true },
   });
 
-  return { ticker, ok: true, bars: packed.barCount };
+  const byCount = new Map<number, string[]>();
+  for (const p of panels) {
+    byCount.set(p.barCount, [...(byCount.get(p.barCount) ?? []), p.ticker]);
+  }
+
+  for (const [barCount, tickers] of byCount) {
+    await prisma.indexMembership.updateMany({
+      where: { ticker: { in: tickers } },
+      data: { hasBars: true, barCount },
+    });
+  }
+
+  await prisma.indexMembership.updateMany({
+    where: { ticker: { notIn: panels.map((p) => p.ticker) } },
+    data: { hasBars: false, barCount: null },
+  });
 }
 
 async function main() {
   const prisma = getPrisma();
   const targets = await loadTargets();
-  const existing = new Set(
-    (await prisma.backtestPanel.findMany({ select: { ticker: true } })).map((r) => r.ticker),
-  );
-  const todo = targets.filter((t) => !existing.has(t));
+  const rows = await prisma.backtestPanel.findMany({ select: { ticker: true, volume: true } });
+  // 只有价量都齐的才算完成：加 volume 列之前落库的行 volume 为 null，需要重抓
+  const complete = new Set(rows.filter((r) => r.volume != null).map((r) => r.ticker));
+  const todo = targets.filter((t) => !complete.has(t));
 
   console.log(
     `成分资格与近 ${HISTORY_YEARS} 年有交集: ${targets.length} 个 ticker\n` +
-      `已有面板 ${existing.size} 个，本次需抓 ${todo.length} 个\n`,
+      `已有面板 ${rows.length} 个，其中价量齐备 ${complete.size} 个，本次需抓 ${todo.length} 个\n`,
   );
 
   const results: Outcome[] = [];
@@ -111,6 +169,19 @@ async function main() {
   console.log(`\n\n成功 ${ok.length}  失败 ${failed.length}`);
   console.log(`落库 ${ok.reduce((s, r) => s + r.bars, 0)} 根日线`);
 
+  // 每年约 9~10 个法定休市日，20 年窗口的正常缺口在 190~200 天量级；
+  // 明显超出的说明该标的成交稀疏或数据有洞，回看窗口会被拉长。
+  const holey = ok
+    .filter((r) => (r.gaps ?? 0) > 260)
+    .sort((a, b) => (b.gaps ?? 0) - (a.gaps ?? 0));
+  if (holey.length > 0) {
+    console.log(
+      `\n交易日缺口偏多（成交稀疏或数据有洞，回看窗口会被拉长）共 ${holey.length} 个:`,
+    );
+    console.log(`  ${holey.slice(0, 15).map((r) => `${r.ticker}(${r.gaps})`).join("  ")}`);
+    console.log(`  注：不做插值填充——凭空造出的走平 K 线会直接污染 ATR 与 MACD。`);
+  }
+
   if (failed.length > 0) {
     const byReason = new Map<string, string[]>();
     for (const f of failed) {
@@ -124,12 +195,21 @@ async function main() {
     }
   }
 
-  const withBars = await prisma.indexMembership.count({ where: { hasBars: true } });
-  const total = await prisma.indexMembership.count();
-  console.log(
-    `\n成分区间覆盖率: ${withBars}/${total} 段有价格 ` +
-      `(${((withBars / total) * 100).toFixed(0)}%)`,
-  );
+  await reconcileHasBars();
+
+  const byIndex = await prisma.indexMembership.groupBy({
+    by: ["index", "hasBars"],
+    _count: true,
+  });
+  console.log("\n成分区间覆盖率（按指数）:");
+  for (const idx of [...new Set(byIndex.map((r) => r.index))].sort()) {
+    const rows = byIndex.filter((r) => r.index === idx);
+    const withBars = rows.find((r) => r.hasBars)?._count ?? 0;
+    const total = rows.reduce((s, r) => s + r._count, 0);
+    console.log(
+      `  ${idx.padEnd(7)} ${withBars}/${total} 段有价格 (${((withBars / total) * 100).toFixed(0)}%)`,
+    );
+  }
 
   await prisma.$disconnect();
 }

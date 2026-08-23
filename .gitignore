@@ -39,3 +39,6 @@ yarn-debug.log*
 yarn-error.log*
 
 tmp/
+
+# 历史面板的本地落盘缓存，可由数据库重建
+.cache/

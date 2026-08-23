@@ -6,7 +6,12 @@ import {
   type BacktestConfig,
   type PreparedUniverse,
 } from "@/lib/backtest/engine";
-import { loadPreparedUniverse } from "@/lib/backtest/load";
+import {
+  DEFAULT_INDEX,
+  INDEXES,
+  loadPreparedUniverse,
+  type IndexKey,
+} from "@/lib/backtest/load";
 import { getPrisma } from "@/lib/db/prisma";
 
 import { parseArgs } from "./backtest-args";
@@ -39,12 +44,22 @@ type Row = {
   recentBenchMaxDd: number;
 };
 
+/**
+ * 网格。取值不是随手定的，两处刻意调整过：
+ *
+ * - `rpsMin` 在 20~40 之间加密。逐轴细扫显示这一段是「两窗口同时为正」的平台，
+ *   原来的 0/30/50 会把整个平台跳过去，只留下平台中心一个点
+ * - `trailMult` 下探到 2。原来从 3 起步，而 2~2.5 才是较优区间，
+ *   也就是最优值根本不在网格里
+ * - `takeProfitR` 反而收窄。逐轴细扫显示这条轴基本是平的
+ *   （从不设止盈到 6R，超额都在 +4.7%~+7.3% 之间），不值得为它扩大网格
+ */
 function buildGrid(splitDate: string): BacktestConfig[] {
   const out: BacktestConfig[] = [];
-  for (const rpsMin of [0, 30, 50, 65, 80]) {
-    for (const stopMult of [2, 3, 4, 5, 6]) {
-      for (const trailMult of [3, 4.5, 6, 8]) {
-        for (const takeProfitR of [null, 2, 3, 5]) {
+  for (const rpsMin of [0, 20, 25, 30, 35, 40, 50]) {
+    for (const stopMult of [2, 3, 4, 6]) {
+      for (const trailMult of [2, 2.5, 3, 4, 6]) {
+        for (const takeProfitR of [null, 2, 3]) {
           for (const [useBuy1, useBuy2] of [
             [true, true],
             [true, false],
@@ -152,7 +167,15 @@ function stability(universe: PreparedUniverse, base: BacktestConfig) {
 }
 
 async function main() {
-  const universe = await loadPreparedUniverse();
+  const raw = (
+    process.argv.find((a) => a.startsWith("--index="))?.split("=")[1] ?? DEFAULT_INDEX
+  ).toUpperCase();
+  if (!(raw in INDEXES)) {
+    throw new Error(`未知标的池 ${raw}，可用: ${Object.keys(INDEXES).join(", ")}`);
+  }
+  const index = raw as IndexKey;
+  const universe = await loadPreparedUniverse(index);
+  console.log(`\n标的池 ${INDEXES[index].label} (${index})   池内 ${universe.symbols.length} 只`);
 
   // 最近五年的起点，按日期轴上的实际交易日对齐
   const fiveYearsAgo = new Date(Date.now() - 5 * 365.25 * 24 * 60 * 60 * 1000)

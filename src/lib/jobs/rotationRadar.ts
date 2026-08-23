@@ -87,30 +87,6 @@ async function loadBars(): Promise<{ loaded: Loaded[]; skipped: string[] }> {
 
 const toDate = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
 
-/** 截面 RS 的基准，只在 `COMMERCIAL_SPEC.percentileRs` 打开时才需要加载。 */
-const BENCHMARK_SYMBOL = "SPY";
-
-async function loadBenchmark(): Promise<{ dates: string[]; closes: number[] }> {
-  const prisma = getPrisma();
-  const instrument = await prisma.instrument.findUnique({
-    where: { symbol: BENCHMARK_SYMBOL },
-    select: { id: true },
-  });
-  if (!instrument) {
-    throw new Error(`截面 RS 需要基准 ${BENCHMARK_SYMBOL}，请先执行 npm run backfill:rotation`);
-  }
-  const bars = await prisma.dailyBar.findMany({
-    where: { instrumentId: instrument.id },
-    orderBy: { date: "asc" },
-    select: { date: true, close: true },
-  });
-  return {
-    dates: bars.map((b) => b.date.toISOString().slice(0, 10)),
-    closes: bars.map((b) => b.close),
-  };
-}
-
-
 export async function runRotationRadarJob(): Promise<RotationRadarJobResult> {
   const prisma = getPrisma();
   const startedAt = new Date();
@@ -157,7 +133,6 @@ export async function runRotationRadarJob(): Promise<RotationRadarJobResult> {
             dates: l.bars.map((b) => b.date),
             closes: l.bars.map((b) => b.close),
           })),
-          await loadBenchmark(),
         )
       : null;
     const earlyBreakevenDates = COMMERCIAL_SPEC.earlyBreakeven

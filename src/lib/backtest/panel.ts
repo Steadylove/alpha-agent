@@ -13,6 +13,13 @@ export type PanelBars = {
   high: Float32Array;
   low: Float32Array;
   close: Float32Array;
+  /**
+   * 成交股数。Float32 的相对精度约 1e-7，一亿股的误差在十股量级，
+   * 用于成交额门槛比较完全够。
+   *
+   * 为 null 表示该标的是加 volume 列之前回填的，尚未补齐。
+   */
+  volume: Float32Array | null;
 };
 
 const MS_PER_DAY = 86_400_000;
@@ -25,6 +32,7 @@ export type PackedPanel = {
   high: Uint8Array<ArrayBuffer>;
   low: Uint8Array<ArrayBuffer>;
   close: Uint8Array<ArrayBuffer>;
+  volume: Uint8Array<ArrayBuffer>;
   barCount: number;
   firstDate: Date;
   lastDate: Date;
@@ -37,7 +45,13 @@ const allocBytes = (n: number) => {
 };
 
 export function packPanel(
-  bars: readonly { date: string; high: number; low: number; close: number }[],
+  bars: readonly {
+    date: string;
+    high: number;
+    low: number;
+    close: number;
+    volume: number;
+  }[],
 ): PackedPanel {
   const n = bars.length;
   if (n === 0) throw new Error("packPanel: 空序列");
@@ -46,12 +60,14 @@ export function packPanel(
   const high = allocBytes(n);
   const low = allocBytes(n);
   const close = allocBytes(n);
+  const volume = allocBytes(n);
 
   for (let i = 0; i < n; i += 1) {
     days.view.setInt32(i * 4, dayNumber(bars[i].date), true);
     high.view.setFloat32(i * 4, bars[i].high, true);
     low.view.setFloat32(i * 4, bars[i].low, true);
     close.view.setFloat32(i * 4, bars[i].close, true);
+    volume.view.setFloat32(i * 4, bars[i].volume, true);
   }
 
   return {
@@ -59,6 +75,7 @@ export function packPanel(
     high: high.bytes,
     low: low.bytes,
     close: close.bytes,
+    volume: volume.bytes,
     barCount: n,
     firstDate: new Date(`${bars[0].date}T00:00:00.000Z`),
     lastDate: new Date(`${bars[n - 1].date}T00:00:00.000Z`),
@@ -79,6 +96,7 @@ export function unpackPanel(row: {
   high: Uint8Array;
   low: Uint8Array;
   close: Uint8Array;
+  volume?: Uint8Array | null;
 }): PanelBars {
   const view = new DataView(row.days.buffer, row.days.byteOffset, row.days.byteLength);
   const n = row.days.byteLength / 4;
@@ -91,5 +109,6 @@ export function unpackPanel(row: {
     high: toFloat32(row.high),
     low: toFloat32(row.low),
     close: toFloat32(row.close),
+    volume: row.volume ? toFloat32(row.volume) : null,
   };
 }

@@ -44,6 +44,18 @@ export type PreparedSymbol = {
   /** 截面分位，仅当日成分参与排名；非成分日为 0 */
   rps: Float32Array;
   isMember: Uint8Array;
+  /**
+   * 过去 50 个交易日的日均成交额（美元）。预热不足或该标的没有成交量数据时为 0，
+   * 因此闸门开启时会被排除——这是有意的，无量数据不该悄悄放行。
+   */
+  adtv50: Float32Array;
+  /**
+   * 收盘价站上 MA200 **或** MA850。
+   *
+   * 用「或」而非「且」是照抄规格，且这个选择有道理：站上 850 日线却跌破 200 日线，
+   * 正是长期牛股回踩中继的形态——恰好是抄底信号想要的场景。两条均线都未预热时为 0。
+   */
+  aboveTrend: Uint8Array;
 };
 
 export type PreparedUniverse = {
@@ -84,25 +96,24 @@ export function percentileRanksFast(scores: ArrayLike<number>): Float64Array {
 }
 
 /**
- * 4Q-Alpha 原始超额分。
+ * 四周期加权的原始强度分，与 `percentileRs.alphaScoreAt` 同一公式，
+ * 只是这里吃 `ArrayLike` 以便直接用 Float32Array，避免逐日建数组。
  *
- * 与 `percentileRs.alphaScoreAt` 的区别是标的与基准各用自己的下标：那个函数
- * 要求调用方先把两条序列按日期对齐，`percentileRsBySymbol` 却没有对齐就调用
- * （已算出基准下标 bi 但传了标的下标），这里避开该前提。
+ * 四段回看任一落空即返回 NaN，表示该标的当日不可排名。
+ *
+ * 为什么落空要返回 NaN 而不是按「走平」计入：那等于断言「这只股票在它上市前
+ * 走平」，池内 156 只起始日晚于轴起点的标的（ABBV、ALLE 这类分拆）在入池头
+ * 一年会拿到失真的分数。
+ *
+ * 也不用「按剩余权重归一化」：那样一只刚上市 22 天的标的会拿 21 日动量冒充
+ * 四周期复合分，而新上市标的初期常有暴涨，反而会被系统性推高。
  */
-function alphaScore(
-  closes: ArrayLike<number>,
-  at: number,
-  bench: ArrayLike<number>,
-  benchAt: number,
-): number {
+function alphaScore(closes: ArrayLike<number>, at: number): number {
   let total = 0;
   for (const { lookback, weight } of PERCENTILE_RS_TERMS) {
     const base = closes[at - lookback];
-    const benchBase = bench[benchAt - lookback];
-    const perf = base == null || base === 0 ? 1 : closes[at] / base;
-    const benchPerf = benchBase == null || benchBase === 0 ? 1 : bench[benchAt] / benchBase;
-    total += weight * (benchPerf === 0 ? 100 : (perf / benchPerf) * 100);
+    if (base == null || base === 0) return NaN;
+    total += weight * (closes[at] / base) * 100;
   }
   return total;
 }
@@ -110,20 +121,32 @@ function alphaScore(
 const inSpan = (date: string, spans: readonly MembershipSpan[]) =>
   spans.some((s) => date >= s.start && (s.end == null || date <= s.end));
 
+/**
+ * 滚动均值，窗口不足时填 0。用累加和而非每点重算：850 日窗口 × 5000 根 × 653 只
+ * 若逐点求和是万亿级操作。
+ */
+function rollingMean(values: ArrayLike<number>, window: number): Float32Array<ArrayBuffer> {
+  const n = values.length;
+  const out = new Float32Array(n);
+  let sum = 0;
+  for (let i = 0; i < n; i += 1) {
+    sum += values[i];
+    if (i >= window) sum -= values[i - window];
+    if (i >= window - 1) out[i] = sum / window;
+  }
+  return out;
+}
+
+const ADTV_WINDOW = 50;
+const TREND_FAST = 200;
+const TREND_SLOW = 850;
+
 export function prepareUniverse(
   panels: readonly PanelBars[],
-  benchmark: PanelBars,
   membership: ReadonlyMap<string, readonly MembershipSpan[]>,
 ): PreparedUniverse {
   const axis = [...new Set(panels.flatMap((p) => p.dates))].sort();
   const axisPos = new Map(axis.map((d, i) => [d, i]));
-
-  /** 全局轴下标 -> 基准序列的本地下标；-1 表示基准当日无数据 */
-  const benchAt = new Int32Array(axis.length).fill(-1);
-  benchmark.dates.forEach((d, i) => {
-    const pos = axisPos.get(d);
-    if (pos != null) benchAt[pos] = i;
-  });
 
   const symbols: PreparedSymbol[] = panels.map((panel) => {
     const n = panel.dates.length;
@@ -152,6 +175,24 @@ export function prepareUniverse(
       isMember[i] = inSpan(panel.dates[i], spans) ? 1 : 0;
     }
 
+    // 成交额用收盘价 × 股数。价格是拆股调整后的，股数是原始的，
+    // 两者相乘在拆股日附近会有偏差，但对 50 日均值的量级判断无影响。
+    let adtv50 = new Float32Array(n);
+    if (panel.volume) {
+      const dollar = new Float64Array(n);
+      for (let i = 0; i < n; i += 1) dollar[i] = panel.close[i] * panel.volume[i];
+      adtv50 = rollingMean(dollar, ADTV_WINDOW);
+    }
+
+    const maFast = rollingMean(panel.close, TREND_FAST);
+    const maSlow = rollingMean(panel.close, TREND_SLOW);
+    const aboveTrend = new Uint8Array(n);
+    for (let i = 0; i < n; i += 1) {
+      const c = panel.close[i];
+      aboveTrend[i] =
+        (maFast[i] > 0 && c > maFast[i]) || (maSlow[i] > 0 && c > maSlow[i]) ? 1 : 0;
+    }
+
     return {
       ticker: panel.ticker,
       axisIndex,
@@ -162,6 +203,8 @@ export function prepareUniverse(
       buy2,
       rps: new Float32Array(n),
       isMember,
+      adtv50,
+      aboveTrend,
     };
   });
 
@@ -173,7 +216,6 @@ export function prepareUniverse(
   const slotLocal = new Int32Array(symbols.length);
 
   for (let d = 0; d < axis.length; d += 1) {
-    const bi = benchAt[d];
     let m = 0;
 
     for (let s = 0; s < symbols.length; s += 1) {
@@ -182,10 +224,15 @@ export function prepareUniverse(
       if (c >= sym.axisIndex.length || sym.axisIndex[c] !== d) continue;
       cursor[s] = c + 1;
 
-      if (bi < 0 || sym.isMember[c] === 0) continue;
+      if (sym.isMember[c] === 0) continue;
+
+      // 回看未齐的标的不进当日截面：rps 保持 0，入场闸门据此排除
+      const score = alphaScore(sym.close, c);
+      if (Number.isNaN(score)) continue;
+
       slotSym[m] = s;
       slotLocal[m] = c;
-      scores[m] = alphaScore(sym.close, c, benchmark.close, bi);
+      scores[m] = score;
       m += 1;
     }
 
@@ -218,6 +265,21 @@ export type BacktestConfig = {
   takeProfitR: number | null;
   useBuy1: boolean;
   useBuy2: boolean;
+
+  /**
+   * 以下三项对应「全市场流动性初筛」规格的第一阶段，只作用于**入场资格**，
+   * 不改变基准——基准始终是完整时点成分池的等权买入持有，
+   * 否则基准会跟着策略口径变，超额就不可比了。
+   *
+   * 规格里还有一条「总市值 >= 20 亿」没实现：面板只存价量，没有历史股本，
+   * 而标普成分股极少跌破 20 亿，这条在本池内近乎空转。见 spec-conformance.md。
+   */
+  /** 50 日日均成交额下限（美元）。0 表示不筛。 */
+  minAdtvUsd: number;
+  /** 最低收盘价。0 表示不筛。 */
+  minPrice: number;
+  /** 要求收盘价站上 MA200 或 MA850。 */
+  requireTrend: boolean;
 };
 
 export const DEFAULT_BACKTEST_CONFIG: BacktestConfig = {
@@ -246,9 +308,17 @@ export const DEFAULT_BACKTEST_CONFIG: BacktestConfig = {
   rpsExit: null,
   stopMult: 3.5,
   trailMult: 2.5,
-  takeProfitR: 2.5,
+  // 2.5 → 3。止盈的实际距离是 stopMult × takeProfitR × ATR，此处即 10.5 ATR。
+  // 在「吊灯 2/2.5 × RPS 25/30」四个组合上，较小窗口超额都随距离从 6 ATR
+  // 单调升到 10~11 ATR 再回落，方向一致而非单格取优，所以调的是这一项。
+  takeProfitR: 3,
   useBuy1: true,
   useBuy2: false,
+
+  // 第一阶段初筛默认关闭：先让它可被度量，再决定要不要开。
+  minAdtvUsd: 0,
+  minPrice: 0,
+  requireTrend: false,
 };
 
 export type TradeStats = {
@@ -301,6 +371,8 @@ export type BacktestResult = {
   equity: EquityPoint[];
   universeSize: number;
   signalCount: number;
+  /** 全部平仓交易，按入场日升序 */
+  trades: ClosedTrade[];
 };
 
 function tradeStats(trades: readonly ClosedTrade[]): TradeStats {
@@ -419,15 +491,30 @@ export function runBacktest(universe: PreparedUniverse, config: BacktestConfig):
         close: sym.close[i],
       };
 
-      // 信号掩码：窗口内 + 当日为成分 + 截面 RPS 达标 + 该信号类型启用
+      // 信号掩码：窗口内 + 当日为成分 + 流动性/趋势初筛 + 截面 RPS 达标 + 该信号类型启用
       const d = sym.axisIndex[i];
-      const eligible = d >= lo && d < hi && sym.isMember[i] === 1 && sym.rps[i] >= config.rpsMin;
+      const liquid =
+        (config.minAdtvUsd <= 0 || sym.adtv50[i] >= config.minAdtvUsd) &&
+        (config.minPrice <= 0 || sym.close[i] >= config.minPrice) &&
+        (!config.requireTrend || sym.aboveTrend[i] === 1);
+      // rps 为 0 表示当日未进入截面（回看未齐），此时不可入场：
+      // 分位下界被夹到 1，所以「已排名」等价于 rps >= 1。
+      // 不能只写 rps >= rpsMin —— rpsMin 为 0 时会把未排名的也放进来。
+      const ranked = sym.rps[i] >= 1;
+      const eligible =
+        d >= lo &&
+        d < hi &&
+        sym.isMember[i] === 1 &&
+        ranked &&
+        liquid &&
+        sym.rps[i] >= config.rpsMin;
       buy1[i] = eligible && config.useBuy1 && sym.buy1[i] === 1;
       buy2[i] = eligible && config.useBuy2 && sym.buy2[i] === 1;
       if (buy1[i] || buy2[i]) signalCount += 1;
 
-      // 非成分日填 100：见 BacktestConfig.rpsExit 的注释
-      rs[i] = sym.isMember[i] === 1 ? sym.rps[i] : 100;
+      // 非成分日、以及回看未齐（rps=0）的日子都填 100：见 BacktestConfig.rpsExit 的注释。
+      // 未排名填 0 会让转弱离场在预热期无条件触发，测出来的就不是这个参数了。
+      rs[i] = sym.isMember[i] === 1 && sym.rps[i] >= 1 ? sym.rps[i] : 100;
     }
 
     // 入场闸门已由上面的 RPS 掩码承担，故 minRs 置 0；rs 只用于转弱离场
@@ -514,6 +601,9 @@ export function runBacktest(universe: PreparedUniverse, config: BacktestConfig):
     equity[i] = { date: win[i], strategy: se, benchmark: be };
   }
 
+  // 逐笔按标的分组产出，明细表要按时间读，这里排一次
+  allTrades.sort((a, b) => (a.entryDate < b.entryDate ? -1 : a.entryDate > b.entryDate ? 1 : 0));
+
   return {
     inSample: buildWindow("训练区", 0, cut),
     outOfSample: buildWindow("保留区", cut, w),
@@ -521,5 +611,6 @@ export function runBacktest(universe: PreparedUniverse, config: BacktestConfig):
     equity,
     universeSize: activeSymbols,
     signalCount,
+    trades: allTrades,
   };
 }
