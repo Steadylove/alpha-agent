@@ -40,7 +40,10 @@ export type RotationRadarJobResult = {
   tradeRowsWritten: number;
 };
 
-type Loaded = { symbol: string; bars: TradeBar[] };
+/** 带开盘价的 K 线：交易模拟只要 TradeBar，顶背离额外要实体上沿。 */
+type SignalBar = TradeBar & { open: number };
+
+type Loaded = { symbol: string; bars: SignalBar[] };
 
 async function loadBars(): Promise<{ loaded: Loaded[]; skipped: string[] }> {
   const prisma = getPrisma();
@@ -53,10 +56,10 @@ async function loadBars(): Promise<{ loaded: Loaded[]; skipped: string[] }> {
   const bars = await prisma.dailyBar.findMany({
     where: { instrumentId: { in: instruments.map((i) => i.id) } },
     orderBy: { date: "asc" },
-    select: { instrumentId: true, date: true, high: true, low: true, close: true },
+    select: { instrumentId: true, date: true, open: true, high: true, low: true, close: true },
   });
 
-  const bySymbol = new Map<string, TradeBar[]>();
+  const bySymbol = new Map<string, SignalBar[]>();
   const symbolById = new Map(instruments.map((i) => [i.id, i.symbol]));
   for (const bar of bars) {
     const symbol = symbolById.get(bar.instrumentId);
@@ -64,6 +67,7 @@ async function loadBars(): Promise<{ loaded: Loaded[]; skipped: string[] }> {
     const list = bySymbol.get(symbol) ?? [];
     list.push({
       date: bar.date.toISOString().slice(0, 10),
+      open: bar.open,
       high: bar.high,
       low: bar.low,
       close: bar.close,

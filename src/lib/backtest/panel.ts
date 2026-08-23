@@ -20,6 +20,12 @@ export type PanelBars = {
    * 为 null 表示该标的是加 volume 列之前回填的，尚未补齐。
    */
   volume: Float32Array | null;
+  /**
+   * 开盘价。只被顶背离用到（通达信原式的 `TP_P := MAX(C, O)` 取实体上沿）。
+   *
+   * 为 null 表示该标的是加 open 列之前回填的，此时实体上沿退化为收盘价。
+   */
+  open: Float32Array | null;
 };
 
 const MS_PER_DAY = 86_400_000;
@@ -33,6 +39,7 @@ export type PackedPanel = {
   low: Uint8Array<ArrayBuffer>;
   close: Uint8Array<ArrayBuffer>;
   volume: Uint8Array<ArrayBuffer>;
+  open: Uint8Array<ArrayBuffer>;
   barCount: number;
   firstDate: Date;
   lastDate: Date;
@@ -47,6 +54,7 @@ const allocBytes = (n: number) => {
 export function packPanel(
   bars: readonly {
     date: string;
+    open: number;
     high: number;
     low: number;
     close: number;
@@ -61,6 +69,7 @@ export function packPanel(
   const low = allocBytes(n);
   const close = allocBytes(n);
   const volume = allocBytes(n);
+  const open = allocBytes(n);
 
   for (let i = 0; i < n; i += 1) {
     days.view.setInt32(i * 4, dayNumber(bars[i].date), true);
@@ -68,6 +77,7 @@ export function packPanel(
     low.view.setFloat32(i * 4, bars[i].low, true);
     close.view.setFloat32(i * 4, bars[i].close, true);
     volume.view.setFloat32(i * 4, bars[i].volume, true);
+    open.view.setFloat32(i * 4, bars[i].open, true);
   }
 
   return {
@@ -76,6 +86,7 @@ export function packPanel(
     low: low.bytes,
     close: close.bytes,
     volume: volume.bytes,
+    open: open.bytes,
     barCount: n,
     firstDate: new Date(`${bars[0].date}T00:00:00.000Z`),
     lastDate: new Date(`${bars[n - 1].date}T00:00:00.000Z`),
@@ -97,6 +108,7 @@ export function unpackPanel(row: {
   low: Uint8Array;
   close: Uint8Array;
   volume?: Uint8Array | null;
+  open?: Uint8Array | null;
 }): PanelBars {
   const view = new DataView(row.days.buffer, row.days.byteOffset, row.days.byteLength);
   const n = row.days.byteLength / 4;
@@ -110,5 +122,6 @@ export function unpackPanel(row: {
     low: toFloat32(row.low),
     close: toFloat32(row.close),
     volume: row.volume ? toFloat32(row.volume) : null,
+    open: row.open ? toFloat32(row.open) : null,
   };
 }

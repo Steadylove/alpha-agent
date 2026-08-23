@@ -3,6 +3,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Providers } from "@/app/providers";
+import { DbUnavailableNotice } from "@/components/DbUnavailableNotice";
 import { SiteNav } from "@/components/SiteNav";
 import { Compass } from "lucide-react";
 
@@ -39,6 +40,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                 <SiteNav />
               </div>
             </header>
+            <DbUnavailableNotice />
             <main className="relative mx-auto max-w-6xl px-6 py-10">{children}</main>
           </Providers>
         </div>

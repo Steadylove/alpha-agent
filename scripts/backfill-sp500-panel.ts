@@ -88,6 +88,7 @@ async function backfillOne(ticker: string): Promise<Outcome> {
     low: packed.low,
     close: packed.close,
     volume: packed.volume,
+    open: packed.open,
   };
 
   await prisma.backtestPanel.upsert({
@@ -138,9 +139,13 @@ async function reconcileHasBars(): Promise<void> {
 async function main() {
   const prisma = getPrisma();
   const targets = await loadTargets();
-  const rows = await prisma.backtestPanel.findMany({ select: { ticker: true, volume: true } });
-  // 只有价量都齐的才算完成：加 volume 列之前落库的行 volume 为 null，需要重抓
-  const complete = new Set(rows.filter((r) => r.volume != null).map((r) => r.ticker));
+  const rows = await prisma.backtestPanel.findMany({
+    select: { ticker: true, volume: true, open: true },
+  });
+  // 只有价量与开盘价都齐的才算完成：加这两列之前落库的行为 null，需要重抓
+  const complete = new Set(
+    rows.filter((r) => r.volume != null && r.open != null).map((r) => r.ticker),
+  );
   const todo = targets.filter((t) => !complete.has(t));
 
   console.log(

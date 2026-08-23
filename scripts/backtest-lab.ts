@@ -41,7 +41,7 @@ function printWindow(w: WindowResult) {
   console.log(
     `  组合  净值 ${p.equity.toFixed(2)}x  年化 ${pct(p.cagrPct)}  ` +
       `回撤 -${p.maxDrawdownPct.toFixed(1)}%  波动 ${p.volPct.toFixed(1)}%  ` +
-      `持仓日 ${p.investedDayPct.toFixed(0)}%`,
+      `持仓日 ${p.investedDayPct.toFixed(0)}%  敞口 ${p.avgExposurePct.toFixed(0)}%`,
   );
   console.log(
     `  基准  净值 ${b.equity.toFixed(2)}x  年化 ${pct(b.cagrPct)}  ` +

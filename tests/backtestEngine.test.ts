@@ -48,7 +48,7 @@ describe("截面 RPS 的逐日重算", () => {
       v *= 1 + (i < dates.length / 2 ? firstHalf : secondHalf) / 100;
       close[i] = v;
     }
-    return { ticker, dates, high: close, low: close, close, volume: null };
+    return { ticker, dates, high: close, low: close, close, volume: null, open: null };
   }
 
   const N = 400;
@@ -192,9 +192,9 @@ describe("成分区间推导", () => {
 describe("面板打包", () => {
   it("往返后日期完整、价格精度足够", () => {
     const bars = [
-      { date: "2020-01-02", high: 100.25, low: 99.5, close: 100, volume: 1_234_567 },
-      { date: "2020-01-03", high: 101.75, low: 100.1, close: 101.5, volume: 98_765_432 },
-      { date: "2024-12-31", high: 4321.5, low: 4300.25, close: 4310.75, volume: 0 },
+      { date: "2020-01-02", open: 99.75, high: 100.25, low: 99.5, close: 100, volume: 1_234_567 },
+      { date: "2020-01-03", open: 100.5, high: 101.75, low: 100.1, close: 101.5, volume: 98_765_432 },
+      { date: "2024-12-31", open: 4305.5, high: 4321.5, low: 4300.25, close: 4310.75, volume: 0 },
     ];
     const packed = packPanel(bars);
     const back = unpackPanel({ ticker: "T", ...packed });
@@ -206,6 +206,7 @@ describe("面板打包", () => {
       expect(back.close[i]).toBeCloseTo(b.close, 2);
       expect(back.high[i]).toBeCloseTo(b.high, 2);
       expect(back.low[i]).toBeCloseTo(b.low, 2);
+      expect(back.open![i]).toBeCloseTo(b.open, 2);
     });
     // 成交量按相对误差校验：Float32 存一亿股的绝对误差在十股量级
     bars.forEach((b, i) => {
@@ -213,13 +214,14 @@ describe("面板打包", () => {
     });
   });
 
-  it("volume 缺失时返回 null，不影响价格解包", () => {
+  it("volume 与 open 缺失时返回 null，不影响价格解包", () => {
     const packed = packPanel([
-      { date: "2020-01-02", high: 10, low: 9, close: 9.5, volume: 100 },
+      { date: "2020-01-02", open: 9.2, high: 10, low: 9, close: 9.5, volume: 100 },
     ]);
-    const back = unpackPanel({ ticker: "T", ...packed, volume: null });
+    const back = unpackPanel({ ticker: "T", ...packed, volume: null, open: null });
 
     expect(back.volume).toBeNull();
+    expect(back.open).toBeNull();
     expect(back.close[0]).toBeCloseTo(9.5, 4);
   });
 });

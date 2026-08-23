@@ -16,8 +16,8 @@ import { deserialize, serialize } from "node:v8";
  * 代价是格式不保证跨 Node 大版本稳定，因此读取失败一律当作未命中重新拉取。
  */
 
-/** 缓存结构变化时递增，旧文件会被当作未命中。 */
-const VERSION = 1;
+/** 缓存结构变化时递增，旧文件会被当作未命中。2: 加 open 列（顶背离要实体上沿）。 */
+const VERSION = 2;
 
 /** 与 `prisma.backtestPanel` 的选取列一致。 */
 export type PanelRow = {
@@ -27,6 +27,7 @@ export type PanelRow = {
   low: Uint8Array;
   close: Uint8Array;
   volume: Uint8Array | null;
+  open: Uint8Array | null;
 };
 
 /** 与 `prisma.indexMembership` 的选取列一致，含 `index` 以便本地按池筛选。 */

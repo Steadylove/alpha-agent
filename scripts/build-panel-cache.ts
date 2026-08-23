@@ -98,6 +98,7 @@ async function fetchOne(ticker: string): Promise<Outcome> {
       low: p.low,
       close: p.close,
       volume: p.volume,
+      open: p.open,
     },
   };
 }

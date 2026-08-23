@@ -1,4 +1,4 @@
-import { computeLogMacdSeries, type LogMacdBar } from "@/lib/scoring/logMacd";
+import { computeLogMacdSeries, reduceByMagnitude, type LogMacdBar } from "@/lib/scoring/logMacd";
 import { describe, expect, it } from "vitest";
 
 const toBars = (closes: number[]): LogMacdBar[] =>
@@ -12,6 +12,13 @@ const sawtooth = (n: number, period: number, amplitude: number, drift: number) =
   Array.from(
     { length: n },
     (_, i) => 100 + amplitude * Math.sin((2 * Math.PI * i) / period) + drift * i,
+  );
+
+/** 振幅逐步衰减的上行波：价格一路创新高而波动收窄，即顶背离的典型形态。 */
+const fadingRally = (n: number) =>
+  Array.from(
+    { length: n },
+    (_, i) => 100 + 0.05 * i + 12 * (1 - i / n) * Math.sin((2 * Math.PI * i) / 45),
   );
 
 describe("computeLogMacdSeries", () => {
@@ -98,5 +105,69 @@ describe("computeLogMacdSeries", () => {
     const out = computeLogMacdSeries(toBars(new Array(300).fill(100)));
     expect(out.some((d) => d.buy1 || d.buy2)).toBe(false);
     expect(out.some((d) => d.deathCross)).toBe(false);
+  });
+
+  it("单边上涨不产生顶背离：价格与 DIF 同步创高", () => {
+    const out = computeLogMacdSeries(toBars(ramp(400, 0.3)));
+    expect(out.some((d) => d.divergenceTop)).toBe(false);
+  });
+
+  it("价格创高而动能衰减时识别出顶背离，且只落在 DEA 掉头那根", () => {
+    const out = computeLogMacdSeries(toBars(fadingRally(900)));
+    expect(out.filter((d) => d.divergenceTop).length).toBeGreaterThan(0);
+
+    // TP_DEA_D：DEA 的峰在前一根，即 dea[i] < dea[i-1] 且 dea[i-2] < dea[i-1]
+    for (let i = 0; i < out.length; i += 1) {
+      if (!out[i].divergenceTop) continue;
+      expect(i).toBeGreaterThanOrEqual(2);
+      const [a, b, c] = [out[i - 2].dea, out[i - 1].dea, out[i].dea];
+      expect(a).not.toBeNull();
+      expect(c! < b!).toBe(true);
+      expect(a! < b!).toBe(true);
+    }
+  });
+
+  it("从未出现顶背离时二买被否决（barsSince 为 null 取 false）", () => {
+    // 单边下行里价格从不创高，TOP_D 恒假，TOP_DAYS > DC_D1 无从成立
+    const out = computeLogMacdSeries(toBars(sawtooth(900, 45, 12, -0.03)));
+    expect(out.some((d) => d.divergenceTop)).toBe(false);
+    expect(out.some((d) => d.buy2)).toBe(false);
+  });
+
+  it("实体上沿取 max(收盘, 开盘)：抬高开盘价会改变顶背离的根数", () => {
+    const closes = fadingRally(900);
+    const withoutOpen = computeLogMacdSeries(toBars(closes));
+    // 让每根都成为阴线，实体上沿改由开盘价决定
+    const withOpen = computeLogMacdSeries(
+      closes.map((c) => ({ close: c, high: c * 1.01, low: c * 0.99, open: c * 1.02 })),
+    );
+
+    // DIF/DEA 只由收盘价决定，所以差异必然来自实体上沿这一路
+    expect(withOpen.map((d) => d.dif)).toEqual(withoutOpen.map((d) => d.dif));
+    expect(withoutOpen.filter((d) => d.divergenceTop).length).toBeGreaterThan(0);
+    expect(withOpen.filter((d) => d.divergenceTop).length).toBeGreaterThan(0);
+  });
+});
+
+describe("reduceByMagnitude", () => {
+  it("负数向零截断，不是向下取整", () => {
+    // INTPART(-37.5) = -37，若误用 floor 会得到 -38
+    expect(reduceByMagnitude([-37.5], [-50])).toEqual([-37]);
+    expect(reduceByMagnitude([-1.2], [-50])).toEqual([-1]);
+  });
+
+  it("正数两种取整一致", () => {
+    expect(reduceByMagnitude([37.5], [50])).toEqual([37]);
+  });
+
+  it("|参考值| 小于 1 时指数按截断算，规约位数不多降一位", () => {
+    // INTPART(LOG(0.5)) - 1 = 0 - 1 = -1，除数为 10^-1
+    // 若误用 floor 则为 -2，除数 10^-2，结果整体大十倍
+    expect(reduceByMagnitude([0.5], [0.5])).toEqual([5]);
+    expect(reduceByMagnitude([-0.5], [-0.5])).toEqual([-5]);
+  });
+
+  it("参考值为 0 或缺失时返回 null（log 无定义）", () => {
+    expect(reduceByMagnitude([1, 1, null], [0, null, 50])).toEqual([null, null, null]);
   });
 });

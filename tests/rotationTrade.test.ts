@@ -25,6 +25,13 @@ function fireAt(n: number, index: number) {
   return sig;
 }
 
+/**
+ * 点火与成交相差一根：条件取自收盘价，成交只能落到次日开盘。
+ * 下面的用例统一用 `SIG` 点火、`ENTRY` 断言持仓。
+ */
+const SIG = 40;
+const ENTRY = SIG + 1;
+
 describe("computeRotationTrades", () => {
   it("无信号时不产生任何持仓", () => {
     const bars = makeBars(new Array(100).fill(100));
@@ -39,39 +46,69 @@ describe("computeRotationTrades", () => {
     expect(days.every((d) => d.sigType === 0)).toBe(true);
   });
 
-  it("一买点火后进入持仓，sigType 记 1", () => {
+  it("一买点火后次日开盘建仓，sigType 记 1", () => {
     const n = 120;
     const bars = makeBars(new Array(n).fill(100));
-    const { days } = computeRotationTrades("TEST", bars, fireAt(n, 40), noSignals(n), allPass(n));
-    expect(days[40].entered).toBe(true);
-    expect(days[40].sigType).toBe(1);
-    expect(days[40].entryPrice).toBe(100);
+    const { days } = computeRotationTrades("TEST", bars, fireAt(n, SIG), noSignals(n), allPass(n));
+    expect(days[SIG].entered).toBe(false);
+    expect(days[SIG].sigType).toBe(0);
+    expect(days[ENTRY].entered).toBe(true);
+    expect(days[ENTRY].sigType).toBe(1);
+    expect(days[ENTRY].entryPrice).toBe(100);
+  });
+
+  it("成交价取次日开盘价，不是点火根的收盘价", () => {
+    const n = 120;
+    const bars = makeBars(new Array(n).fill(100));
+    bars[ENTRY].open = 103;
+    const { days } = computeRotationTrades("TEST", bars, fireAt(n, SIG), noSignals(n), allPass(n));
+    expect(days[ENTRY].entryPrice).toBe(103);
+  });
+
+  it("末根点火没有次日，不成交", () => {
+    const n = 120;
+    const bars = makeBars(new Array(n).fill(100));
+    const { days, closed } = computeRotationTrades(
+      "TEST",
+      bars,
+      fireAt(n, n - 1),
+      noSignals(n),
+      allPass(n),
+    );
+    expect(days.every((d) => d.entered === false)).toBe(true);
+    expect(closed).toHaveLength(0);
   });
 
   it("二买点火 sigType 记 2", () => {
     const n = 120;
     const bars = makeBars(new Array(n).fill(100));
-    const { days } = computeRotationTrades("TEST", bars, noSignals(n), fireAt(n, 40), allPass(n));
-    expect(days[40].sigType).toBe(2);
+    const { days } = computeRotationTrades("TEST", bars, noSignals(n), fireAt(n, SIG), allPass(n));
+    expect(days[ENTRY].sigType).toBe(2);
   });
 
   it("一买与二买同根同时触发时优先记一买", () => {
     const n = 120;
     const bars = makeBars(new Array(n).fill(100));
-    const { days } = computeRotationTrades("TEST", bars, fireAt(n, 40), fireAt(n, 40), allPass(n));
-    expect(days[40].sigType).toBe(1);
+    const { days } = computeRotationTrades(
+      "TEST",
+      bars,
+      fireAt(n, SIG),
+      fireAt(n, SIG),
+      allPass(n),
+    );
+    expect(days[ENTRY].sigType).toBe(1);
   });
 
   it("持仓期间再次点火不重复开仓", () => {
     const n = 120;
     const bars = makeBars(new Array(n).fill(100));
     const sig = noSignals(n);
-    sig[40] = true;
+    sig[SIG] = true;
     sig[45] = true;
     const { days } = computeRotationTrades("TEST", bars, sig, noSignals(n), allPass(n));
-    expect(days[40].entered).toBe(true);
-    expect(days[45].entered).toBe(false);
-    expect(days[45].entryPrice).toBe(100);
+    expect(days[ENTRY].entered).toBe(true);
+    expect(days[46].entered).toBe(false);
+    expect(days[46].entryPrice).toBe(100);
   });
 
   it("RS 低于闸门时不开仓", () => {
@@ -81,7 +118,7 @@ describe("computeRotationTrades", () => {
     const { days, closed } = computeRotationTrades(
       "TEST",
       bars,
-      fireAt(n, 40),
+      fireAt(n, SIG),
       noSignals(n),
       lowRs,
     );
@@ -95,33 +132,33 @@ describe("computeRotationTrades", () => {
     const { days } = computeRotationTrades(
       "TEST",
       bars,
-      fireAt(n, 40),
+      fireAt(n, SIG),
       noSignals(n),
       new Array(n).fill(5),
       { ...DEFAULT_TRADE_PARAMS, minRs: 0 },
     );
-    expect(days[40].entered).toBe(true);
+    expect(days[ENTRY].entered).toBe(true);
   });
 
   it("ATR 未预热完成前不开仓", () => {
     const n = 120;
     const bars = makeBars(new Array(n).fill(100));
     const { days } = computeRotationTrades("TEST", bars, fireAt(n, 3), noSignals(n), allPass(n));
-    expect(days[3].entered).toBe(false);
+    expect(days[4].entered).toBe(false);
   });
 
   it("初始止损为开仓价 - 4×ATR，吊灯初值更低（-5.5×ATR）", () => {
     const n = 120;
     const bars = makeBars(new Array(n).fill(100));
-    const { days } = computeRotationTrades("TEST", bars, fireAt(n, 40), noSignals(n), allPass(n));
-    const entryDay = days[40];
+    const { days } = computeRotationTrades("TEST", bars, fireAt(n, SIG), noSignals(n), allPass(n));
+    const entryDay = days[ENTRY];
     const atr = (100 - entryDay.stopLevel!) / 4;
     expect(entryDay.stopLevel).toBeCloseTo(100 - 4 * atr, 8);
     // 开仓当根吊灯已按 highWater 上抬过一次，仍应低于硬止损
     expect(entryDay.trailLevel!).toBeLessThan(entryDay.stopLevel!);
   });
 
-  it("价格跌破止损即平仓，并记入台账", () => {
+  it("收盘跌破止损，次日开盘平仓并记入台账", () => {
     const n = 140;
     const closes = new Array(n).fill(100);
     for (let i = 60; i < n; i += 1) closes[i] = 50;
@@ -129,43 +166,62 @@ describe("computeRotationTrades", () => {
     const { closed } = computeRotationTrades(
       "TEST",
       bars,
-      fireAt(n, 40),
+      fireAt(n, SIG),
       noSignals(n),
       allPass(n),
     );
     expect(closed).toHaveLength(1);
-    expect(closed[0].entryIndex).toBe(40);
-    expect(closed[0].exitIndex).toBe(60);
+    expect(closed[0].entryIndex).toBe(ENTRY);
+    // 第 60 根收盘破线，成交落在 61
+    expect(closed[0].exitIndex).toBe(61);
     expect(closed[0].pnlPct).toBeCloseTo(-50, 6);
     expect(closed[0].barsHeld).toBe(20);
+  });
+
+  it("出场跳空低开时按跳空价结算，亏损大于名义止损距离", () => {
+    const n = 140;
+    const closes = new Array(n).fill(100);
+    for (let i = 60; i < n; i += 1) closes[i] = 80;
+    const bars = makeBars(closes);
+    bars[61].open = 70;
+    const { closed } = computeRotationTrades(
+      "TEST",
+      bars,
+      fireAt(n, SIG),
+      noSignals(n),
+      allPass(n),
+    );
+    expect(closed).toHaveLength(1);
+    expect(closed[0].exitPrice).toBe(70);
+    expect(closed[0].pnlPct).toBeCloseTo(-30, 6);
   });
 
   it("浮盈超过 10% 后止损上移到开仓价 × 1.01（保本锁）", () => {
     const n = 160;
     const closes = new Array(n).fill(100);
-    for (let i = 41; i < n; i += 1) closes[i] = 130;
+    for (let i = ENTRY + 1; i < n; i += 1) closes[i] = 130;
     const bars = makeBars(closes);
     const { days } = computeRotationTrades(
       "TEST",
       bars,
-      fireAt(n, 40),
+      fireAt(n, SIG),
       noSignals(n),
       allPass(n),
     );
-    expect(days[41].breakevenLocked).toBe(true);
-    expect(days[41].stopLevel).toBeCloseTo(101, 6);
+    expect(days[ENTRY + 1].breakevenLocked).toBe(true);
+    expect(days[ENTRY + 1].stopLevel).toBeCloseTo(101, 6);
   });
 
   it("保本锁生效后，回落到开仓价附近即离场且不亏损", () => {
     const n = 200;
     const closes = new Array(n).fill(100);
-    for (let i = 41; i < 60; i += 1) closes[i] = 130;
+    for (let i = ENTRY + 1; i < 60; i += 1) closes[i] = 130;
     for (let i = 60; i < n; i += 1) closes[i] = 100;
     const bars = makeBars(closes);
     const { closed } = computeRotationTrades(
       "TEST",
       bars,
-      fireAt(n, 40),
+      fireAt(n, SIG),
       noSignals(n),
       allPass(n),
     );
@@ -180,7 +236,7 @@ describe("computeRotationTrades", () => {
     const { days } = computeRotationTrades(
       "TEST",
       bars,
-      fireAt(n, 40),
+      fireAt(n, SIG),
       noSignals(n),
       allPass(n),
     );
@@ -197,7 +253,7 @@ describe("computeRotationTrades", () => {
     const { days } = computeRotationTrades(
       "TEST",
       bars,
-      fireAt(n, 40),
+      fireAt(n, SIG),
       noSignals(n),
       allPass(n),
     );
@@ -214,14 +270,14 @@ describe("computeRotationTrades", () => {
     for (let i = 80; i < n; i += 1) closes[i] = 100;
     const bars = makeBars(closes);
     const sig = noSignals(n);
-    sig[40] = true;
+    sig[SIG] = true;
     sig[150] = true;
     const { closed, days } = computeRotationTrades("TEST", bars, sig, noSignals(n), allPass(n));
     expect(closed.length).toBeGreaterThanOrEqual(1);
-    expect(days[150].entered).toBe(true);
+    expect(days[151].entered).toBe(true);
   });
 
-  it("平仓当根之后状态清空", () => {
+  it("平仓成交当根即已空仓", () => {
     const n = 140;
     const closes = new Array(n).fill(100);
     for (let i = 60; i < n; i += 1) closes[i] = 50;
@@ -229,13 +285,44 @@ describe("computeRotationTrades", () => {
     const { days } = computeRotationTrades(
       "TEST",
       bars,
-      fireAt(n, 40),
+      fireAt(n, SIG),
       noSignals(n),
       allPass(n),
     );
-    expect(days[60].exited).toBe(true);
+    expect(days[60].exited).toBe(false);
+    expect(days[61].exited).toBe(true);
+    // 清仓发生在 61 的开盘，故该根本身已不算持仓
     expect(days[61].sigType).toBe(0);
     expect(days[61].entryPrice).toBeNull();
+  });
+
+  it("riskPct 在持仓期内恒定，且清仓成交那根仍然给出", () => {
+    const n = 160;
+    const closes = new Array(n).fill(100);
+    for (let i = ENTRY + 1; i < 60; i += 1) closes[i] = 130;
+    for (let i = 60; i < n; i += 1) closes[i] = 100;
+    const bars = makeBars(closes);
+    const { days, closed } = computeRotationTrades(
+      "TEST",
+      bars,
+      fireAt(n, SIG),
+      noSignals(n),
+      allPass(n),
+    );
+
+    expect(days[SIG].riskPct).toBeNull();
+    const atEntry = days[ENTRY].riskPct!;
+    expect(atEntry).toBeGreaterThan(0);
+
+    // 保本锁会把 stopLevel 抬到开仓价之上，riskPct 不能跟着变
+    expect(days[ENTRY + 1].breakevenLocked).toBe(true);
+    expect(days[ENTRY + 1].riskPct).toBeCloseTo(atEntry, 10);
+
+    // 清仓发生在 61 的开盘，那半天仍持有，组合层要靠它定权重
+    expect(days[61].exited).toBe(true);
+    expect(days[61].riskPct).toBeCloseTo(atEntry, 10);
+    expect(days[62].riskPct).toBeNull();
+    expect(closed[0].riskPct).toBeCloseTo(atEntry, 10);
   });
 
   it("空仓日的浮盈恒为 0", () => {
@@ -268,11 +355,11 @@ describe("商业化文档独有开关（默认关闭）", () => {
     const { days } = computeRotationTrades(
       "TEST",
       bars,
-      fireAt(n, 40),
+      fireAt(n, SIG),
       noSignals(n),
       new Array(n).fill(50),
     );
-    expect(days[40].entered).toBe(true);
+    expect(days[ENTRY].entered).toBe(true);
   });
 
   it("RS 闸门打开后 RS 50 被拦下，RS 70 才放行", () => {
@@ -283,22 +370,22 @@ describe("商业化文档独有开关（默认关闭）", () => {
     const blocked = computeRotationTrades(
       "TEST",
       bars,
-      fireAt(n, 40),
+      fireAt(n, SIG),
       noSignals(n),
       new Array(n).fill(50),
       gate,
     );
-    expect(blocked.days[40].entered).toBe(false);
+    expect(blocked.days[ENTRY].entered).toBe(false);
 
     const passed = computeRotationTrades(
       "TEST",
       bars,
-      fireAt(n, 40),
+      fireAt(n, SIG),
       noSignals(n),
       new Array(n).fill(70),
       gate,
     );
-    expect(passed.days[40].entered).toBe(true);
+    expect(passed.days[ENTRY].entered).toBe(true);
   });
 
   it("RS 跌破 40 触发一票否决清仓", () => {
@@ -310,23 +397,23 @@ describe("商业化文档独有开关（默认关闭）", () => {
     const { closed } = computeRotationTrades(
       "TEST",
       bars,
-      fireAt(n, 40),
+      fireAt(n, SIG),
       noSignals(n),
       rs,
       { ...DEFAULT_TRADE_PARAMS, useCommercialRsGate: true },
     );
     expect(closed).toHaveLength(1);
-    expect(closed[0].exitIndex).toBe(60);
+    expect(closed[0].exitIndex).toBe(61);
   });
 
   it("提前保本开关关闭时，浮盈 +6% 不锁保本", () => {
     const n = 120;
     const closes = new Array(n).fill(100);
-    for (let i = 41; i < n; i += 1) closes[i] = 106;
+    for (let i = ENTRY + 1; i < n; i += 1) closes[i] = 106;
     const { days } = computeRotationTrades(
       "TEST",
       makeBars(closes),
-      fireAt(n, 40),
+      fireAt(n, SIG),
       noSignals(n),
       allPass(n),
     );
@@ -336,11 +423,11 @@ describe("商业化文档独有开关（默认关闭）", () => {
   it("提前保本开关打开且宏观条件成立时，浮盈 +6% 即锁保本", () => {
     const n = 120;
     const closes = new Array(n).fill(100);
-    for (let i = 41; i < n; i += 1) closes[i] = 106;
+    for (let i = ENTRY + 1; i < n; i += 1) closes[i] = 106;
     const { days } = computeRotationTrades(
       "TEST",
       makeBars(closes),
-      fireAt(n, 40),
+      fireAt(n, SIG),
       noSignals(n),
       allPass(n),
       { ...DEFAULT_TRADE_PARAMS, useEarlyBreakeven: true, earlyBreakevenActive: () => true },
@@ -351,11 +438,11 @@ describe("商业化文档独有开关（默认关闭）", () => {
   it("提前保本打开但宏观条件不成立时，仍按 +10% 触发", () => {
     const n = 120;
     const closes = new Array(n).fill(100);
-    for (let i = 41; i < n; i += 1) closes[i] = 106;
+    for (let i = ENTRY + 1; i < n; i += 1) closes[i] = 106;
     const { days } = computeRotationTrades(
       "TEST",
       makeBars(closes),
-      fireAt(n, 40),
+      fireAt(n, SIG),
       noSignals(n),
       allPass(n),
       { ...DEFAULT_TRADE_PARAMS, useEarlyBreakeven: true, earlyBreakevenActive: () => false },
@@ -380,7 +467,7 @@ describe("R 倍数止盈", () => {
     const base = computeRotationTrades(
       "TEST",
       makeBars(closes),
-      fireAt(n, 40),
+      fireAt(n, SIG),
       noSignals(n),
       allPass(n),
       DEFAULT_TRADE_PARAMS,
@@ -395,25 +482,25 @@ describe("R 倍数止盈", () => {
     const { days } = computeRotationTrades(
       "TEST",
       makeBars(closes),
-      fireAt(n, 40),
+      fireAt(n, SIG),
       noSignals(n),
       allPass(n),
       { ...DEFAULT_TRADE_PARAMS, takeProfitR: 2 },
     );
 
-    const entry = days[40];
+    const entry = days[ENTRY];
     // stopLevel 在开仓当根即为 entry - 1R，故 1R = entryPrice - stopLevel
     const oneR = entry.entryPrice! - entry.stopLevel!;
     expect(entry.targetLevel).toBeCloseTo(entry.entryPrice! + 2 * oneR, 6);
   });
 
-  it("触及止盈时按收盘价离场并标记 exitReason", () => {
+  it("触及止盈后次日开盘离场并标记 exitReason", () => {
     const n = 160;
     const closes = rallyAfterEntry(n, 40, 200);
     const { closed } = computeRotationTrades(
       "TEST",
       makeBars(closes),
-      fireAt(n, 40),
+      fireAt(n, SIG),
       noSignals(n),
       allPass(n),
       { ...DEFAULT_TRADE_PARAMS, takeProfitR: 1 },
@@ -430,7 +517,7 @@ describe("R 倍数止盈", () => {
     const n = 200;
     const closes = rallyAfterEntry(n, 40, 300);
     const run = (r: number) =>
-      computeRotationTrades("TEST", makeBars(closes), fireAt(n, 40), noSignals(n), allPass(n), {
+      computeRotationTrades("TEST", makeBars(closes), fireAt(n, SIG), noSignals(n), allPass(n), {
         ...DEFAULT_TRADE_PARAMS,
         takeProfitR: r,
       }).closed[0];
@@ -449,7 +536,7 @@ describe("止损倍数可调", () => {
     const omitted = computeRotationTrades(
       "TEST",
       bars,
-      fireAt(n, 40),
+      fireAt(n, SIG),
       noSignals(n),
       allPass(n),
       DEFAULT_TRADE_PARAMS,
@@ -457,13 +544,13 @@ describe("止损倍数可调", () => {
     const explicit = computeRotationTrades(
       "TEST",
       bars,
-      fireAt(n, 40),
+      fireAt(n, SIG),
       noSignals(n),
       allPass(n),
       { ...DEFAULT_TRADE_PARAMS, stopMult: 4.0, trailMult: 5.5 },
     );
-    expect(explicit.days[40].stopLevel).toBeCloseTo(omitted.days[40].stopLevel!, 10);
-    expect(explicit.days[40].trailLevel).toBeCloseTo(omitted.days[40].trailLevel!, 10);
+    expect(explicit.days[ENTRY].stopLevel).toBeCloseTo(omitted.days[ENTRY].stopLevel!, 10);
+    expect(explicit.days[ENTRY].trailLevel).toBeCloseTo(omitted.days[ENTRY].trailLevel!, 10);
   });
 
   it("收紧 stopMult 会抬高止损位并缩短持仓", () => {
@@ -473,7 +560,7 @@ describe("止损倍数可调", () => {
     for (let i = 41; i < n; i += 1) closes[i] = 100 - (i - 40) * 0.3;
 
     const run = (stopMult: number) =>
-      computeRotationTrades("TEST", makeBars(closes), fireAt(n, 40), noSignals(n), allPass(n), {
+      computeRotationTrades("TEST", makeBars(closes), fireAt(n, SIG), noSignals(n), allPass(n), {
         ...DEFAULT_TRADE_PARAMS,
         stopMult,
         trailMult: 5.5,
@@ -481,7 +568,7 @@ describe("止损倍数可调", () => {
 
     const tight = run(1.5);
     const loose = run(4);
-    expect(tight.days[40].stopLevel!).toBeGreaterThan(loose.days[40].stopLevel!);
+    expect(tight.days[ENTRY].stopLevel!).toBeGreaterThan(loose.days[ENTRY].stopLevel!);
     expect(tight.closed[0].barsHeld).toBeLessThan(loose.closed[0].barsHeld);
   });
 
@@ -489,10 +576,10 @@ describe("止损倍数可调", () => {
     const n = 120;
     const bars = makeBars(new Array(n).fill(100));
     const run = (trailMult: number) =>
-      computeRotationTrades("TEST", bars, fireAt(n, 40), noSignals(n), allPass(n), {
+      computeRotationTrades("TEST", bars, fireAt(n, SIG), noSignals(n), allPass(n), {
         ...DEFAULT_TRADE_PARAMS,
         trailMult,
-      }).days[40];
+      }).days[ENTRY];
 
     const narrow = run(5.5);
     const wide = run(11);
@@ -511,7 +598,7 @@ describe("止损倍数可调", () => {
     for (let i = 100; i < n; i += 1) closes[i] = closes[99] - (i - 99) * 1.5;
 
     const run = (trailMult: number) =>
-      computeRotationTrades("TEST", makeBars(closes), fireAt(n, 40), noSignals(n), allPass(n), {
+      computeRotationTrades("TEST", makeBars(closes), fireAt(n, SIG), noSignals(n), allPass(n), {
         ...DEFAULT_TRADE_PARAMS,
         trailMult,
       }).closed[0];

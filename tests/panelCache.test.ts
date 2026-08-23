@@ -27,9 +27,9 @@ describe("面板落盘缓存", () => {
   });
 
   const bars = [
-    { date: "2020-01-02", high: 100.25, low: 99.5, close: 100, volume: 1_234_567 },
-    { date: "2020-01-03", high: 101.75, low: 100.1, close: 101.5, volume: 98_765_432 },
-    { date: "2024-12-31", high: 4321.5, low: 4300.25, close: 4310.75, volume: 0 },
+    { date: "2020-01-02", open: 99.75, high: 100.25, low: 99.5, close: 100, volume: 1_234_567 },
+    { date: "2020-01-03", open: 100.5, high: 101.75, low: 100.1, close: 101.5, volume: 98_765_432 },
+    { date: "2024-12-31", open: 4305.5, high: 4321.5, low: 4300.25, close: 4310.75, volume: 0 },
   ];
 
   function snapshot(): PanelSnapshot {
@@ -44,6 +44,7 @@ describe("面板落盘缓存", () => {
           low: packed.low,
           close: packed.close,
           volume: packed.volume,
+          open: packed.open,
         },
       ],
       membership: [

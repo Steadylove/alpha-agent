@@ -36,6 +36,7 @@ import {
 } from "recharts";
 
 import { Card } from "@/components/Card";
+import { LabSymbolChart, type ChartTarget } from "@/components/LabSymbolChart";
 
 const POS = "#089981";
 const NEG = "#f23645";
@@ -66,6 +67,7 @@ type Stats = {
   maxDrawdownPct: number;
   volPct: number;
   investedDayPct: number;
+  avgExposurePct: number;
   days: number;
 };
 
@@ -114,6 +116,7 @@ type Params = {
   stopMult: number;
   trailMult: number;
   takeProfitR: number | null;
+  riskBudgetPct: number | null;
   useBuy1: boolean;
   useBuy2: boolean;
   minAdtvUsd: number;
@@ -125,9 +128,10 @@ type Params = {
 const DEFAULTS: Params = {
   rpsMin: 30,
   rpsExit: null,
-  stopMult: 3.5,
-  trailMult: 2.5,
-  takeProfitR: 3,
+  stopMult: 4,
+  trailMult: 2,
+  takeProfitR: null,
+  riskBudgetPct: null,
   useBuy1: true,
   useBuy2: false,
   minAdtvUsd: 0,
@@ -170,6 +174,24 @@ const POOLS: { value: IndexKey; label: string }[] = [
 const pct = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
 const tone = (v: number) => (v >= 0 ? POS : NEG);
 
+/**
+ * 初始止损比吊灯宽时它当不成出场线，但并不因此变成惰性参数：它定义 1R，
+ * 而 1R 同时进入 R 倍数的显示、止盈距离和风险定仓的仓位公式。
+ * 所以这里按当前开关逐项列出它还在影响什么，而不是笼统说「不会有变化」。
+ */
+function stopMultHint(p: Params): string {
+  if (p.stopMult < p.trailMult) {
+    return "比吊灯紧，是真正生效的初始止损。同时定义 1R。Pine 原值 4.0。";
+  }
+  const effects = ["改变 R 列与平均 R"];
+  if (p.takeProfitR != null) effects.push("决定止盈距离");
+  if (p.riskBudgetPct != null) effects.push("按「预算 ÷ 止损距离」直接改仓位与收益");
+  return (
+    "比吊灯宽，作为出场线永不触发——退出条件是「收盘低于止损或低于吊灯」，" +
+    `吊灯位更高会先触发。但它定义 1R，因此仍会${effects.join("、")}。`
+  );
+}
+
 export function LabWorkbench() {
   const [params, setParams] = useState<Params>(DEFAULTS);
   const [index, setIndex] = useState<IndexKey>("UNION");
@@ -177,6 +199,10 @@ export function LabWorkbench() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showOos, setShowOos] = useState(false);
+  /** 点开哪只标的的哪一笔，null 为关闭弹窗。 */
+  const [chartTarget, setChartTarget] = useState<ChartTarget | null>(null);
+  /** 传给弹窗的配置要是稳定引用，否则它每次渲染都会重新取数。 */
+  const chartRequest = useMemo(() => ({ ...params, index }), [params, index]);
 
   /** 试过的不同参数组合数，以及偷看保留区的次数——都是过拟合的计价单位。 */
   const tried = useRef(new Set<string>());
@@ -299,11 +325,7 @@ export function LabWorkbench() {
             label="初始止损"
             value={params.stopMult}
             display={`${params.stopMult.toFixed(1)} × ATR`}
-            hint={
-              params.stopMult >= params.trailMult
-                ? `比吊灯宽，因此永不触发——退出条件是「收盘低于止损或低于吊灯」，吊灯位更高会先触发。${params.takeProfitR == null ? "此时拖动本滑块不会有任何变化。" : "此时它只通过定义 1R 影响止盈距离。"}`
-                : "比吊灯紧，是真正生效的初始止损。同时定义 1R。Pine 原值 4.0。"
-            }
+            hint={stopMultHint(params)}
             min={1}
             max={10}
             step={0.5}
@@ -345,6 +367,34 @@ export function LabWorkbench() {
             <Text size="xs" c="dimmed" mt={6}>
               原策略没有止盈。它的正期望几乎全在右尾，截断右尾大概率减少收益——
               这个开关的用途是让这件事被测量，而不是假定它有好处。
+            </Text>
+          </div>
+          <div>
+            <Group justify="space-between" mb={4}>
+              <Text size="sm" fw={600} c="gray.2">
+                单笔风险预算
+              </Text>
+              <Text size="sm" ff="monospace" c="gray.4">
+                {params.riskBudgetPct == null ? "每日等权" : `${params.riskBudgetPct}% 净值`}
+              </Text>
+            </Group>
+            <SegmentedControl
+              fullWidth
+              size="xs"
+              value={params.riskBudgetPct == null ? "off" : String(params.riskBudgetPct)}
+              onChange={(v) => set("riskBudgetPct", v === "off" ? null : Number(v))}
+              data={[
+                { label: "等权", value: "off" },
+                { label: "0.8%", value: "0.8" },
+                { label: "1.6%", value: "1.6" },
+                { label: "3%", value: "3" },
+                { label: "5%", value: "5" },
+              ]}
+            />
+            <Text size="xs" c="dimmed" mt={6}>
+              仓位 = 预算 ÷ 止损距离，止损远的少下钱，权重之和封顶 100%。
+              规格给的 0.8% 是基金级政策，本策略并发持仓不够，取它会有近一半时间在现金里，
+              而基准恒满仓——看敞口那一行再读超额。
             </Text>
           </div>
           <div>
@@ -463,7 +513,7 @@ export function LabWorkbench() {
               规格里我们原先完全没有的一条，也是我认为最值得测的一条。用「或」而非「且」
               是照抄规格：站上 850 日线却跌破 200 日线，正是长期牛股回踩中继的形态，
               恰好是抄底信号想要的场景。它针对的是本策略已知的最大弱点——
-              在 V 型反转里被反复打（2009 超额 −17.29%、2025 −13.76%）。
+              在 V 型反转里被反复打（2009 超额 −31.27%、2025 −14.83%）。
             </Text>
           </div>
         </div>
@@ -481,7 +531,7 @@ export function LabWorkbench() {
         <Group gap="xs" wrap="nowrap">
           <TriangleAlert className="h-4 w-4 shrink-0 text-amber-500" />
           <Text size="xs" c="dimmed">
-            <b className="text-zinc-200">默认参数不是中立起点</b>——它是在 1200
+            <b className="text-zinc-200">默认参数不是中立起点</b>——它是在 1260
             组网格上搜出来的，选参时看过保留区，所以保留区的数字只能当上界看，不是干净的样本外估计。
             点「Pine 原值」可以看未经搜索的原始配置。本次会话已试{" "}
             <b className="text-zinc-200">{trialCount}</b> 组参数，
@@ -520,7 +570,11 @@ export function LabWorkbench() {
 
           <YearTable rows={result.byYear} maskOos={!showOos} />
 
-          <TradeBlotter trades={result.trades} maskOos={!showOos} />
+          <TradeBlotter
+            trades={result.trades}
+            maskOos={!showOos}
+            onPickTrade={setChartTarget}
+          />
 
           <Text size="xs" c="dimmed">
             {result.indexLabel}池内 {result.universeSize} 只，采纳信号 {result.signalCount} 个。
@@ -534,11 +588,17 @@ export function LabWorkbench() {
           <Group gap="sm">
             <Loader size="sm" color="gray" />
             <Text size="sm" c="dimmed">
-              首次载入要预处理全池约 300 万根日线（十几秒），之后每次调参约 250 毫秒。
+              首次载入要预处理全池约 300 万根日线（十几秒），之后每次调参约 450 毫秒。
             </Text>
           </Group>
         </Card>
       ) : null}
+
+      <LabSymbolChart
+        target={chartTarget}
+        request={chartRequest}
+        onClose={() => setChartTarget(null)}
+      />
     </Stack>
   );
 }
@@ -658,6 +718,7 @@ function WindowCard({
               b={`${w.benchmark.volPct.toFixed(1)}%`}
             />
             <Row label="持仓日占比" a={`${w.portfolio.investedDayPct.toFixed(0)}%`} b="100%" />
+            <Row label="平均敞口" a={`${w.portfolio.avgExposurePct.toFixed(0)}%`} b="100%" />
           </Table.Tbody>
         </Table>
 
@@ -671,7 +732,11 @@ function WindowCard({
           <Stat label="平均持仓" value={`${w.trade.avgBarsHeld.toFixed(0)} 根`} />
           <Stat label="最差一笔" value={pct(w.trade.worstPnlPct)} />
           <Stat
-            label={w.trade.exits.rsWeak > 0 ? "止损/止盈/转弱" : "止损/止盈"}
+            label={
+              w.trade.exits.rsWeak > 0
+                ? `${EXIT_LABEL.stop}/${EXIT_LABEL.target}/${EXIT_LABEL.rsWeak}`
+                : `${EXIT_LABEL.stop}/${EXIT_LABEL.target}`
+            }
             value={
               w.trade.exits.rsWeak > 0
                 ? `${w.trade.exits.stop}/${w.trade.exits.target}/${w.trade.exits.rsWeak}`
@@ -818,25 +883,33 @@ function EquityTooltip({
   );
 }
 
+/**
+ * `stop` 标「吊灯」而不是「止损」：生效止损是 max(初始止损, 吊灯)，而吊灯跟着
+ * 持仓最高价上抬、浮盈越大收得越紧，所以它同样会在**盈利**时触发——那正是移动
+ * 止损锁利润的方式。叫「止损」会让 +18% 的离场看起来自相矛盾。
+ *
+ * 这一列答的是「哪条规则触发了离场」，不是「这笔赚没赚」，后者在收益列。
+ */
 const EXIT_LABEL: Record<ExitReason, string> = {
-  stop: "止损",
+  stop: "吊灯",
   target: "止盈",
   rsWeak: "转弱",
   veto: "否决",
-};
-
-const EXIT_COLOR: Record<ExitReason, string> = {
-  stop: "red",
-  target: "teal",
-  rsWeak: "yellow",
-  veto: "gray",
 };
 
 type SortKey = "entryDate" | "pnlPct" | "r" | "barsHeld";
 
 const PAGE_SIZE = 50;
 
-function TradeBlotter({ trades, maskOos }: { trades: TradeRow[]; maskOos: boolean }) {
+function TradeBlotter({
+  trades,
+  maskOos,
+  onPickTrade,
+}: {
+  trades: TradeRow[];
+  maskOos: boolean;
+  onPickTrade: (target: ChartTarget) => void;
+}) {
   const [scope, setScope] = useState<"all" | "in" | "out">("all");
   const [reason, setReason] = useState<"all" | ExitReason>("all");
   const [sortKey, setSortKey] = useState<SortKey>("entryDate");
@@ -971,9 +1044,9 @@ function TradeBlotter({ trades, maskOos }: { trades: TradeRow[]; maskOos: boolea
           }}
           data={[
             { label: "全部离场", value: "all" },
-            { label: "止损", value: "stop" },
-            { label: "止盈", value: "target" },
-            { label: "转弱", value: "rsWeak" },
+            { label: EXIT_LABEL.stop, value: "stop" },
+            { label: EXIT_LABEL.target, value: "target" },
+            { label: EXIT_LABEL.rsWeak, value: "rsWeak" },
           ]}
         />
       </Group>
@@ -1009,7 +1082,14 @@ function TradeBlotter({ trades, maskOos }: { trades: TradeRow[]; maskOos: boolea
                   {t.entryDate}
                 </Table.Td>
                 <Table.Td ff="monospace" fw={600} c="gray.1">
-                  {t.symbol}
+                  <button
+                    type="button"
+                    onClick={() => onPickTrade({ symbol: t.symbol, entryDate: t.entryDate })}
+                    className="underline decoration-dotted decoration-zinc-600 underline-offset-4 hover:text-white hover:decoration-zinc-300"
+                    title={`看这一笔的 K 线与风控线`}
+                  >
+                    {t.symbol}
+                  </button>
                 </Table.Td>
                 <Table.Td>
                   <Badge size="xs" variant="light" color={t.sigType === 1 ? "blue" : "grape"}>
@@ -1039,7 +1119,8 @@ function TradeBlotter({ trades, maskOos }: { trades: TradeRow[]; maskOos: boolea
                   {t.riskPct.toFixed(1)}%
                 </Table.Td>
                 <Table.Td>
-                  <Badge size="xs" variant="light" color={EXIT_COLOR[t.exitReason]}>
+                  {/* 颜色跟盈亏走：吊灯离场既可能是砍亏也可能是收利润，写死红色会误读 */}
+                  <Badge size="xs" variant="light" color={t.pnlPct >= 0 ? "teal" : "red"}>
                     {EXIT_LABEL[t.exitReason]}
                   </Badge>
                 </Table.Td>
@@ -1073,8 +1154,9 @@ function TradeBlotter({ trades, maskOos }: { trades: TradeRow[]; maskOos: boolea
       ) : null}
 
       <Text size="xs" c="dimmed" mt="sm">
-        入场价与出场价均为当根收盘价——信号在收盘后才确认，用当根开盘或最高价成交是穿越。
-        「1R」是开仓时止损距离占开仓价的比例，收益除以它就是 R 倍数；导出的 CSV
+        入场价与出场价均为<b>次日开盘价</b>——点火与出场条件全部取自收盘价，而收盘价要等
+        收盘之后才存在，所以两条腿都只能等到次日开盘才成交。「持仓根数」为进出场之间的
+        交易日数。「1R」是开仓时止损距离占开仓价的比例，收益除以它就是 R 倍数；导出的 CSV
         保留四位小数，页面上做了取整。
       </Text>
     </Card>

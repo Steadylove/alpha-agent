@@ -133,7 +133,7 @@ function stability(universe: PreparedUniverse, base: BacktestConfig) {
   const axes: { name: string; values: (number | null | boolean)[]; key: keyof BacktestConfig }[] = [
     { name: "RPS 门槛", key: "rpsMin", values: [0, 10, 20, 25, 30, 35, 40, 50, 60] },
     { name: "初始止损", key: "stopMult", values: [1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 8] },
-    { name: "吊灯止损", key: "trailMult", values: [2, 2.5, 3, 3.5, 4, 5, 6, 8, 11] },
+    { name: "吊灯止损", key: "trailMult", values: [1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 6] },
     { name: "R 倍数止盈", key: "takeProfitR", values: [null, 1, 1.5, 2, 2.5, 3, 4, 6, 10] },
     { name: "转弱离场", key: "rpsExit", values: [null, 5, 10, 15, 20, 25, 30, 40, 50] },
   ];

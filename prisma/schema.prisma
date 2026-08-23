@@ -313,6 +313,8 @@ model BacktestPanel {
   close Bytes
   /// 成交股数。null 表示该行是加此列之前回填的，尚未补齐
   volume Bytes?
+  /// 开盘价，仅顶背离用到。null 表示该行是加此列之前回填的，此时实体上沿退化为收盘价
+  open Bytes?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

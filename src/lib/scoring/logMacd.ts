@@ -1,18 +1,34 @@
 /**
  * 对数 MACD 底背离（❤️ 一买 / ⭐️ 二买）。
  *
- * 严格对齐「美股动能满仓轮动雷达」Pine 第 68~108 行。
+ * 对齐通达信原始公式的买入侧（'BUY' 与 'B' 两个标记），
+ * 而非 Pine 第 68~108 行——Pine 在移植时把 `INTPART` 写成了 `math.floor`，
+ * 详见 reduceByMagnitude。卖出侧（'S'）尚未实现，回测用 ATR 吊灯止损替代。
  *
  * 「对数」指的是把 DIF 与历史低点先按各自量级规约到同一位数再比较
- * （floor(x / 10^(floor(log10|lv|)-1))），避免用绝对差值判背离时
+ * （trunc(x / 10^(trunc(log10|lv|)-1))），避免用绝对差值判背离时
  * 因标的价格量级不同而失真。
  *
  * Pine 语义要点：任何 na 参与的比较结果为 false，本模块用 null 安全比较复现。
  */
 
-import { barsSinceSeries, crossSeries, emaSeries } from "./series";
+import { barsSinceSeries, crossSeries, emaSeries, highestSeries } from "./series";
 
-export type LogMacdBar = { high: number; low: number; close: number };
+/** 通达信原式的 `TW := 4`，顶背离比较实体上沿时的固定窗口。 */
+const TOP_WINDOW = 4;
+
+export type LogMacdBar = {
+  high: number;
+  low: number;
+  close: number;
+  /**
+   * 开盘价，只用于顶背离取实体上沿 `TP_P := MAX(C, O)`。
+   *
+   * 缺省时实体上沿退化为收盘价：面板里 open 列是后加的，旧行没有。
+   * 退化只影响二买的顶背离否决项，不影响一买。
+   */
+  open?: number;
+};
 
 export type LogMacdDay = {
   dif: number | null;
@@ -25,6 +41,8 @@ export type LogMacdDay = {
   divergenceDirect: boolean;
   /** 与上上轮下跌周期比较的底背离（中间那轮不算数时的退路）。 */
   divergenceIndirect: boolean;
+  /** 顶背离：DEA 掉头那根上实体上沿创新高而 DIF 未创新高。二买的否决项。 */
+  divergenceTop: boolean;
   /** ❤️ 一买：背离成立后 DIF 拐头向上。 */
   buy1: boolean;
   /** ⭐️ 二买：背离后金叉，且处于长期弱势区。 */
@@ -90,8 +108,18 @@ function shiftByCycle(
   return out;
 }
 
-/** 按量级规约到同一位数后取整，用于跨周期比较 DIF 高低。 */
-function reduceByMagnitude(
+/**
+ * 按量级规约到同一位数后取整，用于跨周期比较 DIF 高低。
+ *
+ * 取整用 trunc 而非 floor：原始通达信公式写的是 `INTPART`（向零截断），
+ * 而通达信另有 `FLOOR`（向下取整）可选，作者选的是前者。两者在负数上不等价
+ * （INTPART(-37.5) = -37，floor(-37.5) = -38），而底背离要求 MACD < 0、
+ * DIF 通常也在零轴下方，所以这个差别几乎每次判断都会碰上。
+ *
+ * 指数那一步同理：`|reference| < 1` 时 LOG 为负，INTPART(-0.301) = 0 而
+ * floor(-0.301) = -1，规约位数会整体差一个数量级。
+ */
+export function reduceByMagnitude(
   numerator: (number | null)[],
   reference: (number | null)[],
 ): (number | null)[] {
@@ -100,8 +128,8 @@ function reduceByMagnitude(
     const num = numerator[i];
     const ref = reference[i];
     if (num == null || ref == null || ref === 0) continue;
-    const exponent = Math.floor(Math.log10(Math.abs(ref))) - 1;
-    out[i] = Math.floor(num / 10 ** exponent);
+    const exponent = Math.trunc(Math.log10(Math.abs(ref))) - 1;
+    out[i] = Math.trunc(num / 10 ** exponent);
   }
   return out;
 }
@@ -180,6 +208,24 @@ export function computeLogMacdSeries(bars: LogMacdBar[]): LogMacdDay[] {
   const bsBtmDis = barsSinceSeries(btmDis);
   const bsAnyDiv = barsSinceSeries(anyDivergence);
 
+  // 顶背离 TOP_D：DEA 掉头那根上，实体上沿创了新高而 DIF 没有。
+  // 它本身不是卖点，只作为二买的否决项（详见 condBuy1 里的 noRecentTop）。
+  const bodyTop = bars.map((b) => Math.max(b.close, b.open ?? b.close));
+  const hhvBody = highestSeries(bodyTop, TOP_WINDOW);
+  const deaTurnedDown: boolean[] = dea.map(
+    (_, i) => i >= 2 && lt(dea[i], dea[i - 1]) && lt(dea[i - 2], dea[i - 1]),
+  );
+  const tpddD = barsSinceSeries(shiftOne(deaTurnedDown));
+  const prevHhvBody = shiftByCycle(hhvBody, tpddD);
+  const prevDifAtTop = shiftByCycle(dif, tpddD);
+
+  const topD: boolean[] = new Array(n).fill(false);
+  for (let i = 0; i < n; i += 1) {
+    topD[i] =
+      deaTurnedDown[i] && lt(prevHhvBody[i], hhvBody[i]) && lt(dif[i], prevDifAtTop[i]);
+  }
+  const topDays = barsSinceSeries(topD);
+
   const rawGoldenCross = crossSeries(dif, dea);
   const emaHigh24 = emaSeries(highs, 24);
   const emaLow90 = emaSeries(lows, 90);
@@ -191,7 +237,11 @@ export function computeLogMacdSeries(bars: LogMacdBar[]): LogMacdDay[] {
       lt(bsBtmDis[i], bsAnyDiv[i]) && lt(bsAnyDiv[i], dcD1[i]);
     const weakRegime =
       lt(emaHigh24[i], emaLow90[i]) || lt(emaHigh24[i - 1], emaLow90[i - 1]);
-    condBuy1[i] = goldenCross && orderRight && weakRegime;
+    // 最近一次顶背离要比最近一次死叉更久远，即死叉之后没再出过顶背离。
+    // 尚未出现过顶背离时 barsSince 为 null，比较取 false 而非放行：
+    // 与本模块其余 na 语义一致，且只影响序列开头预热段。
+    const noRecentTop = gt(topDays[i], dcD1[i]);
+    condBuy1[i] = goldenCross && orderRight && weakRegime && noRecentTop;
   }
 
   // ta.barssince(cond[1]) > 10：从未触发过时为 na，比较结果 false
@@ -206,6 +256,7 @@ export function computeLogMacdSeries(bars: LogMacdBar[]): LogMacdDay[] {
     barsSinceDeathCross: dcD1[i],
     divergenceDirect: divergenceDirect[i],
     divergenceIndirect: divergenceIndirect[i],
+    divergenceTop: topD[i],
     buy1: gt(bsPrevBuy[i], 10) && condBuy[i],
     buy2: gt(bsPrevBuy1[i], 10) && condBuy1[i],
   }));

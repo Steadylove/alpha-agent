@@ -17,13 +17,14 @@
  *   3. **样本内外分离**：统计按 `splitDate` 切开分别输出，调参只该看训练区。
  */
 
-import { computeLogMacdSeries } from "@/lib/scoring/logMacd";
+import { computeLogMacdSeries, type LogMacdBar } from "@/lib/scoring/logMacd";
 import { PERCENTILE_RS_TERMS } from "@/lib/scoring/percentileRs";
 import {
   computeRotationTrades,
   type ClosedTrade,
   type ExitReason,
   type TradeBar,
+  type TradeDay,
 } from "@/lib/scoring/rotationTrade";
 
 import type { PanelBars } from "./panel";
@@ -39,6 +40,8 @@ export type PreparedSymbol = {
   high: Float32Array;
   low: Float32Array;
   close: Float32Array;
+  /** 次日开盘成交价的来源。为 null 表示该标的在加 open 列之前回填，成交价退化为收盘价。 */
+  open: Float32Array | null;
   buy1: Uint8Array;
   buy2: Uint8Array;
   /** 截面分位，仅当日成分参与排名；非成分日为 0 */
@@ -152,13 +155,14 @@ export function prepareUniverse(
     const n = panel.dates.length;
 
     // computeLogMacdSeries 要对象数组，用完即弃，不进常驻内存
-    const bars: TradeBar[] = new Array(n);
+    const bars: LogMacdBar[] = new Array(n);
     for (let i = 0; i < n; i += 1) {
       bars[i] = {
-        date: panel.dates[i],
         high: panel.high[i],
         low: panel.low[i],
         close: panel.close[i],
+        // open 为 null 时顶背离的实体上沿退化为收盘价，见 LogMacdBar 注释
+        open: panel.open?.[i],
       };
     }
     const macd = computeLogMacdSeries(bars);
@@ -199,6 +203,7 @@ export function prepareUniverse(
       high: panel.high,
       low: panel.low,
       close: panel.close,
+      open: panel.open ?? null,
       buy1,
       buy2,
       rps: new Float32Array(n),
@@ -267,6 +272,17 @@ export type BacktestConfig = {
   useBuy2: boolean;
 
   /**
+   * 单笔风险预算占净值的百分比：仓位 = 该值 ÷ 止损距离占开仓价的百分比，
+   * 权重之和封顶 1（不加杠杆），不足的部分记现金、收益为 0。
+   * null 表示退回每日等权，即不看止损距离。
+   *
+   * 出场规格给的是 0.8，但那是**基金级**政策，隐含假设并发持仓多到能铺满资金。
+   * 本策略并发持仓不够，取 0.8 会有一半时间在现金里，而基准恒满仓，
+   * 于是「风险平价」和「降杠杆」两件事混在一起没法归因。见 spec-conformance.md。
+   */
+  riskBudgetPct: number | null;
+
+  /**
    * 以下三项对应「全市场流动性初筛」规格的第一阶段，只作用于**入场资格**，
    * 不改变基准——基准始终是完整时点成分池的等权买入持有，
    * 否则基准会跟着策略口径变，超额就不可比了。
@@ -297,7 +313,7 @@ export const DEFAULT_BACKTEST_CONFIG: BacktestConfig = {
   splitDate: "2021-08-23",
 
   /**
-   * 以下六项不是 Pine 原值，而是 `npm run lab:search` 在 1200 组网格上
+   * 以下六项不是 Pine 原值，而是 `npm run lab:search` 在 1260 组网格上
    * 筛出、再逐参数细扫定下的一组，详见 docs/spec-conformance.md 第六节。
    *
    * Pine 原值为 RPS 不筛、止损 4.0、吊灯 5.5、不止盈、一买二买都开，
@@ -306,14 +322,24 @@ export const DEFAULT_BACKTEST_CONFIG: BacktestConfig = {
    */
   rpsMin: 30,
   rpsExit: null,
-  stopMult: 3.5,
-  trailMult: 2.5,
-  // 2.5 → 3。止盈的实际距离是 stopMult × takeProfitR × ATR，此处即 10.5 ATR。
-  // 在「吊灯 2/2.5 × RPS 25/30」四个组合上，较小窗口超额都随距离从 6 ATR
-  // 单调升到 10~11 ATR 再回落，方向一致而非单格取优，所以调的是这一项。
-  takeProfitR: 3,
+  stopMult: 4,
+  trailMult: 2,
+  /**
+   * 不止盈，与 Pine 原策略一致。
+   *
+   * 曾默认 3R（实际距离 stopMult × 3 × ATR = 12 ATR），1792 笔里只触发 13 次，
+   * 关掉后训练区超额 +5.69% → +5.41%、保留区 +3.51% → +3.37%，即这条规则值 0.2 个点。
+   * 关掉是为了少一个自由度：出场因此只剩吊灯止损 + 保本锁一条规则。
+   *
+   * 副作用是 `stopMult` 变得完全惰性——它比吊灯宽故永不触发，此前仅通过定义 1R
+   * 影响止盈距离，止盈关掉后连这个通道也没了。参数保留是为了能测，不是因为它在起作用。
+   */
+  takeProfitR: null,
   useBuy1: true,
   useBuy2: false,
+
+  // 风险定仓默认关闭：见 riskBudgetPct 的注释与 spec-conformance.md 的实测。
+  riskBudgetPct: null,
 
   // 第一阶段初筛默认关闭：先让它可被度量，再决定要不要开。
   minAdtvUsd: 0,
@@ -341,6 +367,8 @@ export type PortfolioStats = {
   volPct: number;
   /** 有持仓的交易日占比 */
   investedDayPct: number;
+  /** 平均总敞口占净值的百分比。风险定仓下不再恒为 100%，不足的部分是现金。 */
+  avgExposurePct: number;
   days: number;
 };
 
@@ -413,10 +441,18 @@ function tradeStats(trades: readonly ClosedTrade[]): TradeStats {
   };
 }
 
-function portfolioStats(returns: Float64Array): PortfolioStats {
+function portfolioStats(returns: Float64Array, exposure?: Float64Array): PortfolioStats {
   const n = returns.length;
   if (n === 0) {
-    return { equity: 1, cagrPct: 0, maxDrawdownPct: 0, volPct: 0, investedDayPct: 0, days: 0 };
+    return {
+      equity: 1,
+      cagrPct: 0,
+      maxDrawdownPct: 0,
+      volPct: 0,
+      investedDayPct: 0,
+      avgExposurePct: 0,
+      days: 0,
+    };
   }
 
   let equity = 1;
@@ -438,12 +474,16 @@ function portfolioStats(returns: Float64Array): PortfolioStats {
   const variance = n > 1 ? sq / (n - 1) : 0;
   const years = n / TRADING_DAYS_PER_YEAR;
 
+  let expSum = 0;
+  if (exposure) for (let i = 0; i < n; i += 1) expSum += Math.min(1, exposure[i]);
+
   return {
     equity,
     cagrPct: years > 0 ? (equity ** (1 / years) - 1) * 100 : 0,
     maxDrawdownPct: maxDd * 100,
     volPct: Math.sqrt(variance * TRADING_DAYS_PER_YEAR) * 100,
     investedDayPct: (invested / n) * 100,
+    avgExposurePct: exposure ? (expSum / n) * 100 : 100,
     days: n,
   };
 }
@@ -455,18 +495,117 @@ function equalWeight(sum: Float64Array, count: Int32Array): Float64Array {
   return out;
 }
 
-export function runBacktest(universe: PreparedUniverse, config: BacktestConfig): BacktestResult {
-  const { axis, symbols } = universe;
+/**
+ * 加权组合的日收益。
+ *
+ * 权重之和超过 1 时按比例缩回，即不加杠杆；缩回保持相对配比不变，
+ * 所以满仓日仍是风险平价。不足 1 的部分是现金，收益记 0（不计息）。
+ *
+ * 等权口径走的是同一条路径：各持仓权重记 1，和恒 ≥ 1，缩回后正好是除以只数。
+ */
+function riskWeighted(wret: Float64Array, weight: Float64Array): Float64Array {
+  const out = new Float64Array(wret.length);
+  for (let i = 0; i < wret.length; i += 1) {
+    out[i] = weight[i] > 0 ? wret[i] / Math.max(1, weight[i]) : 0;
+  }
+  return out;
+}
 
+/** 回测窗口在全局日期轴上的下标区间 `[lo, hi)`。 */
+export function windowBounds(axis: string[], config: BacktestConfig) {
   let lo = 0;
   while (lo < axis.length && axis[lo] < config.from) lo += 1;
   let hi = axis.length;
   while (hi > lo && axis[hi - 1] > config.to) hi -= 1;
+  return { lo, hi };
+}
+
+export type SymbolRun = {
+  bars: TradeBar[];
+  days: TradeDay[];
+  closed: ClosedTrade[];
+  signalCount: number;
+};
+
+/**
+ * 单只标的的信号掩码与逐日风控推进。
+ *
+ * 抽出来是为了让图表接口和回测走**同一份**实现：图上画的进出场点、止损线、
+ * 吊灯线必须与逐笔表逐行对齐，各写一遍迟早会漂。
+ */
+export function runSymbol(
+  axis: string[],
+  sym: PreparedSymbol,
+  config: BacktestConfig,
+  lo: number,
+  hi: number,
+): SymbolRun {
+  const n = sym.axisIndex.length;
+  const bars: TradeBar[] = new Array(n);
+  const buy1 = new Array<boolean>(n);
+  const buy2 = new Array<boolean>(n);
+  const rs = new Array<number>(n);
+  let signalCount = 0;
+
+  for (let i = 0; i < n; i += 1) {
+    bars[i] = {
+      date: axis[sym.axisIndex[i]],
+      high: sym.high[i],
+      low: sym.low[i],
+      close: sym.close[i],
+      open: sym.open?.[i],
+    };
+
+    // 信号掩码：窗口内 + 当日为成分 + 流动性/趋势初筛 + 截面 RPS 达标 + 该信号类型启用
+    const d = sym.axisIndex[i];
+    const liquid =
+      (config.minAdtvUsd <= 0 || sym.adtv50[i] >= config.minAdtvUsd) &&
+      (config.minPrice <= 0 || sym.close[i] >= config.minPrice) &&
+      (!config.requireTrend || sym.aboveTrend[i] === 1);
+    // rps 为 0 表示当日未进入截面（回看未齐），此时不可入场：
+    // 分位下界被夹到 1，所以「已排名」等价于 rps >= 1。
+    // 不能只写 rps >= rpsMin —— rpsMin 为 0 时会把未排名的也放进来。
+    const ranked = sym.rps[i] >= 1;
+    const eligible =
+      d >= lo &&
+      d < hi &&
+      sym.isMember[i] === 1 &&
+      ranked &&
+      liquid &&
+      sym.rps[i] >= config.rpsMin;
+    buy1[i] = eligible && config.useBuy1 && sym.buy1[i] === 1;
+    buy2[i] = eligible && config.useBuy2 && sym.buy2[i] === 1;
+    if (buy1[i] || buy2[i]) signalCount += 1;
+
+    // 非成分日、以及回看未齐（rps=0）的日子都填 100：见 BacktestConfig.rpsExit 的注释。
+    // 未排名填 0 会让转弱离场在预热期无条件触发，测出来的就不是这个参数了。
+    rs[i] = sym.isMember[i] === 1 && sym.rps[i] >= 1 ? sym.rps[i] : 100;
+  }
+
+  // 入场闸门已由上面的 RPS 掩码承担，故 minRs 置 0；rs 只用于转弱离场
+  const { days, closed } = computeRotationTrades(sym.ticker, bars, buy1, buy2, rs, {
+    minRs: 0,
+    useCommercialRsGate: false,
+    useEarlyBreakeven: false,
+    takeProfitR: config.takeProfitR,
+    stopMult: config.stopMult,
+    trailMult: config.trailMult,
+    rsExitBelow: config.rpsExit,
+  });
+
+  return { bars, days, closed, signalCount };
+}
+
+export function runBacktest(universe: PreparedUniverse, config: BacktestConfig): BacktestResult {
+  const { axis, symbols } = universe;
+
+  const { lo, hi } = windowBounds(axis, config);
   const win = axis.slice(lo, hi);
   const w = win.length;
 
-  const heldSum = new Float64Array(w);
-  const heldCount = new Int32Array(w);
+  /** Σ 权重 × 当日收益，与 Σ 权重 配对，见 RISK_BUDGET_PCT。 */
+  const heldWret = new Float64Array(w);
+  const heldWeight = new Float64Array(w);
   const benchSum = new Float64Array(w);
   const benchCount = new Int32Array(w);
 
@@ -479,79 +618,44 @@ export function runBacktest(universe: PreparedUniverse, config: BacktestConfig):
     if (n === 0 || sym.axisIndex[n - 1] < lo || sym.axisIndex[0] >= hi) continue;
     activeSymbols += 1;
 
-    const bars: TradeBar[] = new Array(n);
-    const buy1 = new Array<boolean>(n);
-    const buy2 = new Array<boolean>(n);
-    const rs = new Array<number>(n);
-    for (let i = 0; i < n; i += 1) {
-      bars[i] = {
-        date: axis[sym.axisIndex[i]],
-        high: sym.high[i],
-        low: sym.low[i],
-        close: sym.close[i],
-      };
-
-      // 信号掩码：窗口内 + 当日为成分 + 流动性/趋势初筛 + 截面 RPS 达标 + 该信号类型启用
-      const d = sym.axisIndex[i];
-      const liquid =
-        (config.minAdtvUsd <= 0 || sym.adtv50[i] >= config.minAdtvUsd) &&
-        (config.minPrice <= 0 || sym.close[i] >= config.minPrice) &&
-        (!config.requireTrend || sym.aboveTrend[i] === 1);
-      // rps 为 0 表示当日未进入截面（回看未齐），此时不可入场：
-      // 分位下界被夹到 1，所以「已排名」等价于 rps >= 1。
-      // 不能只写 rps >= rpsMin —— rpsMin 为 0 时会把未排名的也放进来。
-      const ranked = sym.rps[i] >= 1;
-      const eligible =
-        d >= lo &&
-        d < hi &&
-        sym.isMember[i] === 1 &&
-        ranked &&
-        liquid &&
-        sym.rps[i] >= config.rpsMin;
-      buy1[i] = eligible && config.useBuy1 && sym.buy1[i] === 1;
-      buy2[i] = eligible && config.useBuy2 && sym.buy2[i] === 1;
-      if (buy1[i] || buy2[i]) signalCount += 1;
-
-      // 非成分日、以及回看未齐（rps=0）的日子都填 100：见 BacktestConfig.rpsExit 的注释。
-      // 未排名填 0 会让转弱离场在预热期无条件触发，测出来的就不是这个参数了。
-      rs[i] = sym.isMember[i] === 1 && sym.rps[i] >= 1 ? sym.rps[i] : 100;
-    }
-
-    // 入场闸门已由上面的 RPS 掩码承担，故 minRs 置 0；rs 只用于转弱离场
-    const { days, closed } = computeRotationTrades(sym.ticker, bars, buy1, buy2, rs, {
-      minRs: 0,
-      useCommercialRsGate: false,
-      useEarlyBreakeven: false,
-      takeProfitR: config.takeProfitR,
-      stopMult: config.stopMult,
-      trailMult: config.trailMult,
-      rsExitBelow: config.rpsExit,
-    });
+    const { days, closed, signalCount: hits } = runSymbol(axis, sym, config, lo, hi);
+    signalCount += hits;
     allTrades.push(...closed);
 
-    // 组合层用前一根的持仓状态缩放当日收益：开仓价即当根收盘价，
-    // 当根的涨跌吃不到，用同根状态会凭空多吃一天。
+    // 组合层的日收益必须和成交时点对齐：建仓与清仓都发生在开盘，
+    // 所以首日只吃到 open→close，末日只吃到 prevClose→open，中间才是收盘到收盘。
+    // 基准是买入持有，不涉及成交时点，仍按收盘到收盘计。
     for (let i = 1; i < n; i += 1) {
       const d = sym.axisIndex[i] - lo;
       if (d < 0 || d >= w) continue;
 
       const prev = sym.close[i - 1];
       if (!(prev > 0)) continue;
-      const ret = sym.close[i] / prev - 1;
-      if (!Number.isFinite(ret)) continue;
+      const benchRet = sym.close[i] / prev - 1;
+      if (!Number.isFinite(benchRet)) continue;
 
       if (sym.isMember[i - 1] === 1) {
-        benchSum[d] += ret;
+        benchSum[d] += benchRet;
         benchCount[d] += 1;
       }
-      if (days[i - 1].sigType !== 0) {
-        heldSum[d] += ret;
-        heldCount[d] += 1;
+
+      const day = days[i];
+      const open = sym.open?.[i] ?? sym.close[i];
+      let ret: number | null = null;
+      if (day.entered) ret = open > 0 ? sym.close[i] / open - 1 : null;
+      else if (day.exited) ret = open / prev - 1;
+      else if (day.sigType !== 0) ret = benchRet;
+
+      if (ret != null && Number.isFinite(ret) && day.riskPct != null && day.riskPct > 0) {
+        // 等权口径下每日权重由当日持仓数决定，故先按 1 累加、最后再除以只数
+        const weight = config.riskBudgetPct != null ? config.riskBudgetPct / day.riskPct : 1;
+        heldWret[d] += weight * ret;
+        heldWeight[d] += weight;
       }
     }
   }
 
-  const heldRet = equalWeight(heldSum, heldCount);
+  const heldRet = riskWeighted(heldWret, heldWeight);
   const benchRet = equalWeight(benchSum, benchCount);
 
   let cut = 0;
@@ -565,7 +669,7 @@ export function runBacktest(universe: PreparedUniverse, config: BacktestConfig):
       from,
       to,
       trade: tradeStats(allTrades.filter((t) => t.entryDate >= from && t.entryDate <= to)),
-      portfolio: portfolioStats(heldRet.subarray(a, b)),
+      portfolio: portfolioStats(heldRet.subarray(a, b), heldWeight.subarray(a, b)),
       benchmark: portfolioStats(benchRet.subarray(a, b)),
     };
   };

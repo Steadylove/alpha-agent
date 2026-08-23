@@ -1,9 +1,27 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@/generated/prisma/client";
+import { readOrEmpty } from "@/lib/db/degrade";
 
 const globalForPrisma = globalThis as unknown as {
-  prisma?: PrismaClient;
+  prisma?: ExtendedPrismaClient;
 };
+
+type ExtendedPrismaClient = ReturnType<typeof extend>;
+
+/**
+ * 库整体不可达时让只读查询退化成空结果，看板页因此渲染成「数据生成中」
+ * 而不是 500。写操作不在降级范围内，仍会抛错。见 lib/db/degrade.ts。
+ */
+function extend(client: PrismaClient) {
+  return client.$extends({
+    query: {
+      $allModels: {
+        $allOperations: ({ operation, args, query }) =>
+          readOrEmpty(operation, () => query(args)),
+      },
+    },
+  });
+}
 
 export function getPrisma() {
   if (globalForPrisma.prisma) {
@@ -23,10 +41,12 @@ export function getPrisma() {
     // 正常耗时 13~18 秒，设紧了会把正常查询一起杀掉。
     statement_timeout: 120_000,
   });
-  const prisma = new PrismaClient({
-    adapter,
-    log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
-  });
+  const prisma = extend(
+    new PrismaClient({
+      adapter,
+      log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
+    }),
+  );
 
   // 生产环境同样要缓存。原先只在非生产写入，导致线上每次调用都新建一个
   // PrismaClient 与 pg 连接池（默认 10 条），每请求一个池，Neon 连接数很快

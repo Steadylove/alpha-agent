@@ -41,7 +41,15 @@ async function fetchSnapshot(): Promise<PanelSnapshot> {
 
   const [panels, membership] = await Promise.all([
     prisma.backtestPanel.findMany({
-      select: { ticker: true, days: true, high: true, low: true, close: true, volume: true },
+      select: {
+        ticker: true,
+        days: true,
+        high: true,
+        low: true,
+        close: true,
+        volume: true,
+        open: true,
+      },
     }),
     prisma.indexMembership.findMany({
       where: { hasBars: true },

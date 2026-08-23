@@ -104,7 +104,7 @@ export async function getStockSignalChart(symbol: string): Promise<StockSignalCh
   });
   if (rows.length < 200) return null;
 
-  const bars = rows.map((r) => ({ high: r.high, low: r.low, close: r.close }));
+  const bars = rows.map((r) => ({ open: r.open, high: r.high, low: r.low, close: r.close }));
   const signals = computeLogMacdSeries(bars);
   const { days, closed } = computeStockRisk(
     bars,

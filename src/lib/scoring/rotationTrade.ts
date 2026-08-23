@@ -5,11 +5,25 @@
  *
  * Pine 命名提示：源码里的 `tp_level` 名为止盈，实为跟随最高价的吊灯**止损**
  * （初始 = 开仓价 - 5.5×ATR，在开仓价下方），本模块改名 trailLevel 以免误读。
+ *
+ * 成交时点与 Pine 不同，是有意的：点火与出场条件全部取自收盘价，收盘价要等收盘
+ * 之后才存在，所以两者都只能在**次日开盘**成交。Pine（以及本模块此前的实现）按
+ * 信号当根收盘价成交，等于在知道收盘价的同时还能拿到它，白吃了隔夜跳空。
  */
 
 import { atrSeries, smaSeries } from "./series";
 
-export type TradeBar = { date: string; high: number; low: number; close: number };
+/**
+ * `open` 缺失时成交价退化为当根收盘价。成交时点仍是次日，只是价格精度变差，
+ * 不会退回「信号当根收盘成交」那种拿不到的价。
+ */
+export type TradeBar = {
+  date: string;
+  high: number;
+  low: number;
+  close: number;
+  open?: number;
+};
 
 export type RotationTradeParams = {
   /**
@@ -138,7 +152,14 @@ export type TradeDay = {
   maxPnlPct: number;
   floatPnlPct: number;
   breakevenLocked: boolean;
+  /**
+   * 该笔的初始 1R 占开仓价的百分比，持仓期内恒定（不随保本锁上移而变）。
+   * 组合层按它反比定仓，故清仓成交的那根也要给出——那根仍持有到开盘。
+   */
+  riskPct: number | null;
+  /** 成交日而非点火日：点火在前一根收盘，这里是次日开盘真正建仓的那根。 */
   entered: boolean;
+  /** 成交日而非触发日。该根开盘已清仓，故同根的 sigType 已是 0。 */
   exited: boolean;
 };
 
@@ -175,6 +196,10 @@ export function computeRotationTrades(
   let maxPnlPct = 0;
   /** 开仓时的止损距离，即 1R。 */
   let initialRisk = 0;
+  /** 收盘产生的指令，次日开盘成交。ATR 一并留存：开盘时只知道到前一根的 ATR。 */
+  let pendingEntry: SignalType = 0;
+  let pendingEntryAtr = 0;
+  let pendingExit: ExitReason | null = null;
 
   for (let i = 0; i < bars.length; i += 1) {
     const bar = bars[i];
@@ -186,23 +211,51 @@ export function computeRotationTrades(
         ? EARLY_BREAKEVEN_TRIGGER_PCT
         : BREAKEVEN_TRIGGER_PCT;
 
-    // 开仓：仅在空仓时点火，ATR 未预热完成则跳过（Pine 中 na 会让止损失效）
-    const rsGateOk = params.useCommercialRsGate
-      ? rs[i] >= COMMERCIAL_RS_ENTRY
-      : rs[i] >= params.minRs;
-    if (sigType === 0 && atr != null && atr > 0 && rsGateOk) {
-      const fired: SignalType = buy1[i] ? 1 : buy2[i] ? 2 : 0;
-      if (fired !== 0) {
-        sigType = fired;
-        entryPrice = bar.close;
-        entryIndex = i;
-        stopLevel = bar.close - stopMult * atr;
-        trailLevel = bar.close - trailMult * atr;
-        initialRisk = stopMult * atr;
-        highWater = bar.high;
-        maxPnlPct = 0;
-        entered = true;
-      }
+    // ── 开盘：执行前一根收盘挂下的指令 ──
+    const fill = bar.open ?? bar.close;
+    /** 清仓那根的风险敞口在状态清空前留存，组合层还要用它给这半天定权重。 */
+    let exitedRiskPct: number | null = null;
+
+    if (pendingExit != null && entryPrice != null) {
+      exitedRiskPct = (initialRisk / entryPrice) * 100;
+      closed.push({
+        symbol,
+        sigType: sigType as 1 | 2,
+        entryIndex,
+        entryDate: bars[entryIndex].date,
+        entryPrice,
+        exitIndex: i,
+        exitDate: bar.date,
+        exitPrice: fill,
+        pnlPct: ((fill - entryPrice) / entryPrice) * 100,
+        barsHeld: i - entryIndex,
+        exitReason: pendingExit,
+        riskPct: (initialRisk / entryPrice) * 100,
+      });
+      sigType = 0;
+      entryPrice = null;
+      entryIndex = -1;
+      stopLevel = null;
+      trailLevel = null;
+      highWater = 0;
+      maxPnlPct = 0;
+      initialRisk = 0;
+      exited = true;
+    }
+    pendingExit = null;
+
+    // 出场腾出的仓位当根不会被占回：挂单时还在持仓，点火条件就不成立
+    if (pendingEntry !== 0) {
+      sigType = pendingEntry;
+      entryPrice = fill;
+      entryIndex = i;
+      stopLevel = fill - stopMult * pendingEntryAtr;
+      trailLevel = fill - trailMult * pendingEntryAtr;
+      initialRisk = stopMult * pendingEntryAtr;
+      highWater = fill;
+      maxPnlPct = 0;
+      entered = true;
+      pendingEntry = 0;
     }
 
     // 持仓管理：Pine 中这一段在开仓当根同样执行
@@ -228,21 +281,20 @@ export function computeRotationTrades(
       const targetHit = targetLevel != null && bar.close >= targetLevel;
 
       if (vetoed || rsWeak || stopHit || targetHit) {
-        closed.push({
-          symbol,
-          sigType: sigType as 1 | 2,
-          entryIndex,
-          entryDate: bars[entryIndex].date,
-          entryPrice,
-          exitIndex: i,
-          exitDate: bar.date,
-          exitPrice: bar.close,
-          pnlPct: ((bar.close - entryPrice) / entryPrice) * 100,
-          barsHeld: i - entryIndex,
-          exitReason: vetoed ? "veto" : stopHit ? "stop" : rsWeak ? "rsWeak" : "target",
-          riskPct: (initialRisk / entryPrice) * 100,
-        });
-        exited = true;
+        pendingExit = vetoed ? "veto" : stopHit ? "stop" : rsWeak ? "rsWeak" : "target";
+      }
+    }
+
+    // 点火：条件全部取自当根收盘，故成交只能落到次日开盘。
+    // 已挂出场单的持仓不再点火，避免同根既清又建。
+    const rsGateOk = params.useCommercialRsGate
+      ? rs[i] >= COMMERCIAL_RS_ENTRY
+      : rs[i] >= params.minRs;
+    if (sigType === 0 && pendingExit == null && atr != null && atr > 0 && rsGateOk) {
+      const fired: SignalType = buy1[i] ? 1 : buy2[i] ? 2 : 0;
+      if (fired !== 0) {
+        pendingEntry = fired;
+        pendingEntryAtr = atr;
       }
     }
 
@@ -260,20 +312,12 @@ export function computeRotationTrades(
       maxPnlPct,
       floatPnlPct,
       breakevenLocked: maxPnlPct >= breakevenTrigger,
+      riskPct:
+        exitedRiskPct ??
+        (entryPrice != null && initialRisk > 0 ? (initialRisk / entryPrice) * 100 : null),
       entered,
       exited,
     });
-
-    if (exited) {
-      sigType = 0;
-      entryPrice = null;
-      entryIndex = -1;
-      stopLevel = null;
-      trailLevel = null;
-      highWater = 0;
-      maxPnlPct = 0;
-      initialRisk = 0;
-    }
   }
 
   return { days, closed };
