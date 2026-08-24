@@ -39,14 +39,11 @@ async function main() {
 
   const url = process.env.PANEL_SNAPSHOT_URL;
   if (!url) {
-    // 部署环境缺快照等于上线一个空实验室，宁可让构建失败
-    if (process.env.VERCEL) {
-      throw new Error(
-        "未设置 PANEL_SNAPSHOT_URL，构建产物里不会有面板快照，" +
-          "实验室上线后取不到数据。请在项目环境变量里配置快照下载地址。",
-      );
-    }
-    console.log("[panel] 无缓存且未设置 PANEL_SNAPSHOT_URL，跳过（本地可用 npm run panel:cache 重建）");
+    console.warn(
+      "[panel] 无缓存且未设置 PANEL_SNAPSHOT_URL，跳过。" +
+        "标普/纳指实验室上线后没有面板快照；Small Fund 仍读仓库 CSV。" +
+        "需要完整面板时再配快照地址，或本地 npm run panel:cache。",
+    );
     return;
   }
 
