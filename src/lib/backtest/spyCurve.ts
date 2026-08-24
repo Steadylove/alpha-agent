@@ -51,6 +51,12 @@ export async function loadSpyCloses(): Promise<Map<string, number> | null> {
   }
 }
 
+function lastWhere<T>(items: readonly T[], pred: (item: T) => boolean): T | undefined {
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    if (pred(items[i])) return items[i];
+  }
+}
+
 /**
  * 把 SPY 买入持有叠到已有账本上。净值以窗口首日前一交易日收盘为 1，
  * 这样分年 / YTD 和策略用的「含首日涨跌」口径一致。
@@ -79,15 +85,15 @@ export function overlaySpyCurve(
 
   for (const row of byYear) {
     const year = String(row.year);
-    const end = book.findLast((d) => d.date.startsWith(year) && d.spy != null);
-    const prev = book.findLast((d) => d.date < `${year}-01-01` && d.spy != null);
+    const end = lastWhere(book, (d) => d.date.startsWith(year) && d.spy != null);
+    const prev = lastWhere(book, (d) => d.date < `${year}-01-01` && d.spy != null);
     if (!end?.spy) continue;
     row.spyPct = (end.spy / (prev?.spy ?? 1) - 1) * 100;
   }
 
   if (ytd) {
-    const end = book.findLast((d) => d.date <= ytd.to && d.spy != null);
-    const prev = book.findLast((d) => d.date < ytd.from && d.spy != null);
+    const end = lastWhere(book, (d) => d.date <= ytd.to && d.spy != null);
+    const prev = lastWhere(book, (d) => d.date < ytd.from && d.spy != null);
     if (end?.spy) ytd.spyPct = (end.spy / (prev?.spy ?? 1) - 1) * 100;
   }
 }

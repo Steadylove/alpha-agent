@@ -201,10 +201,16 @@ const VEGAS_SHORT = { vegasFastA: 200, vegasFastB: 200, vegasSlowA: 250, vegasSl
 const pct = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
 const tone = (v: number) => (v >= 0 ? POS : NEG);
 
+function lastWhere<T>(items: readonly T[], pred: (item: T) => boolean): T | undefined {
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    if (pred(items[i])) return items[i];
+  }
+}
+
 /** 窗口内标普净值倍数；账本已按窗口首日前一日归一。 */
 function spyMultiple(book: DayBook[], from: string, to: string): number | null {
-  const end = book.findLast((d) => d.date <= to && d.date >= from && d.spy != null);
-  const prev = book.findLast((d) => d.date < from && d.spy != null);
+  const end = lastWhere(book, (d) => d.date <= to && d.date >= from && d.spy != null);
+  const prev = lastWhere(book, (d) => d.date < from && d.spy != null);
   if (!end?.spy) return null;
   return end.spy / (prev?.spy ?? 1);
 }
