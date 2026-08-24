@@ -22,6 +22,10 @@ const TRAIL = "#a855f7";
 const TARGET = "#14b8a6";
 const BUY1 = "#ff4976";
 const BUY2 = "#fbbf24";
+const VEGAS_FAST = "#0ea5e9";
+const VEGAS_SLOW = "#6366f1";
+const RSI_LINE = "#f59e0b";
+const FILTERED = "#71717a";
 
 /** 聚焦单笔时前后各留的交易日，用来看清入场前的形态与离场后的走势。 */
 const PAD_BEFORE = 70;
@@ -40,11 +44,36 @@ type Trade = {
   isOutOfSample: boolean;
 };
 
+type Signal = {
+  date: string;
+  sigType: 1 | 2;
+  rsi: number | null;
+  rps: number;
+  vegasOk: boolean;
+  accepted: boolean;
+  reject: string | null;
+  fillDate: string | null;
+};
+
 type ChartData = {
   symbol: string;
   splitDate: string;
+  filters: {
+    requireRsi: boolean;
+    minRsi: number;
+    requireVegas: boolean;
+    vegas: { fastA: number; fastB: number; slowA: number; slowB: number };
+  };
   bars: { time: string[]; open: number[]; high: number[]; low: number[]; close: number[] };
   levels: { stop: (number | null)[]; trail: (number | null)[]; target: (number | null)[] };
+  vegas: {
+    fastA: (number | null)[];
+    fastB: (number | null)[];
+    slowA: (number | null)[];
+    slowB: (number | null)[];
+  };
+  rsi: (number | null)[];
+  signals: Signal[];
   trades: Trade[];
 };
 
@@ -152,7 +181,7 @@ export function LabSymbolChart({
     const chart = createChart(containerRef.current, {
       layout: { background: { color: "transparent" }, textColor: "#a1a1aa", fontSize: 11 },
       grid: { vertLines: { color: "#27272a" }, horzLines: { color: "#27272a" } },
-      rightPriceScale: { borderColor: "#3f3f46", scaleMargins: { top: 0.12, bottom: 0.12 } },
+      rightPriceScale: { borderColor: "#3f3f46", scaleMargins: { top: 0.08, bottom: 0.22 } },
       // minBarSpacing 默认 0.5px，二十年 5000 根要 0.17px/根，不放开的话
       // fitContent 会被静默夹住，只显示最近十年——看着像全期，其实不是。
       timeScale: { borderColor: "#3f3f46", rightOffset: 4, minBarSpacing: 0.05 },
@@ -162,6 +191,27 @@ export function LabSymbolChart({
     chartRef.current = chart;
 
     const { time, open, high, low, close } = data.bars;
+
+    for (const line of [
+      { values: data.vegas?.fastA ?? [], color: VEGAS_FAST },
+      { values: data.vegas?.fastB ?? [], color: VEGAS_FAST },
+      { values: data.vegas?.slowA ?? [], color: VEGAS_SLOW },
+      { values: data.vegas?.slowB ?? [], color: VEGAS_SLOW },
+    ]) {
+      const points = time.map((t, i) => ({ time: t, value: line.values[i] }));
+      for (const seg of segments(points)) {
+        chart
+          .addSeries(LineSeries, {
+            color: line.color,
+            lineWidth: 1,
+            priceLineVisible: false,
+            lastValueVisible: false,
+            crosshairMarkerVisible: false,
+          })
+          .setData(seg);
+      }
+    }
+
     const candles = chart.addSeries(CandlestickSeries, {
       upColor: UP,
       downColor: DOWN,
@@ -200,6 +250,40 @@ export function LabSymbolChart({
       }
     }
 
+    const rsiSeries = chart.addSeries(LineSeries, {
+      color: RSI_LINE,
+      lineWidth: 1,
+      priceScaleId: "rsi",
+      priceLineVisible: false,
+      lastValueVisible: true,
+      crosshairMarkerVisible: false,
+    });
+    chart.priceScale("rsi").applyOptions({
+      borderColor: "#3f3f46",
+      scaleMargins: { top: 0.82, bottom: 0 },
+    });
+    const rsiPoints = time.map((t, i) => ({ time: t, value: data.rsi?.[i] ?? null }));
+    for (const seg of segments(rsiPoints)) rsiSeries.setData(seg);
+
+    if (data.filters.requireRsi) {
+      const threshold = time
+        .map((t, i) => (data.rsi[i] == null ? null : { time: t, value: data.filters.minRsi }))
+        .filter((p): p is { time: string; value: number } => p != null);
+      if (threshold.length > 0) {
+        chart
+          .addSeries(LineSeries, {
+            color: "#a1a1aa",
+            lineWidth: 1,
+            lineStyle: LineStyle.Dashed,
+            priceScaleId: "rsi",
+            priceLineVisible: false,
+            lastValueVisible: false,
+            crosshairMarkerVisible: false,
+          })
+          .setData(threshold.map((p) => ({ time: p.time as Time, value: p.value })));
+      }
+    }
+
     markersRef.current = createSeriesMarkers(candles, []);
 
     return () => {
@@ -214,6 +298,22 @@ export function LabSymbolChart({
     const plugin = markersRef.current;
     if (!plugin || !data) return;
     const markers: SeriesMarker<Time>[] = [];
+    const focusTrade = currentIdx >= 0 ? data.trades[currentIdx] : null;
+    const signals = data.signals ?? [];
+
+    signals.forEach((s) => {
+      const rsiText = s.rsi == null ? "RSI—" : `RSI ${s.rsi.toFixed(0)}`;
+      const tagged = focusTrade != null && (s.fillDate === focusTrade.entryDate || s.date === focusTrade.entryDate);
+      const reason = s.accepted ? "" : s.reject ? ` · ${s.reject}` : "";
+      markers.push({
+        time: s.date as Time,
+        position: "belowBar",
+        shape: s.accepted ? "arrowUp" : "circle",
+        color: s.accepted ? (s.sigType === 1 ? BUY1 : BUY2) : FILTERED,
+        text: tagged || !s.accepted ? `${s.sigType === 1 ? "一买" : "二买"} ${rsiText}${reason}` : rsiText,
+      });
+    });
+
     data.trades.forEach((t, i) => {
       const labelled = i === currentIdx;
       markers.push({
@@ -221,7 +321,7 @@ export function LabSymbolChart({
         position: "belowBar",
         shape: "arrowUp",
         color: t.sigType === 1 ? BUY1 : BUY2,
-        text: labelled ? `${t.sigType === 1 ? "一买" : "二买"} ${t.entryPrice.toFixed(2)}` : "",
+        text: labelled ? `开仓 ${t.entryPrice.toFixed(2)}` : "",
       });
       markers.push({
         time: t.exitDate as Time,
@@ -242,12 +342,15 @@ export function LabSymbolChart({
     if (!chart || !data) return;
     const { time } = data.bars;
     const trade = focusIdx >= 0 ? data.trades[focusIdx] : null;
-    if (!trade) {
+    const signal = (data.signals ?? []).find((s) => s.date === focus || s.fillDate === focus);
+    if (!trade && !signal) {
       chart.timeScale().fitContent();
       return;
     }
-    const lo = Math.max(0, time.indexOf(trade.entryDate) - PAD_BEFORE);
-    const hi = Math.min(time.length - 1, time.indexOf(trade.exitDate) + PAD_AFTER);
+    const from = trade?.entryDate ?? signal!.date;
+    const to = trade?.exitDate ?? signal!.date;
+    const lo = Math.max(0, time.indexOf(from) - PAD_BEFORE);
+    const hi = Math.min(time.length - 1, time.indexOf(to) + PAD_AFTER);
     chart.timeScale().setVisibleRange({ from: time[lo] as Time, to: time[hi] as Time });
   }, [data, focusIdx]);
 
@@ -332,16 +435,85 @@ export function LabSymbolChart({
             </Text>
           </Group>
 
-          <div ref={containerRef} style={{ height: 430 }} />
+          <div ref={containerRef} style={{ height: 520 }} />
 
           <Group gap="lg" wrap="wrap">
-            <Legend color={STOP} text="初始止损 stopMult×ATR（持仓期恒定）" />
-            <Legend color={TRAIL} text="吊灯止损（跟随最高价上抬，浮盈越高收得越紧）" />
+            <Legend color={VEGAS_FAST} text={`Vegas 短 EMA${data.filters.vegas.fastA}/${data.filters.vegas.fastB}`} />
+            <Legend color={VEGAS_SLOW} text={`Vegas 长 EMA${data.filters.vegas.slowA}/${data.filters.vegas.slowB}`} />
+            <Legend color={RSI_LINE} text="RSI14（底部副图）" />
+            <Legend color={STOP} text="初始止损" />
+            <Legend color={TRAIL} text="吊灯止损" />
             <Legend color={TARGET} text="R 倍数止盈（未开启时不画）" dashed />
-            <Text size="xs" c="dimmed">
-              箭头落在<b>成交那一根</b>：信号在前一根收盘确认，次日开盘才成交
-            </Text>
+            <Legend color={FILTERED} text="灰圈 = 买点被过滤（图上标 RSI 与原因）" />
           </Group>
+          <Text size="xs" c="dimmed">
+            买点标在<b>信号根</b>（收盘确认），开仓箭头在<b>次日开盘</b>。
+            过滤看灰圈：RSI 低于门槛、Vegas 短线未站上长线、或当时已持仓。
+            出场看向下箭头，对应吊灯 / 止盈 / 转弱。
+          </Text>
+
+          {(data.signals ?? []).length > 0 ? (
+            <Table fz="xs" verticalSpacing={4} highlightOnHover>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>信号日</Table.Th>
+                  <Table.Th>类型</Table.Th>
+                  <Table.Th ta="right">RSI</Table.Th>
+                  <Table.Th ta="right">RPS</Table.Th>
+                  <Table.Th>Vegas</Table.Th>
+                  <Table.Th>结果</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {(data.signals ?? []).map((s) => (
+                  <Table.Tr
+                    key={`${s.date}-${s.sigType}`}
+                    onClick={() =>
+                      symbol &&
+                      setPicked({ symbol, entryDate: s.fillDate ?? s.date })
+                    }
+                    style={{ cursor: "pointer" }}
+                  >
+                    <Table.Td ff="monospace">{s.date}</Table.Td>
+                    <Table.Td>{s.sigType === 1 ? "一买" : "二买"}</Table.Td>
+                    <Table.Td
+                      ta="right"
+                      ff="monospace"
+                      style={{
+                        color:
+                          s.rsi == null
+                            ? undefined
+                            : data.filters.requireRsi && s.rsi < data.filters.minRsi
+                              ? DOWN
+                              : UP,
+                      }}
+                    >
+                      {s.rsi == null ? "—" : s.rsi.toFixed(1)}
+                    </Table.Td>
+                    <Table.Td ta="right" ff="monospace">
+                      {s.rps >= 1 ? s.rps.toFixed(0) : "—"}
+                    </Table.Td>
+                    <Table.Td c={s.vegasOk ? "teal.4" : "dimmed"}>
+                      {s.vegasOk ? "站上" : "未站上"}
+                    </Table.Td>
+                    <Table.Td>
+                      <Badge
+                        size="xs"
+                        variant="light"
+                        color={s.accepted ? "teal" : "gray"}
+                      >
+                        {s.accepted ? "开仓" : s.reject ?? "过滤"}
+                      </Badge>
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          ) : (
+            <Text size="xs" c="dimmed">
+              当前参数下这只标的没有一买/二买点火。
+            </Text>
+          )}
 
           {data.trades.length > 0 ? (
             <Table fz="xs" verticalSpacing={4} highlightOnHover>

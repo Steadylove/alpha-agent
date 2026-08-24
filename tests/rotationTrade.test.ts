@@ -55,6 +55,18 @@ describe("computeRotationTrades", () => {
     expect(days[ENTRY].entered).toBe(true);
     expect(days[ENTRY].sigType).toBe(1);
     expect(days[ENTRY].entryPrice).toBe(100);
+    expect(days[ENTRY].entryRps).toBe(99);
+  });
+
+  it("entryRps 取点火根的 RS，持仓期内不变", () => {
+    const n = 120;
+    const bars = makeBars(new Array(n).fill(100));
+    const rs = allPass(n);
+    rs[SIG] = 72;
+    rs[ENTRY] = 10;
+    const { days } = computeRotationTrades("TEST", bars, fireAt(n, SIG), noSignals(n), rs);
+    expect(days[ENTRY].entryRps).toBe(72);
+    expect(days[ENTRY + 3].entryRps).toBe(72);
   });
 
   it("成交价取次日开盘价，不是点火根的收盘价", () => {

@@ -26,6 +26,7 @@ import {
   type TradeBar,
   type TradeDay,
 } from "@/lib/scoring/rotationTrade";
+import { emaSeries, rsiSeries } from "@/lib/scoring/series";
 
 import type { PanelBars } from "./panel";
 
@@ -59,6 +60,13 @@ export type PreparedSymbol = {
    * 正是长期牛股回踩中继的形态——恰好是抄底信号想要的场景。两条均线都未预热时为 0。
    */
   aboveTrend: Uint8Array;
+  /** 标准 14 日 RSI。预热不足时为 0，闸门开启时会被排除。 */
+  rsi14: Float32Array;
+  /**
+   * Vegas 通道：min(EMA166, EMA169) > max(EMA576, EMA676)。
+   * 四条 EMA 任一未播种则为 0——新股满 676 根之前不参与，不是放行。
+   */
+  vegasOk: Uint8Array;
 };
 
 export type PreparedUniverse = {
@@ -143,10 +151,48 @@ function rollingMean(values: ArrayLike<number>, window: number): Float32Array<Ar
 const ADTV_WINDOW = 50;
 const TREND_FAST = 200;
 const TREND_SLOW = 850;
+const RSI_LENGTH = 14;
+
+/** Small Fund 规格的 Vegas 通道。周期写死在准备段：改周期要重算，不进 BacktestConfig。 */
+export const VEGAS_FAST = [166, 169] as const;
+export const VEGAS_SLOW = [576, 676] as const;
+
+export type VegasLens = {
+  fast: readonly [number, number];
+  slow: readonly [number, number];
+};
+
+const DEFAULT_VEGAS: VegasLens = { fast: VEGAS_FAST, slow: VEGAS_SLOW };
+
+const toCloses = (values: Float32Array) => Array.from(values);
+
+function fillOrZero(src: readonly (number | null)[]): Float32Array {
+  const out = new Float32Array(src.length);
+  for (let i = 0; i < src.length; i += 1) out[i] = src[i] ?? 0;
+  return out;
+}
+
+function vegasMask(closes: number[], lens: VegasLens): Uint8Array {
+  const a = emaSeries(closes, lens.fast[0]);
+  const b = emaSeries(closes, lens.fast[1]);
+  const c = emaSeries(closes, lens.slow[0]);
+  const d = emaSeries(closes, lens.slow[1]);
+  const out = new Uint8Array(closes.length);
+  for (let i = 0; i < closes.length; i += 1) {
+    const fa = a[i];
+    const fb = b[i];
+    const sa = c[i];
+    const sb = d[i];
+    if (fa == null || fb == null || sa == null || sb == null) continue;
+    if (Math.min(fa, fb) > Math.max(sa, sb)) out[i] = 1;
+  }
+  return out;
+}
 
 export function prepareUniverse(
   panels: readonly PanelBars[],
   membership: ReadonlyMap<string, readonly MembershipSpan[]>,
+  vegas: VegasLens = DEFAULT_VEGAS,
 ): PreparedUniverse {
   const axis = [...new Set(panels.flatMap((p) => p.dates))].sort();
   const axisPos = new Map(axis.map((d, i) => [d, i]));
@@ -197,6 +243,8 @@ export function prepareUniverse(
         (maFast[i] > 0 && c > maFast[i]) || (maSlow[i] > 0 && c > maSlow[i]) ? 1 : 0;
     }
 
+    const closes = toCloses(panel.close);
+
     return {
       ticker: panel.ticker,
       axisIndex,
@@ -210,6 +258,8 @@ export function prepareUniverse(
       isMember,
       adtv50,
       aboveTrend,
+      rsi14: fillOrZero(rsiSeries(closes, RSI_LENGTH)),
+      vegasOk: vegasMask(closes, vegas),
     };
   });
 
@@ -296,6 +346,25 @@ export type BacktestConfig = {
   minPrice: number;
   /** 要求收盘价站上 MA200 或 MA850。 */
   requireTrend: boolean;
+
+  /** 是否启用 RSI 闸门。关掉时 `minRsi` 不参与判定。 */
+  requireRsi: boolean;
+  /**
+   * 标准 14 日 RSI 下限。预热期 rsi14 为 0，闸门开启时自然排除。
+   */
+  minRsi: number;
+  /** Vegas 通道：min(fastA, fastB) > max(slowA, slowB)。 */
+  requireVegas: boolean;
+  vegasFastA: number;
+  vegasFastB: number;
+  vegasSlowA: number;
+  vegasSlowB: number;
+
+  /**
+   * RPS 定权重的幂次：仓位 ∝ (entryRps/100)^k，再按当日持仓归一化到满仓。
+   * null 表示等权。k=0 时每只 raw=1，必须与等权逐位相同。
+   */
+  rpsWeightPower: number | null;
 };
 
 export const DEFAULT_BACKTEST_CONFIG: BacktestConfig = {
@@ -345,6 +414,15 @@ export const DEFAULT_BACKTEST_CONFIG: BacktestConfig = {
   minAdtvUsd: 0,
   minPrice: 0,
   requireTrend: false,
+
+  requireRsi: false,
+  minRsi: 30,
+  requireVegas: false,
+  vegasFastA: VEGAS_FAST[0],
+  vegasFastB: VEGAS_FAST[1],
+  vegasSlowA: VEGAS_SLOW[0],
+  vegasSlowB: VEGAS_SLOW[1],
+  rpsWeightPower: null,
 };
 
 export type TradeStats = {
@@ -387,16 +465,60 @@ export type YearRow = {
   trades: number;
   strategyPct: number;
   benchmarkPct: number;
+  /** 同期标普（SPY）涨跌幅；未叠标普曲线时为 null */
+  spyPct: number | null;
   isOutOfSample: boolean;
 };
 
 export type EquityPoint = { date: string; strategy: number; benchmark: number };
+
+/** 收盘仍持有的一只。权重已按当日规则归一（RPS 定权则和为 100）。 */
+export type HoldingRow = {
+  symbol: string;
+  weightPct: number;
+  sigType: 1 | 2;
+  entryDate: string | null;
+  entryPrice: number;
+  floatPnlPct: number;
+  entryRps: number | null;
+};
+
+/** 逐日账本：净值、敞口、当日买卖。持仓明细在 `holdings` 里按日另存。 */
+export type DayBook = {
+  date: string;
+  strategy: number;
+  benchmark: number;
+  /** 同期标普（SPY）净值，窗口首日前一交易日 = 1；未叠曲线时为 null */
+  spy: number | null;
+  nHold: number;
+  exposurePct: number;
+  buys: string[];
+  sells: string[];
+};
+
+export type YearToDate = {
+  year: number;
+  from: string;
+  to: string;
+  strategyPct: number;
+  benchmarkPct: number;
+  spyPct: number | null;
+  trades: number;
+};
+
+export type HoldingDay = {
+  date: string;
+  rows: HoldingRow[];
+};
 
 export type BacktestResult = {
   inSample: WindowResult;
   outOfSample: WindowResult;
   byYear: YearRow[];
   equity: EquityPoint[];
+  book: DayBook[];
+  holdings: HoldingDay[];
+  ytd: YearToDate | null;
   universeSize: number;
   signalCount: number;
   /** 全部平仓交易，按入场日升序 */
@@ -502,11 +624,30 @@ function equalWeight(sum: Float64Array, count: Int32Array): Float64Array {
  * 所以满仓日仍是风险平价。不足 1 的部分是现金，收益记 0（不计息）。
  *
  * 等权口径走的是同一条路径：各持仓权重记 1，和恒 ≥ 1，缩回后正好是除以只数。
+ *
+ * `fullyInvested` 为真时分母就是 Σw 本身（恒满仓）。RPS 定权重要这条：
+ * 否则弱势日权重和 < 1 会混进「减仓」，跟「分配」分不开。
  */
-function riskWeighted(wret: Float64Array, weight: Float64Array): Float64Array {
+function positionWeight(day: TradeDay, config: BacktestConfig): number {
+  if (config.rpsWeightPower != null) {
+    const rps = day.entryRps ?? 0;
+    return rps >= 1 ? (rps / 100) ** config.rpsWeightPower : 0;
+  }
+  if (config.riskBudgetPct != null && day.riskPct != null && day.riskPct > 0) {
+    return config.riskBudgetPct / day.riskPct;
+  }
+  return 1;
+}
+
+function riskWeighted(
+  wret: Float64Array,
+  weight: Float64Array,
+  fullyInvested = false,
+): Float64Array {
   const out = new Float64Array(wret.length);
   for (let i = 0; i < wret.length; i += 1) {
-    out[i] = weight[i] > 0 ? wret[i] / Math.max(1, weight[i]) : 0;
+    if (weight[i] <= 0) continue;
+    out[i] = wret[i] / (fullyInvested ? weight[i] : Math.max(1, weight[i]));
   }
   return out;
 }
@@ -533,6 +674,22 @@ export type SymbolRun = {
  * 抽出来是为了让图表接口和回测走**同一份**实现：图上画的进出场点、止损线、
  * 吊灯线必须与逐笔表逐行对齐，各写一遍迟早会漂。
  */
+export function vegasLensOf(config: BacktestConfig): VegasLens {
+  return {
+    fast: [config.vegasFastA, config.vegasFastB],
+    slow: [config.vegasSlowA, config.vegasSlowB],
+  };
+}
+
+function isDefaultVegas(config: BacktestConfig): boolean {
+  return (
+    config.vegasFastA === VEGAS_FAST[0] &&
+    config.vegasFastB === VEGAS_FAST[1] &&
+    config.vegasSlowA === VEGAS_SLOW[0] &&
+    config.vegasSlowB === VEGAS_SLOW[1]
+  );
+}
+
 export function runSymbol(
   axis: string[],
   sym: PreparedSymbol,
@@ -546,6 +703,12 @@ export function runSymbol(
   const buy2 = new Array<boolean>(n);
   const rs = new Array<number>(n);
   let signalCount = 0;
+
+  // 规格周期走准备段缓存；实验室改了周期才当场重算，避免拖滑块时全池重跑 EMA。
+  const vegasOk =
+    config.requireVegas && !isDefaultVegas(config)
+      ? vegasMask(toCloses(sym.close), vegasLensOf(config))
+      : sym.vegasOk;
 
   for (let i = 0; i < n; i += 1) {
     bars[i] = {
@@ -561,7 +724,9 @@ export function runSymbol(
     const liquid =
       (config.minAdtvUsd <= 0 || sym.adtv50[i] >= config.minAdtvUsd) &&
       (config.minPrice <= 0 || sym.close[i] >= config.minPrice) &&
-      (!config.requireTrend || sym.aboveTrend[i] === 1);
+      (!config.requireTrend || sym.aboveTrend[i] === 1) &&
+      (!config.requireRsi || sym.rsi14[i] >= config.minRsi) &&
+      (!config.requireVegas || vegasOk[i] === 1);
     // rps 为 0 表示当日未进入截面（回看未齐），此时不可入场：
     // 分位下界被夹到 1，所以「已排名」等价于 rps >= 1。
     // 不能只写 rps >= rpsMin —— rpsMin 为 0 时会把未排名的也放进来。
@@ -612,6 +777,20 @@ export function runBacktest(universe: PreparedUniverse, config: BacktestConfig):
   const allTrades: ClosedTrade[] = [];
   let signalCount = 0;
   let activeSymbols = 0;
+  const fullyInvested = config.rpsWeightPower != null;
+
+  type RawHold = {
+    symbol: string;
+    raw: number;
+    sigType: 1 | 2;
+    entryDate: string | null;
+    entryPrice: number;
+    floatPnlPct: number;
+    entryRps: number | null;
+  };
+  const rawHolds: RawHold[][] = Array.from({ length: w }, () => []);
+  const dayBuys: string[][] = Array.from({ length: w }, () => []);
+  const daySells: string[][] = Array.from({ length: w }, () => []);
 
   for (const sym of symbols) {
     const n = sym.axisIndex.length;
@@ -647,15 +826,28 @@ export function runBacktest(universe: PreparedUniverse, config: BacktestConfig):
       else if (day.sigType !== 0) ret = benchRet;
 
       if (ret != null && Number.isFinite(ret) && day.riskPct != null && day.riskPct > 0) {
-        // 等权口径下每日权重由当日持仓数决定，故先按 1 累加、最后再除以只数
-        const weight = config.riskBudgetPct != null ? config.riskBudgetPct / day.riskPct : 1;
+        const weight = positionWeight(day, config);
         heldWret[d] += weight * ret;
         heldWeight[d] += weight;
+      }
+
+      if (day.entered) dayBuys[d].push(sym.ticker);
+      if (day.exited) daySells[d].push(sym.ticker);
+      if (day.sigType !== 0 && day.entryPrice != null) {
+        rawHolds[d].push({
+          symbol: sym.ticker,
+          raw: positionWeight(day, config),
+          sigType: day.sigType,
+          entryDate: day.entryDate,
+          entryPrice: day.entryPrice,
+          floatPnlPct: day.floatPnlPct,
+          entryRps: day.entryRps,
+        });
       }
     }
   }
 
-  const heldRet = riskWeighted(heldWret, heldWeight);
+  const heldRet = riskWeighted(heldWret, heldWeight, config.rpsWeightPower != null);
   const benchRet = equalWeight(benchSum, benchCount);
 
   let cut = 0;
@@ -690,6 +882,7 @@ export function runBacktest(universe: PreparedUniverse, config: BacktestConfig):
       trades: allTrades.filter((t) => t.entryDate.startsWith(year)).length,
       strategyPct: compound(heldRet, i, j),
       benchmarkPct: compound(benchRet, i, j),
+      spyPct: null,
       isOutOfSample: year >= config.splitDate.slice(0, 4),
     });
     i = j;
@@ -697,13 +890,58 @@ export function runBacktest(universe: PreparedUniverse, config: BacktestConfig):
 
   // 净值曲线：全窗口连续复利，前端画图用
   const equity: EquityPoint[] = new Array(w);
+  const book: DayBook[] = new Array(w);
+  const holdings: HoldingDay[] = [];
   let se = 1;
   let be = 1;
   for (let i = 0; i < w; i += 1) {
     se *= 1 + heldRet[i];
     be *= 1 + benchRet[i];
     equity[i] = { date: win[i], strategy: se, benchmark: be };
+
+    const raws = rawHolds[i];
+    const sum = raws.reduce((a, h) => a + h.raw, 0);
+    const denom = sum <= 0 ? 1 : fullyInvested ? sum : Math.max(1, sum);
+    const rows: HoldingRow[] = raws
+      .map((h) => ({
+        symbol: h.symbol,
+        weightPct: (h.raw / denom) * 100,
+        sigType: h.sigType,
+        entryDate: h.entryDate,
+        entryPrice: h.entryPrice,
+        floatPnlPct: h.floatPnlPct,
+        entryRps: h.entryRps,
+      }))
+      .sort((a, b) => b.weightPct - a.weightPct);
+    if (rows.length > 0) holdings.push({ date: win[i], rows });
+
+    book[i] = {
+      date: win[i],
+      strategy: se,
+      benchmark: be,
+      spy: null,
+      nHold: rows.length,
+      exposurePct: sum <= 0 ? 0 : (fullyInvested ? 100 : Math.min(1, sum) * 100),
+      buys: dayBuys[i].sort(),
+      sells: daySells[i].sort(),
+    };
   }
+
+  const lastDate = win[w - 1];
+  const ytdYear = lastDate?.slice(0, 4) ?? "";
+  const ytdLo = ytdYear ? win.findIndex((d) => d.startsWith(ytdYear)) : -1;
+  const ytd: YearToDate | null =
+    ytdLo >= 0
+      ? {
+          year: Number(ytdYear),
+          from: win[ytdLo],
+          to: lastDate,
+          strategyPct: compound(heldRet, ytdLo, w),
+          benchmarkPct: compound(benchRet, ytdLo, w),
+          spyPct: null,
+          trades: allTrades.filter((t) => t.entryDate.startsWith(ytdYear)).length,
+        }
+      : null;
 
   // 逐笔按标的分组产出，明细表要按时间读，这里排一次
   allTrades.sort((a, b) => (a.entryDate < b.entryDate ? -1 : a.entryDate > b.entryDate ? 1 : 0));
@@ -713,6 +951,9 @@ export function runBacktest(universe: PreparedUniverse, config: BacktestConfig):
     outOfSample: buildWindow("保留区", cut, w),
     byYear,
     equity,
+    book,
+    holdings,
+    ytd,
     universeSize: activeSymbols,
     signalCount,
     trades: allTrades,

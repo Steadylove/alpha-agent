@@ -157,6 +157,13 @@ export type TradeDay = {
    * 组合层按它反比定仓，故清仓成交的那根也要给出——那根仍持有到开盘。
    */
   riskPct: number | null;
+  /**
+   * 开仓时（点火根）的截面 RPS，持仓期内恒定。
+   * 组合层按它定相对权重；清仓那根仍要给出，因为开盘前还持有半天。
+   */
+  entryRps: number | null;
+  /** 成交日（次日开盘建仓）。清仓根仍给出，方便组合层点回该笔。 */
+  entryDate: string | null;
   /** 成交日而非点火日：点火在前一根收盘，这里是次日开盘真正建仓的那根。 */
   entered: boolean;
   /** 成交日而非触发日。该根开盘已清仓，故同根的 sigType 已是 0。 */
@@ -199,7 +206,9 @@ export function computeRotationTrades(
   /** 收盘产生的指令，次日开盘成交。ATR 一并留存：开盘时只知道到前一根的 ATR。 */
   let pendingEntry: SignalType = 0;
   let pendingEntryAtr = 0;
+  let pendingEntryRps = 0;
   let pendingExit: ExitReason | null = null;
+  let entryRps: number | null = null;
 
   for (let i = 0; i < bars.length; i += 1) {
     const bar = bars[i];
@@ -216,8 +225,12 @@ export function computeRotationTrades(
     /** 清仓那根的风险敞口在状态清空前留存，组合层还要用它给这半天定权重。 */
     let exitedRiskPct: number | null = null;
 
+    let exitedEntryRps: number | null = null;
+    let exitedEntryDate: string | null = null;
     if (pendingExit != null && entryPrice != null) {
       exitedRiskPct = (initialRisk / entryPrice) * 100;
+      exitedEntryRps = entryRps;
+      exitedEntryDate = bars[entryIndex].date;
       closed.push({
         symbol,
         sigType: sigType as 1 | 2,
@@ -240,6 +253,7 @@ export function computeRotationTrades(
       highWater = 0;
       maxPnlPct = 0;
       initialRisk = 0;
+      entryRps = null;
       exited = true;
     }
     pendingExit = null;
@@ -252,6 +266,7 @@ export function computeRotationTrades(
       stopLevel = fill - stopMult * pendingEntryAtr;
       trailLevel = fill - trailMult * pendingEntryAtr;
       initialRisk = stopMult * pendingEntryAtr;
+      entryRps = pendingEntryRps;
       highWater = fill;
       maxPnlPct = 0;
       entered = true;
@@ -295,6 +310,7 @@ export function computeRotationTrades(
       if (fired !== 0) {
         pendingEntry = fired;
         pendingEntryAtr = atr;
+        pendingEntryRps = rs[i];
       }
     }
 
@@ -315,6 +331,8 @@ export function computeRotationTrades(
       riskPct:
         exitedRiskPct ??
         (entryPrice != null && initialRisk > 0 ? (initialRisk / entryPrice) * 100 : null),
+      entryRps: exitedEntryRps ?? entryRps,
+      entryDate: exitedEntryDate ?? (entryIndex >= 0 ? bars[entryIndex].date : null),
       entered,
       exited,
     });

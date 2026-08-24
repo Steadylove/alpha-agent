@@ -6,6 +6,7 @@ import {
   Button,
   Group,
   Loader,
+  NumberInput,
   Pagination,
   SegmentedControl,
   Slider,
@@ -22,25 +23,15 @@ import {
   Eye,
   EyeOff,
   RotateCcw,
-  TriangleAlert,
 } from "lucide-react";
-import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 
 import { Card } from "@/components/Card";
+import { LabFundChart } from "@/components/LabFundChart";
 import { LabSymbolChart, type ChartTarget } from "@/components/LabSymbolChart";
+import type { DayBook, HoldingDay, YearToDate } from "@/lib/backtest/engine";
 
 const POS = "#089981";
 const NEG = "#f23645";
-const BENCH = "#71717a";
 
 type WindowResult = {
   label: string;
@@ -102,9 +93,13 @@ type Result = {
     trades: number;
     strategyPct: number;
     benchmarkPct: number;
+    spyPct: number | null;
     isOutOfSample: boolean;
   }[];
   equity: { date: string; strategy: number; benchmark: number }[];
+  book: DayBook[];
+  holdings: HoldingDay[];
+  ytd: YearToDate | null;
   universeSize: number;
   signalCount: number;
   elapsedMs: number;
@@ -122,6 +117,14 @@ type Params = {
   minAdtvUsd: number;
   minPrice: number;
   requireTrend: boolean;
+  requireRsi: boolean;
+  minRsi: number;
+  requireVegas: boolean;
+  vegasFastA: number;
+  vegasFastB: number;
+  vegasSlowA: number;
+  vegasSlowB: number;
+  rpsWeightPower: number | null;
 };
 
 /** 与 engine.ts 的 DEFAULT_BACKTEST_CONFIG 保持一致，来源见那里的注释。 */
@@ -133,10 +136,30 @@ const DEFAULTS: Params = {
   takeProfitR: null,
   riskBudgetPct: null,
   useBuy1: true,
-  useBuy2: false,
+  useBuy2: true,
   minAdtvUsd: 0,
   minPrice: 0,
   requireTrend: false,
+  requireRsi: false,
+  minRsi: 30,
+  requireVegas: false,
+  vegasFastA: 166,
+  vegasFastB: 169,
+  vegasSlowA: 576,
+  vegasSlowB: 676,
+  rpsWeightPower: null,
+};
+
+/** Small Fund 五年平台组：关闸门、RPS≥40、吊灯 5.5、止盈 1R、k=1。 */
+const SMALLFUND_DEFAULTS: Params = {
+  ...DEFAULTS,
+  rpsMin: 40,
+  trailMult: 5.5,
+  takeProfitR: 1,
+  useBuy2: true,
+  requireRsi: false,
+  requireVegas: false,
+  rpsWeightPower: 1,
 };
 
 /** Pine 原值，用于一键对照。 */
@@ -159,7 +182,7 @@ const SPEC_FILTERS: Pick<Params, "minAdtvUsd" | "minPrice" | "requireTrend"> = {
   requireTrend: true,
 };
 
-type IndexKey = "UNION" | "SP500" | "NDX100";
+type IndexKey = "UNION" | "SP500" | "NDX100" | "SMALLFUND";
 
 /**
  * 标的池不并入 Params：它决定载入哪批数据，而 Params 是在同一批数据上重算的
@@ -169,10 +192,22 @@ const POOLS: { value: IndexKey; label: string }[] = [
   { value: "UNION", label: "两者并集" },
   { value: "SP500", label: "标普 500" },
   { value: "NDX100", label: "纳斯达克 100" },
+  { value: "SMALLFUND", label: "Small Fund 100" },
 ];
+
+const VEGAS_SPEC = { vegasFastA: 166, vegasFastB: 169, vegasSlowA: 576, vegasSlowB: 676 };
+const VEGAS_SHORT = { vegasFastA: 200, vegasFastB: 200, vegasSlowA: 250, vegasSlowB: 250 };
 
 const pct = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
 const tone = (v: number) => (v >= 0 ? POS : NEG);
+
+/** 窗口内标普净值倍数；账本已按窗口首日前一日归一。 */
+function spyMultiple(book: DayBook[], from: string, to: string): number | null {
+  const end = book.findLast((d) => d.date <= to && d.date >= from && d.spy != null);
+  const prev = book.findLast((d) => d.date < from && d.spy != null);
+  if (!end?.spy) return null;
+  return end.spy / (prev?.spy ?? 1);
+}
 
 /**
  * 初始止损比吊灯宽时它当不成出场线，但并不因此变成惰性参数：它定义 1R，
@@ -193,12 +228,13 @@ function stopMultHint(p: Params): string {
 }
 
 export function LabWorkbench() {
-  const [params, setParams] = useState<Params>(DEFAULTS);
-  const [index, setIndex] = useState<IndexKey>("UNION");
+  const [params, setParams] = useState<Params>(SMALLFUND_DEFAULTS);
+  const [index, setIndex] = useState<IndexKey>("SMALLFUND");
   const [result, setResult] = useState<Result | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showOos, setShowOos] = useState(false);
+  const [showMore, setShowMore] = useState(false);
   /** 点开哪只标的的哪一笔，null 为关闭弹窗。 */
   const [chartTarget, setChartTarget] = useState<ChartTarget | null>(null);
   /** 传给弹窗的配置要是稳定引用，否则它每次渲染都会重新取数。 */
@@ -278,7 +314,9 @@ export function LabWorkbench() {
               size="compact-xs"
               variant="default"
               leftSection={<RotateCcw className="h-3 w-3" />}
-              onClick={() => setParams(DEFAULTS)}
+              onClick={() =>
+                setParams(index === "SMALLFUND" ? SMALLFUND_DEFAULTS : DEFAULTS)
+              }
             >
               复原
             </Button>
@@ -293,7 +331,11 @@ export function LabWorkbench() {
             <SegmentedControl
               size="xs"
               value={index}
-              onChange={(v) => setIndex(v as IndexKey)}
+              onChange={(v) => {
+                const next = v as IndexKey;
+                setIndex(next);
+                setParams(next === "SMALLFUND" ? SMALLFUND_DEFAULTS : DEFAULTS);
+              }}
               data={POOLS}
             />
             {result ? (
@@ -303,10 +345,7 @@ export function LabWorkbench() {
             ) : null}
           </Group>
           <Text size="xs" c="dimmed">
-            三个池子都用时点成分，不含后见之明。换池子同时换掉基准：基准恒为
-            <b>同一池子</b>的等权买入持有，所以「超额」在不同池子之间不可直接比大小。
-            池子的作用是给 RPS 提供候选，候选越多它越有得选；单用纳斯达克 100
-            只有约 190 只，仓位常填不满，而且它的成分规则是市值与上市地、不衡量强弱。
+            Small Fund 是事后名单，只看同池差。灰线同池等权，琥珀线标普。
           </Text>
         </Stack>
 
@@ -365,8 +404,33 @@ export function LabWorkbench() {
               ]}
             />
             <Text size="xs" c="dimmed" mt={6}>
-              原策略没有止盈。它的正期望几乎全在右尾，截断右尾大概率减少收益——
-              这个开关的用途是让这件事被测量，而不是假定它有好处。
+              原策略没有止盈。标普池上截断右尾通常减收益；Small Fund 近五年平台组用的是 1R。
+            </Text>
+          </div>
+          <div>
+            <Group justify="space-between" mb={4}>
+              <Text size="sm" fw={600} c="gray.2">
+                RPS 定权重
+              </Text>
+              <Text size="sm" ff="monospace" c="gray.4">
+                {params.rpsWeightPower == null ? "等权" : `k=${params.rpsWeightPower}`}
+              </Text>
+            </Group>
+            <SegmentedControl
+              fullWidth
+              size="xs"
+              value={params.rpsWeightPower == null ? "off" : String(params.rpsWeightPower)}
+              onChange={(v) =>
+                set("rpsWeightPower", v === "off" ? null : Number(v))
+              }
+              data={[
+                { label: "等权", value: "off" },
+                { label: "k=1", value: "1" },
+                { label: "k=2", value: "2" },
+              ]}
+            />
+            <Text size="xs" c="dimmed" mt={6}>
+              仓位 ∝ (开仓 RPS/100)^k，当日持仓归一化到满仓。k=1 是 Small Fund 默认。
             </Text>
           </div>
           <div>
@@ -441,8 +505,19 @@ export function LabWorkbench() {
             />
           </Group>
         </div>
+        <Button
+          size="compact-xs"
+          variant="subtle"
+          color="gray"
+          mt="md"
+          onClick={() => setShowMore((v) => !v)}
+        >
+          {showMore ? "收起过滤项" : "流动性 / RSI / Vegas"}
+        </Button>
       </Card>
 
+      {showMore ? (
+      <>
       <Card
         title={
           <Stack gap={2}>
@@ -519,6 +594,113 @@ export function LabWorkbench() {
         </div>
       </Card>
 
+      <Card
+        title={
+          <Stack gap={2}>
+            <Text size="sm" fw={700} c="gray.1">
+              买点过滤器 · RSI / Vegas
+            </Text>
+            <Text size="xs" c="dimmed">
+              只挡入场，不改出场。关掉等于不筛；周期改了当场重算，不必重载面板
+            </Text>
+          </Stack>
+        }
+        action={
+          <Group gap="xs">
+            <Button
+              size="compact-xs"
+              variant="default"
+              onClick={() =>
+                setParams((p) => ({
+                  ...p,
+                  requireRsi: true,
+                  minRsi: 30,
+                  requireVegas: true,
+                  ...VEGAS_SPEC,
+                }))
+              }
+            >
+              Small Fund 规格
+            </Button>
+            <Button
+              size="compact-xs"
+              variant="default"
+              onClick={() =>
+                setParams((p) => ({ ...p, requireVegas: true, ...VEGAS_SHORT }))
+              }
+            >
+              Vegas 200/250
+            </Button>
+          </Group>
+        }
+      >
+        <div className="grid gap-x-10 gap-y-6 md:grid-cols-2">
+          <div>
+            <Switch
+              size="sm"
+              label="RSI 过滤"
+              checked={params.requireRsi}
+              onChange={(e) => set("requireRsi", e.currentTarget.checked)}
+            />
+            <Text size="xs" c="dimmed" mt={6} mb="sm">
+              标准 14 日 RSI 低于门槛则不入场。规格值 30，用来避开超卖末端以外的钝化区。
+            </Text>
+            <Knob
+              label="RSI 门槛"
+              value={params.minRsi}
+              display={`> ${params.minRsi}`}
+              hint={params.requireRsi ? "低于此值的买点作废。" : "开关关掉时这条不起作用。"}
+              min={10}
+              max={70}
+              step={1}
+              onChange={(v) => set("minRsi", v)}
+            />
+          </div>
+
+          <div>
+            <Switch
+              size="sm"
+              label="Vegas 通道"
+              checked={params.requireVegas}
+              onChange={(e) => set("requireVegas", e.currentTarget.checked)}
+            />
+            <Text size="xs" c="dimmed" mt={6}>
+              min(EMA短A, 短B) 必须大于 max(EMA长A, 长B)。规格是 166/169 在 576/676
+              之上。长周期未播种的新股会被排除，不是放行。
+            </Text>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <PeriodInput
+                label="短 A"
+                value={params.vegasFastA}
+                onChange={(v) => set("vegasFastA", v)}
+              />
+              <PeriodInput
+                label="短 B"
+                value={params.vegasFastB}
+                onChange={(v) => set("vegasFastB", v)}
+              />
+              <PeriodInput
+                label="长 A"
+                value={params.vegasSlowA}
+                onChange={(v) => set("vegasSlowA", v)}
+              />
+              <PeriodInput
+                label="长 B"
+                value={params.vegasSlowB}
+                onChange={(v) => set("vegasSlowB", v)}
+              />
+            </div>
+            <Text size="xs" c="dimmed" mt={6}>
+              {params.requireVegas
+                ? `当前：min(EMA${params.vegasFastA}, EMA${params.vegasFastB}) > max(EMA${params.vegasSlowA}, EMA${params.vegasSlowB})`
+                : "开关关掉时周期数字只是备着，不参与判定。"}
+            </Text>
+          </div>
+        </div>
+      </Card>
+      </>
+      ) : null}
+
       {error ? (
         <Card>
           <Text size="sm" c="red.4">
@@ -527,48 +709,54 @@ export function LabWorkbench() {
         </Card>
       ) : null}
 
-      <Card>
-        <Group gap="xs" wrap="nowrap">
-          <TriangleAlert className="h-4 w-4 shrink-0 text-amber-500" />
-          <Text size="xs" c="dimmed">
-            <b className="text-zinc-200">默认参数不是中立起点</b>——它是在 1260
-            组网格上搜出来的，选参时看过保留区，所以保留区的数字只能当上界看，不是干净的样本外估计。
-            点「Pine 原值」可以看未经搜索的原始配置。本次会话已试{" "}
-            <b className="text-zinc-200">{trialCount}</b> 组参数，
-            点开保留区 <b className="text-zinc-200">{peekCount}</b> 次。
-            试的组数越多，训练区里「最好那一组」来自偶然的概率越高：二十组里冒出一个
-            看着漂亮的结果是常态，不是发现。判断一组参数是否可信，看的是训练区与保留区
-            的超额**同号且量级相近**，而不是任何单个窗口的数字有多好。
-          </Text>
-        </Group>
-      </Card>
+      <Text size="xs" c="dimmed">
+        已试 {trialCount} 组
+        {result?.outOfSample.portfolio.days === 0
+          ? " · 未切分保留区"
+          : ` · 点开保留区 ${peekCount} 次`}
+        。默认是网格里挑过的平台组，不是中立起点。
+      </Text>
 
       {result ? (
         <>
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div
+            className={
+              result.outOfSample.portfolio.days === 0
+                ? "grid gap-4"
+                : "grid gap-4 lg:grid-cols-2"
+            }
+          >
             <WindowCard
               window={result.inSample}
               excess={inExcess}
+              spy={spyMultiple(result.book, result.inSample.from, result.inSample.to)}
               hidden={false}
-              accent="训练区 · 可以在这里调参"
+              accent="训练区"
             />
-            <WindowCard
-              window={result.outOfSample}
-              excess={outExcess}
-              hidden={!showOos}
-              accent="保留区 · 只用来验证，不要用来挑参数"
-              onReveal={revealOos}
-              revealed={showOos}
-            />
+            {result.outOfSample.portfolio.days > 0 ? (
+              <WindowCard
+                window={result.outOfSample}
+                excess={outExcess}
+                spy={spyMultiple(result.book, result.outOfSample.from, result.outOfSample.to)}
+                hidden={!showOos}
+                accent="保留区"
+                onReveal={revealOos}
+                revealed={showOos}
+              />
+            ) : null}
           </div>
 
-          <EquityChart
-            data={result.equity}
+          <LabFundChart
+            book={result.book}
+            holdings={result.holdings}
+            ytd={result.ytd}
+            trades={result.trades}
             splitDate={result.config.splitDate}
             maskAfterSplit={!showOos}
+            onPick={(symbol, entryDate) => setChartTarget({ symbol, entryDate })}
           />
 
-          <YearTable rows={result.byYear} maskOos={!showOos} />
+          <YearTable rows={result.byYear} ytdYear={result.ytd?.year ?? null} maskOos={!showOos} />
 
           <TradeBlotter
             trades={result.trades}
@@ -577,10 +765,7 @@ export function LabWorkbench() {
           />
 
           <Text size="xs" c="dimmed">
-            {result.indexLabel}池内 {result.universeSize} 只，采纳信号 {result.signalCount} 个。
-            基准为同一时点成分池的等权买入持有，与策略吃同一批数据、同一个窗口，
-            因此二者的幸存者偏差大体相抵——可信的是二者之差，不是任何一方的绝对水平。
-            未计入手续费、滑点与冲击成本。
+            {result.indexLabel} {result.universeSize} 只 · {result.signalCount} 个信号 · 不含费
           </Text>
         </>
       ) : loading ? (
@@ -600,6 +785,31 @@ export function LabWorkbench() {
         onClose={() => setChartTarget(null)}
       />
     </Stack>
+  );
+}
+
+function PeriodInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <NumberInput
+      label={label}
+      size="xs"
+      min={5}
+      max={900}
+      step={1}
+      clampBehavior="strict"
+      value={value}
+      onChange={(v) => {
+        if (typeof v === "number") onChange(v);
+      }}
+    />
   );
 }
 
@@ -652,6 +862,7 @@ function Knob({
 function WindowCard({
   window: w,
   excess,
+  spy,
   hidden,
   accent,
   onReveal,
@@ -659,6 +870,7 @@ function WindowCard({
 }: {
   window: WindowResult;
   excess: number;
+  spy: number | null;
   hidden: boolean;
   accent: string;
   onReveal?: () => void;
@@ -696,7 +908,7 @@ function WindowCard({
           <div className="font-mono text-2xl" style={{ color: tone(excess) }}>
             {pct(excess)}
           </div>
-          <div className="text-xs text-zinc-500">年化超额（策略 − 同池基准）</div>
+          <div className="text-xs text-zinc-500">年化超额 vs 同池</div>
         </div>
 
         <Table verticalSpacing={4} horizontalSpacing={0} withRowBorders={false} fz="xs">
@@ -707,18 +919,19 @@ function WindowCard({
               a={`${w.portfolio.equity.toFixed(2)}x`}
               b={`${w.benchmark.equity.toFixed(2)}x`}
             />
+            {spy != null ? (
+              <Table.Tr>
+                <Table.Td c="dimmed">标普</Table.Td>
+                <Table.Td ta="right" ff="monospace" style={{ color: "#d97706" }} colSpan={2}>
+                  {spy.toFixed(2)}x
+                </Table.Td>
+              </Table.Tr>
+            ) : null}
             <Row
-              label="最大回撤"
+              label="回撤"
               a={`-${w.portfolio.maxDrawdownPct.toFixed(1)}%`}
               b={`-${w.benchmark.maxDrawdownPct.toFixed(1)}%`}
             />
-            <Row
-              label="年化波动"
-              a={`${w.portfolio.volPct.toFixed(1)}%`}
-              b={`${w.benchmark.volPct.toFixed(1)}%`}
-            />
-            <Row label="持仓日占比" a={`${w.portfolio.investedDayPct.toFixed(0)}%`} b="100%" />
-            <Row label="平均敞口" a={`${w.portfolio.avgExposurePct.toFixed(0)}%`} b="100%" />
           </Table.Tbody>
         </Table>
 
@@ -726,23 +939,6 @@ function WindowCard({
           <Stat label="成交" value={`${w.trade.trades} 笔`} />
           <Stat label="胜率" value={`${w.trade.winRatePct.toFixed(1)}%`} />
           <Stat label="盈亏比" value={w.trade.profitFactor.toFixed(2)} />
-          <Stat label="每笔均值" value={pct(w.trade.meanPnlPct)} />
-          <Stat label="每笔中位" value={pct(w.trade.medianPnlPct)} />
-          <Stat label="平均 R" value={w.trade.meanR.toFixed(2)} />
-          <Stat label="平均持仓" value={`${w.trade.avgBarsHeld.toFixed(0)} 根`} />
-          <Stat label="最差一笔" value={pct(w.trade.worstPnlPct)} />
-          <Stat
-            label={
-              w.trade.exits.rsWeak > 0
-                ? `${EXIT_LABEL.stop}/${EXIT_LABEL.target}/${EXIT_LABEL.rsWeak}`
-                : `${EXIT_LABEL.stop}/${EXIT_LABEL.target}`
-            }
-            value={
-              w.trade.exits.rsWeak > 0
-                ? `${w.trade.exits.stop}/${w.trade.exits.target}/${w.trade.exits.rsWeak}`
-                : `${w.trade.exits.stop}/${w.trade.exits.target}`
-            }
-          />
         </div>
       </div>
     </Card>
@@ -768,117 +964,6 @@ function Stat({ label, value }: { label: string; value: string }) {
     <div>
       <div className="font-mono text-zinc-200">{value}</div>
       <div className="text-zinc-500">{label}</div>
-    </div>
-  );
-}
-
-function EquityChart({
-  data,
-  splitDate,
-  maskAfterSplit,
-}: {
-  data: { date: string; strategy: number; benchmark: number }[];
-  splitDate: string;
-  maskAfterSplit: boolean;
-}) {
-  // 盖住保留区时直接截断数据，而不是视觉遮挡——遮挡挡不住眼睛
-  const shown = useMemo(
-    () => (maskAfterSplit ? data.filter((p) => p.date < splitDate) : data),
-    [data, maskAfterSplit, splitDate],
-  );
-
-  return (
-    <Card
-      title={
-        <Stack gap={2}>
-          <Text size="sm" fw={700} c="gray.1">
-            净值曲线
-          </Text>
-          <Text size="xs" c="dimmed">
-            等权持有全部在仓标的，空仓日不计息 · 灰线为同池等权买入持有
-            {maskAfterSplit ? " · 保留区已截断" : ""}
-          </Text>
-        </Stack>
-      }
-    >
-      <div style={{ height: 300 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={shown} margin={{ top: 4, right: 8, bottom: 0, left: -8 }}>
-            <CartesianGrid stroke="#27272a" vertical={false} />
-            <XAxis
-              dataKey="date"
-              tick={{ fill: "#71717a", fontSize: 11 }}
-              tickLine={false}
-              axisLine={{ stroke: "#27272a" }}
-              minTickGap={56}
-              tickFormatter={(d: string) => d.slice(0, 7)}
-            />
-            <YAxis
-              scale="log"
-              domain={["auto", "auto"]}
-              tick={{ fill: "#71717a", fontSize: 11 }}
-              tickLine={false}
-              axisLine={false}
-              width={52}
-              tickFormatter={(v: number) => `${v.toFixed(1)}x`}
-            />
-            <ReferenceLine y={1} stroke="#3f3f46" />
-            {!maskAfterSplit ? (
-              <ReferenceLine
-                x={shown.find((p) => p.date >= splitDate)?.date}
-                stroke="#a1a1aa"
-                strokeDasharray="4 4"
-                label={{ value: "保留区起点", fill: "#a1a1aa", fontSize: 10, position: "top" }}
-              />
-            ) : null}
-            <Tooltip content={<EquityTooltip />} cursor={{ stroke: "#52525b" }} isAnimationActive={false} />
-            <Line
-              type="monotone"
-              dataKey="benchmark"
-              stroke={BENCH}
-              strokeWidth={1.25}
-              dot={false}
-              isAnimationActive={false}
-            />
-            <Line
-              type="monotone"
-              dataKey="strategy"
-              stroke={POS}
-              strokeWidth={1.75}
-              dot={false}
-              isAnimationActive={false}
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-      <Text size="xs" c="dimmed" mt="xs">
-        纵轴为对数刻度：二十年的复利在线性刻度上会把早期的涨跌压成一条平线。
-      </Text>
-    </Card>
-  );
-}
-
-function EquityTooltip({
-  active,
-  payload,
-}: {
-  active?: boolean;
-  payload?: { payload: { date: string; strategy: number; benchmark: number } }[];
-}) {
-  const p = payload?.[0]?.payload;
-  if (!active || !p) return null;
-
-  return (
-    <div className="rounded border border-[var(--border-strong)] bg-[var(--surface-hover)]/95 px-3 py-2 text-xs">
-      <div className="font-mono text-zinc-400">{p.date}</div>
-      <div className="mt-1 font-mono" style={{ color: POS }}>
-        策略 {p.strategy.toFixed(2)}x
-      </div>
-      <div className="font-mono text-zinc-400">基准 {p.benchmark.toFixed(2)}x</div>
-      <div className="font-mono" style={{ color: tone(p.strategy - p.benchmark) }}>
-        差 {p.strategy >= p.benchmark ? "+" : ""}
-        {(p.strategy - p.benchmark).toFixed(2)}x
-      </div>
     </div>
   );
 }
@@ -1203,9 +1288,11 @@ function SortTh({
 
 function YearTable({
   rows,
+  ytdYear,
   maskOos,
 }: {
   rows: Result["byYear"];
+  ytdYear: number | null;
   maskOos: boolean;
 }) {
   return (
@@ -1215,7 +1302,8 @@ function YearTable({
           <Table.Tr>
             <Table.Th>年份</Table.Th>
             <Table.Th ta="right">策略</Table.Th>
-            <Table.Th ta="right">同池基准</Table.Th>
+            <Table.Th ta="right">同池</Table.Th>
+            <Table.Th ta="right">标普</Table.Th>
             <Table.Th ta="right">超额</Table.Th>
             <Table.Th ta="right">成交</Table.Th>
           </Table.Tr>
@@ -1228,6 +1316,11 @@ function YearTable({
               <Table.Tr key={r.year}>
                 <Table.Td ff="monospace" c={r.isOutOfSample ? "gray.5" : "gray.2"}>
                   {r.year}
+                  {r.year === ytdYear ? (
+                    <Badge size="xs" variant="light" color="blue" ml={6}>
+                      YTD
+                    </Badge>
+                  ) : null}
                   {r.isOutOfSample ? (
                     <Badge size="xs" variant="light" color="gray" ml={6}>
                       保留
@@ -1235,7 +1328,7 @@ function YearTable({
                   ) : null}
                 </Table.Td>
                 {masked ? (
-                  <Table.Td colSpan={4} ta="right" c="dimmed">
+                  <Table.Td colSpan={5} ta="right" c="dimmed">
                     已隐藏
                   </Table.Td>
                 ) : (
@@ -1245,6 +1338,9 @@ function YearTable({
                     </Table.Td>
                     <Table.Td ta="right" ff="monospace" c="dimmed">
                       {pct(r.benchmarkPct)}
+                    </Table.Td>
+                    <Table.Td ta="right" ff="monospace" style={{ color: "#d97706" }}>
+                      {r.spyPct == null ? "—" : pct(r.spyPct)}
                     </Table.Td>
                     <Table.Td ta="right" ff="monospace" style={{ color: tone(excess) }}>
                       {pct(excess)}

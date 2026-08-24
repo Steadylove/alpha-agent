@@ -9,8 +9,16 @@ const nextConfig: NextConfig = {
    * 这种动态路径打包器分析不出来，不显式列出就不会进函数包。
    */
   outputFileTracingIncludes: {
-    "/api/lab/backtest": [".cache/backtest-panel.v8"],
-    "/api/lab/chart": [".cache/backtest-panel.v8"],
+    "/api/lab/backtest": [
+      ".cache/backtest-panel.v8",
+      "data/smallfund/**",
+      "data/benchmarks/**",
+    ],
+    "/api/lab/chart": [
+      ".cache/backtest-panel.v8",
+      "data/smallfund/**",
+      "data/benchmarks/**",
+    ],
   },
 };
 

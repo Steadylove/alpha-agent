@@ -1,5 +1,4 @@
-import { getPrisma } from "@/lib/db/prisma";
-
+import { CSV_PANEL_DIR, readCsvPanels } from "./csvPanel";
 import { prepareUniverse, type MembershipSpan, type PreparedUniverse } from "./engine";
 import { unpackPanel, type PanelBars } from "./panel";
 import {
@@ -9,6 +8,10 @@ import {
   writeSnapshot,
   type PanelSnapshot,
 } from "./panelCache";
+import {
+  SMALL_FUND_MEMBERSHIP_START,
+  SMALL_FUND_UNIVERSE,
+} from "./smallFundUniverse";
 
 /**
  * 可选的标的池。`sources` 是 IndexMembership.index 里要取的指数，多于一个即并集。
@@ -20,6 +23,7 @@ export const INDEXES = {
   UNION: { label: "标普 ∪ 纳斯达克", sources: ["SP500", "NDX100"] },
   SP500: { label: "标普 500", sources: ["SP500"] },
   NDX100: { label: "纳斯达克 100", sources: ["NDX100"] },
+  SMALLFUND: { label: "Small Fund 100", sources: ["SMALLFUND"] },
 } as const;
 
 export type IndexKey = keyof typeof INDEXES;
@@ -37,6 +41,7 @@ const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)}MB`;
  * 所以整个快照与选哪个池无关——一份缓存服务三个池子。
  */
 async function fetchSnapshot(): Promise<PanelSnapshot> {
+  const { getPrisma } = await import("@/lib/db/prisma");
   const prisma = getPrisma();
 
   const [panels, membership] = await Promise.all([
@@ -110,9 +115,69 @@ async function getSnapshot(): Promise<PanelSnapshot> {
   return fresh;
 }
 
+/**
+ * Small Fund 数据源。
+ *
+ * - `csv`（默认）：读 `data/smallfund/*.csv`，不碰数据库。额度耗尽时的兜底。
+ * - `db`：从 BacktestPanel 按 ticker 过滤。额度恢复后切这条。
+ * - `auto`：CSV 有文件用 CSV，否则回落数据库。
+ */
+export type SmallFundSource = "csv" | "db" | "auto";
+
+export function smallFundSource(): SmallFundSource {
+  const raw = (process.env.SMALLFUND_SOURCE ?? "csv").toLowerCase();
+  return raw === "db" || raw === "auto" ? raw : "csv";
+}
+
+function prepareSmallFund(panels: PanelBars[]): PreparedUniverse {
+  const membership = new Map(
+    panels.map((p) => [p.ticker, [{ start: SMALL_FUND_MEMBERSHIP_START, end: null }]]),
+  );
+  return prepareUniverse(panels, membership);
+}
+
+async function loadSmallFundFromDb(): Promise<PanelBars[]> {
+  const snapshot = await getSnapshot();
+  const wanted = new Set(SMALL_FUND_UNIVERSE);
+  const panels: PanelBars[] = [];
+  for (const row of snapshot.panels) {
+    if (!wanted.has(row.ticker)) continue;
+    panels.push(unpackPanel(row));
+  }
+  return panels;
+}
+
+async function loadSmallFundUniverse(): Promise<PreparedUniverse> {
+  const source = smallFundSource();
+
+  if (source === "csv" || source === "auto") {
+    const csv = readCsvPanels(CSV_PANEL_DIR, SMALL_FUND_UNIVERSE);
+    if (csv.length > 0) {
+      console.log(`[smallfund] CSV ${csv.length} 只  ${CSV_PANEL_DIR}`);
+      return prepareSmallFund(csv);
+    }
+    if (source === "csv") {
+      throw new Error(
+        `Small Fund CSV 为空：${CSV_PANEL_DIR}。先跑 npm run smallfund:fetch，或设 SMALLFUND_SOURCE=db。`,
+      );
+    }
+  }
+
+  const db = await loadSmallFundFromDb();
+  if (db.length === 0) {
+    throw new Error(
+      "Small Fund 数据库面板为空。额度恢复后跑 npm run smallfund:import，或先用 CSV：npm run smallfund:fetch。",
+    );
+  }
+  console.log(`[smallfund] 数据库 ${db.length} 只`);
+  return prepareSmallFund(db);
+}
+
 export async function loadPreparedUniverse(
   index: IndexKey = DEFAULT_INDEX,
 ): Promise<PreparedUniverse> {
+  if (index === "SMALLFUND") return loadSmallFundUniverse();
+
   const snapshot = await getSnapshot();
   const sources = new Set<string>(INDEXES[index].sources);
 

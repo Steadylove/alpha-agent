@@ -9,9 +9,7 @@ export default function LabPage() {
       <div className="rise-in">
         <h1 className="text-3xl font-semibold tracking-tight text-zinc-50">调参实验室</h1>
         <p className="mt-2 max-w-3xl text-sm leading-relaxed text-zinc-400">
-          在标普 500 的时点成分池上回测抄底买点：某一天只在当日的指数成分里选股，
-          截面 RPS 也只在当日成分之间排名，避免拿今天的赢家名单去跑二十年前。
-          每个结果都配一条同池等权买入持有的基准线——单看策略收益说明不了任何事。
+          抄底买点回测。绿线策略，灰线同池等权，琥珀线同期标普。看相对差，不看绝对收益。
         </p>
       </div>
 

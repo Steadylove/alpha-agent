@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && npx --yes tsx scripts/fetch-panel-cache.ts && next build",
+    "build": "prisma generate && npx --yes tsx scripts/fetch-panel-cache.ts && npx --yes tsx scripts/ensure-lab-csv.ts && next build",
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
@@ -26,7 +26,10 @@
     "backtest:rotation": "npx --yes tsx scripts/backtest-rotation.ts",
     "calibrate:rotation": "npx --yes tsx scripts/calibrate-rotation.ts",
     "calibrate:stock-panel": "npx --yes tsx scripts/calibrate-stock-panel.ts",
-    "compare:mpr": "npx --yes tsx scripts/compare-mpr-tradingview.ts"
+    "compare:mpr": "npx --yes tsx scripts/compare-mpr-tradingview.ts",
+    "smallfund:fetch": "npx --yes tsx scripts/fetch-smallfund-csv.ts",
+    "smallfund:import": "npx --yes tsx scripts/import-smallfund-to-db.ts",
+    "smallfund:diag": "npx --yes tsx scripts/diagnose-smallfund.ts"
   },
   "keywords": [],
   "author": "",

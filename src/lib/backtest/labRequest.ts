@@ -7,6 +7,7 @@
 
 import { DEFAULT_BACKTEST_CONFIG, type BacktestConfig } from "@/lib/backtest/engine";
 import { DEFAULT_INDEX, INDEXES, type IndexKey } from "@/lib/backtest/load";
+import { SMALL_FUND_DEFAULT_CONFIG } from "@/lib/backtest/smallFundUniverse";
 import type { ClosedTrade } from "@/lib/scoring/rotationTrade";
 
 const clamp = (v: unknown, lo: number, hi: number, fallback: number) => {
@@ -15,7 +16,11 @@ const clamp = (v: unknown, lo: number, hi: number, fallback: number) => {
 };
 
 export function parseConfig(body: Record<string, unknown>): BacktestConfig {
-  const d = DEFAULT_BACKTEST_CONFIG;
+  const index = parseIndex(body);
+  const d: BacktestConfig =
+    index === "SMALLFUND"
+      ? { ...DEFAULT_BACKTEST_CONFIG, ...SMALL_FUND_DEFAULT_CONFIG }
+      : DEFAULT_BACKTEST_CONFIG;
   return {
     from: typeof body.from === "string" ? body.from : d.from,
     to: typeof body.to === "string" ? body.to : d.to,
@@ -45,6 +50,19 @@ export function parseConfig(body: Record<string, unknown>): BacktestConfig {
     minPrice: clamp(body.minPrice, 0, 200, d.minPrice),
     requireTrend:
       typeof body.requireTrend === "boolean" ? body.requireTrend : d.requireTrend,
+    requireRsi: typeof body.requireRsi === "boolean" ? body.requireRsi : d.requireRsi,
+    minRsi: clamp(body.minRsi, 1, 100, d.minRsi),
+    requireVegas:
+      typeof body.requireVegas === "boolean" ? body.requireVegas : d.requireVegas,
+    vegasFastA: clamp(body.vegasFastA, 5, 900, d.vegasFastA),
+    vegasFastB: clamp(body.vegasFastB, 5, 900, d.vegasFastB),
+    vegasSlowA: clamp(body.vegasSlowA, 5, 900, d.vegasSlowA),
+    vegasSlowB: clamp(body.vegasSlowB, 5, 900, d.vegasSlowB),
+    rpsWeightPower: !("rpsWeightPower" in body)
+      ? d.rpsWeightPower
+      : body.rpsWeightPower == null
+        ? null
+        : clamp(body.rpsWeightPower, 0, 5, 1),
   };
 }
 

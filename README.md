@@ -24,6 +24,14 @@ curl -X POST http://localhost:3000/api/jobs/daily-report \
 
 部署到 Vercel 时，可用 Vercel Cron 调用 `/api/jobs/daily-report`，并在请求头携带 `x-cron-secret`。
 
+## 傻瓜式部署（Vercel）
+
+1. GitHub 连上这个仓库，Vercel Import，环境变量按 `.env.example` 填（至少 `DATABASE_URL`、`PANEL_SNAPSHOT_URL`）。
+2. `git push`。构建会检查 `data/smallfund/*.csv` 和 `data/benchmarks/SPY.csv`，并打进实验室函数包。
+3. 打开 `/lab`。Small Fund 读仓库里的 CSV，不依赖线上再拉 Yahoo。
+
+本地缺 CSV 时：`npm run smallfund:fetch`，再开一次 `/lab` 会自动落下 SPY。这两份目录要提交进 git，否则线上读不到。
+
 ## 数据源
 
 - 行情：Stooq，失败后尝试 Yahoo Finance chart endpoint

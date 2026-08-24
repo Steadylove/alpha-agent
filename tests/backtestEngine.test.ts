@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { percentileRanksFast, prepareUniverse } from "@/lib/backtest/engine";
+import {
+  DEFAULT_BACKTEST_CONFIG,
+  percentileRanksFast,
+  prepareUniverse,
+  runBacktest,
+} from "@/lib/backtest/engine";
 import { packPanel, unpackPanel, type PanelBars } from "@/lib/backtest/panel";
 import { deriveIntervals } from "@/lib/data-sources/sp500Historical";
 import { PERCENTILE_RS_TERMS, percentileRank } from "@/lib/scoring/percentileRs";
@@ -223,5 +228,116 @@ describe("面板打包", () => {
     expect(back.volume).toBeNull();
     expect(back.open).toBeNull();
     expect(back.close[0]).toBeCloseTo(9.5, 4);
+  });
+});
+
+describe("RSI / Vegas / RPS 定权重", () => {
+  const axisDates = (n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      new Date(Date.UTC(2000, 0, 3 + i)).toISOString().slice(0, 10),
+    );
+
+  function rising(ticker: string, dates: string[], start = 50, step = 0.4): PanelBars {
+    const n = dates.length;
+    const close = new Float32Array(n);
+    const high = new Float32Array(n);
+    const low = new Float32Array(n);
+    const open = new Float32Array(n);
+    for (let i = 0; i < n; i += 1) {
+      const c = start + step * i;
+      close[i] = c;
+      open[i] = c;
+      high[i] = c * 1.01;
+      low[i] = c * 0.99;
+    }
+    return { ticker, dates, high, low, close, volume: null, open };
+  }
+
+  it("上升序列在短周期 Vegas 播种后为真，下跌序列为假", () => {
+    const dates = axisDates(40);
+    const up = rising("UP", dates, 50, 1);
+    const down = rising("DN", dates, 90, -1);
+    const all = { start: dates[0], end: null };
+    const u = prepareUniverse([up, down], new Map([
+      ["UP", [all]],
+      ["DN", [all]],
+    ]), { fast: [3, 4], slow: [8, 9] });
+
+    const upSym = u.symbols.find((s) => s.ticker === "UP")!;
+    const dnSym = u.symbols.find((s) => s.ticker === "DN")!;
+    expect(upSym.vegasOk[7]).toBe(0);
+    expect(upSym.vegasOk[39]).toBe(1);
+    expect(dnSym.vegasOk[39]).toBe(0);
+    expect(upSym.rsi14[20]).toBeGreaterThan(50);
+  });
+
+  it("rpsWeightPower=0 与等权净值逐位相同", () => {
+    const dates = axisDates(320);
+    const panels = [rising("A", dates, 80, 0.2), rising("B", dates, 80, 0.15), rising("C", dates, 80, 0.1)];
+    const all = { start: dates[0], end: null };
+    const u = prepareUniverse(panels, new Map(panels.map((p) => [p.ticker, [all]])));
+
+    for (const sym of u.symbols) {
+      sym.buy1[280] = 1;
+      if (sym.ticker === "A") sym.rps[280] = 90;
+      else if (sym.ticker === "B") sym.rps[280] = 40;
+      else sym.rps[280] = 20;
+    }
+
+    const base = {
+      ...DEFAULT_BACKTEST_CONFIG,
+      from: dates[260],
+      to: dates[319],
+      splitDate: "2099-01-01",
+      rpsMin: 0,
+      useBuy1: true,
+      useBuy2: false,
+    };
+    const eq = runBacktest(u, { ...base, rpsWeightPower: null });
+    const p0 = runBacktest(u, { ...base, rpsWeightPower: 0 });
+
+    expect(p0.inSample.portfolio.equity).toBeCloseTo(eq.inSample.portfolio.equity, 10);
+    expect(p0.equity.map((e) => e.strategy)).toEqual(eq.equity.map((e) => e.strategy));
+
+    const lastHold = p0.holdings[p0.holdings.length - 1];
+    expect(lastHold).toBeDefined();
+    const weightSum = lastHold.rows.reduce((a, r) => a + r.weightPct, 0);
+    expect(weightSum).toBeCloseTo(100, 6);
+    expect(p0.ytd).not.toBeNull();
+    expect(p0.book.length).toBe(p0.equity.length);
+  });
+
+  it("改 Vegas 周期后 runSymbol 当场重算，不沿用准备段的规格缓存", () => {
+    const dates = axisDates(40);
+    const up = rising("UP", dates, 50, 1);
+    const all = { start: dates[0], end: null };
+    const u = prepareUniverse([up], new Map([["UP", [all]]]));
+    const sym = u.symbols[0];
+    expect(sym.vegasOk[39]).toBe(0);
+
+    sym.buy1[35] = 1;
+    sym.rps[35] = 50;
+
+    const base = {
+      ...DEFAULT_BACKTEST_CONFIG,
+      from: dates[0],
+      to: dates[39],
+      requireVegas: true,
+      useBuy1: true,
+      useBuy2: false,
+      rpsMin: 0,
+    };
+
+    const spec = runBacktest(u, base);
+    expect(spec.signalCount).toBe(0);
+
+    const short = runBacktest(u, {
+      ...base,
+      vegasFastA: 3,
+      vegasFastB: 4,
+      vegasSlowA: 8,
+      vegasSlowB: 9,
+    });
+    expect(short.signalCount).toBe(1);
   });
 });
