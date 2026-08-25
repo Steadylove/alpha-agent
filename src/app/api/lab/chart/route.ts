@@ -41,7 +41,7 @@ export async function POST(request: Request) {
   const index = parseIndex(body);
 
   try {
-    const universe = await getPreparedUniverse(index);
+    const universe = await getPreparedUniverse(index, config.timeframe);
     const sym = universe.symbols.find((s) => s.ticker === symbol);
     if (!sym) {
       return NextResponse.json({ error: `${symbol} 不在当前标的池内` }, { status: 404 });

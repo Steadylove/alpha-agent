@@ -5,9 +5,17 @@
  * 某个钳位边界改了一边没改另一边，图上就会画出与逐笔表不同的进出场点。
  */
 
-import { DEFAULT_BACKTEST_CONFIG, type BacktestConfig } from "@/lib/backtest/engine";
+import {
+  DEFAULT_BACKTEST_CONFIG,
+  type BacktestConfig,
+  type Timeframe,
+} from "@/lib/backtest/engine";
 import { DEFAULT_INDEX, INDEXES, type IndexKey } from "@/lib/backtest/load";
-import { SMALL_FUND_DEFAULT_CONFIG } from "@/lib/backtest/smallFundUniverse";
+import {
+  SMALL_FUND_4H_DEFAULT_CONFIG,
+  SMALL_FUND_4H_FROM,
+  SMALL_FUND_DEFAULT_CONFIG,
+} from "@/lib/backtest/smallFundUniverse";
 import type { ClosedTrade } from "@/lib/scoring/rotationTrade";
 
 const clamp = (v: unknown, lo: number, hi: number, fallback: number) => {
@@ -15,14 +23,26 @@ const clamp = (v: unknown, lo: number, hi: number, fallback: number) => {
   return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : fallback;
 };
 
+export function parseTimeframe(body: Record<string, unknown>): Timeframe {
+  return body.timeframe === "4h" ? "4h" : "1d";
+}
+
 export function parseConfig(body: Record<string, unknown>): BacktestConfig {
   const index = parseIndex(body);
+  const timeframe = parseTimeframe(body);
+  if (timeframe === "4h" && index !== "SMALLFUND") {
+    throw new Error("4H 回测目前只支持 Small Fund 池（Alpaca 1H 合成）");
+  }
   const d: BacktestConfig =
     index === "SMALLFUND"
-      ? { ...DEFAULT_BACKTEST_CONFIG, ...SMALL_FUND_DEFAULT_CONFIG }
+      ? {
+          ...DEFAULT_BACKTEST_CONFIG,
+          ...(timeframe === "4h" ? SMALL_FUND_4H_DEFAULT_CONFIG : SMALL_FUND_DEFAULT_CONFIG),
+        }
       : DEFAULT_BACKTEST_CONFIG;
+  const fromDefault = timeframe === "4h" && index === "SMALLFUND" ? SMALL_FUND_4H_FROM : d.from;
   return {
-    from: typeof body.from === "string" ? body.from : d.from,
+    from: typeof body.from === "string" ? body.from : fromDefault,
     to: typeof body.to === "string" ? body.to : d.to,
     splitDate: typeof body.splitDate === "string" ? body.splitDate : d.splitDate,
     rpsMin: clamp(body.rpsMin, 0, 99, d.rpsMin),
@@ -63,6 +83,7 @@ export function parseConfig(body: Record<string, unknown>): BacktestConfig {
       : body.rpsWeightPower == null
         ? null
         : clamp(body.rpsWeightPower, 0, 5, 1),
+    timeframe,
   };
 }
 

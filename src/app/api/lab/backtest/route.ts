@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { runBacktest, type EquityPoint } from "@/lib/backtest/engine";
 import { INDEXES, getPreparedUniverse } from "@/lib/backtest/load";
 import { parseConfig, parseIndex, tradeRows } from "@/lib/backtest/labRequest";
-import { getSpyCloses, overlaySpyCurve } from "@/lib/backtest/spyCurve";
+import { getSpyCloses, getSpyCloses4h, overlaySpyCurve } from "@/lib/backtest/spyCurve";
 
 /**
  * 调参回测接口。
@@ -36,8 +36,8 @@ export async function POST(request: Request) {
 
   try {
     const [universe, spyCloses] = await Promise.all([
-      getPreparedUniverse(index),
-      getSpyCloses(),
+      getPreparedUniverse(index, config.timeframe),
+      config.timeframe === "4h" ? getSpyCloses4h() : getSpyCloses(),
     ]);
     const started = Date.now();
     const result = runBacktest(universe, config);

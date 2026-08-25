@@ -150,7 +150,7 @@ const DEFAULTS: Params = {
   rpsWeightPower: null,
 };
 
-/** Small Fund 五年平台组：关闸门、RPS≥40、吊灯 5.5、止盈 1R、k=1。 */
+/** Small Fund 日线平台组：关闸门、RPS≥40、吊灯 5.5、止盈 1R、k=1。 */
 const SMALLFUND_DEFAULTS: Params = {
   ...DEFAULTS,
   rpsMin: 40,
@@ -161,6 +161,25 @@ const SMALLFUND_DEFAULTS: Params = {
   requireVegas: false,
   rpsWeightPower: 1,
 };
+
+/** Small Fund 4H 基金组：RPS≥50、止损 6、吊灯 6、不止盈。 */
+const SMALLFUND_4H_DEFAULTS: Params = {
+  ...DEFAULTS,
+  rpsMin: 50,
+  stopMult: 6,
+  trailMult: 6,
+  takeProfitR: null,
+  useBuy2: true,
+  requireRsi: false,
+  requireVegas: false,
+  rpsWeightPower: 1,
+};
+
+type Timeframe = "1d" | "4h";
+
+function smallFundDefaults(tf: Timeframe): Params {
+  return tf === "4h" ? SMALLFUND_4H_DEFAULTS : SMALLFUND_DEFAULTS;
+}
 
 /** Pine 原值，用于一键对照。 */
 const PINE_DEFAULTS: Params = {
@@ -192,7 +211,7 @@ const POOLS: { value: IndexKey; label: string }[] = [
   { value: "UNION", label: "两者并集" },
   { value: "SP500", label: "标普 500" },
   { value: "NDX100", label: "纳斯达克 100" },
-  { value: "SMALLFUND", label: "Small Fund 100" },
+  { value: "SMALLFUND", label: "Small Fund 200" },
 ];
 
 const VEGAS_SPEC = { vegasFastA: 166, vegasFastB: 169, vegasSlowA: 576, vegasSlowB: 676 };
@@ -236,6 +255,7 @@ function stopMultHint(p: Params): string {
 export function LabWorkbench() {
   const [params, setParams] = useState<Params>(SMALLFUND_DEFAULTS);
   const [index, setIndex] = useState<IndexKey>("SMALLFUND");
+  const [timeframe, setTimeframe] = useState<Timeframe>("1d");
   const [result, setResult] = useState<Result | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -244,21 +264,24 @@ export function LabWorkbench() {
   /** 点开哪只标的的哪一笔，null 为关闭弹窗。 */
   const [chartTarget, setChartTarget] = useState<ChartTarget | null>(null);
   /** 传给弹窗的配置要是稳定引用，否则它每次渲染都会重新取数。 */
-  const chartRequest = useMemo(() => ({ ...params, index }), [params, index]);
+  const chartRequest = useMemo(
+    () => ({ ...params, index, timeframe }),
+    [params, index, timeframe],
+  );
 
   /** 试过的不同参数组合数，以及偷看保留区的次数——都是过拟合的计价单位。 */
   const tried = useRef(new Set<string>());
   const [trialCount, setTrialCount] = useState(0);
   const [peekCount, setPeekCount] = useState(0);
 
-  const run = useCallback(async (p: Params, idx: IndexKey) => {
+  const run = useCallback(async (p: Params, idx: IndexKey, tf: Timeframe) => {
     setLoading(true);
     setError(null);
     try {
       const res = await fetch("/api/lab/backtest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...p, index: idx }),
+        body: JSON.stringify({ ...p, index: idx, timeframe: tf }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "回测失败");
@@ -273,16 +296,16 @@ export function LabWorkbench() {
   // 滑块连续拖动时不必每帧都打接口
   useEffect(() => {
     // 换池子也算一次试验：在另一个池子上重测同一组参数同样是在挑结果
-    const key = JSON.stringify({ params, index });
+    const key = JSON.stringify({ params, index, timeframe });
     const timer = setTimeout(() => {
       if (!tried.current.has(key)) {
         tried.current.add(key);
         setTrialCount(tried.current.size);
       }
-      void run(params, index);
+      void run(params, index, timeframe);
     }, 350);
     return () => clearTimeout(timer);
-  }, [params, index, run]);
+  }, [params, index, timeframe, run]);
 
   const set = <K extends keyof Params>(key: K, value: Params[K]) =>
     setParams((prev) => ({ ...prev, [key]: value }));
@@ -321,7 +344,7 @@ export function LabWorkbench() {
               variant="default"
               leftSection={<RotateCcw className="h-3 w-3" />}
               onClick={() =>
-                setParams(index === "SMALLFUND" ? SMALLFUND_DEFAULTS : DEFAULTS)
+                setParams(index === "SMALLFUND" ? smallFundDefaults(timeframe) : DEFAULTS)
               }
             >
               复原
@@ -340,9 +363,24 @@ export function LabWorkbench() {
               onChange={(v) => {
                 const next = v as IndexKey;
                 setIndex(next);
-                setParams(next === "SMALLFUND" ? SMALLFUND_DEFAULTS : DEFAULTS);
+                setParams(next === "SMALLFUND" ? smallFundDefaults(timeframe) : DEFAULTS);
+                if (next !== "SMALLFUND") setTimeframe("1d");
               }}
               data={POOLS}
+            />
+            <SegmentedControl
+              size="xs"
+              disabled={index !== "SMALLFUND"}
+              value={timeframe}
+              onChange={(v) => {
+                const next = v as Timeframe;
+                setTimeframe(next);
+                if (index === "SMALLFUND") setParams(smallFundDefaults(next));
+              }}
+              data={[
+                { value: "1d", label: "日线" },
+                { value: "4h", label: "4小时" },
+              ]}
             />
             {result ? (
               <Text size="xs" c="dimmed" ff="monospace">
@@ -352,6 +390,7 @@ export function LabWorkbench() {
           </Group>
           <Text size="xs" c="dimmed">
             Small Fund 是事后名单，只看同池差。灰线同池等权，琥珀线标普。
+            4 小时仅 Small Fund：Alpaca 1H 合成，窗口与日线对齐，指标按 K 线根数。
           </Text>
         </Stack>
 

@@ -1,5 +1,10 @@
-import { CSV_PANEL_DIR, readCsvPanels } from "./csvPanel";
-import { prepareUniverse, type MembershipSpan, type PreparedUniverse } from "./engine";
+import { CSV_2H_DIR, CSV_4H_DIR, CSV_PANEL_DIR, readCsvPanels } from "./csvPanel";
+import {
+  prepareUniverse,
+  type MembershipSpan,
+  type PreparedUniverse,
+  type Timeframe,
+} from "./engine";
 import { unpackPanel, type PanelBars } from "./panel";
 import {
   PANEL_CACHE_PATH,
@@ -23,7 +28,7 @@ export const INDEXES = {
   UNION: { label: "标普 ∪ 纳斯达克", sources: ["SP500", "NDX100"] },
   SP500: { label: "标普 500", sources: ["SP500"] },
   NDX100: { label: "纳斯达克 100", sources: ["NDX100"] },
-  SMALLFUND: { label: "Small Fund 100", sources: ["SMALLFUND"] },
+  SMALLFUND: { label: "Small Fund 200", sources: ["SMALLFUND"] },
 } as const;
 
 export type IndexKey = keyof typeof INDEXES;
@@ -147,7 +152,19 @@ async function loadSmallFundFromDb(): Promise<PanelBars[]> {
   return panels;
 }
 
-async function loadSmallFundUniverse(): Promise<PreparedUniverse> {
+async function loadSmallFundUniverse(timeframe: Timeframe = "1d"): Promise<PreparedUniverse> {
+  if (timeframe === "4h" || timeframe === "2h") {
+    const dir = timeframe === "2h" ? CSV_2H_DIR : CSV_4H_DIR;
+    const label = timeframe === "2h" ? "2H" : "4H";
+    const cmd = timeframe === "2h" ? "smallfund:fetch-2h" : "smallfund:fetch-4h";
+    const csv = readCsvPanels(dir, SMALL_FUND_UNIVERSE).filter((panel) => panel.ticker !== "SPCX");
+    if (csv.length === 0) {
+      throw new Error(`Small Fund ${label} CSV 为空：${dir}。先跑 npm run ${cmd}。`);
+    }
+    console.log(`[smallfund] ${label} CSV ${csv.length} 只  ${dir}`);
+    return prepareSmallFund(csv);
+  }
+
   const source = smallFundSource();
 
   if (source === "csv" || source === "auto") {
@@ -175,8 +192,9 @@ async function loadSmallFundUniverse(): Promise<PreparedUniverse> {
 
 export async function loadPreparedUniverse(
   index: IndexKey = DEFAULT_INDEX,
+  timeframe: Timeframe = "1d",
 ): Promise<PreparedUniverse> {
-  if (index === "SMALLFUND") return loadSmallFundUniverse();
+  if (index === "SMALLFUND") return loadSmallFundUniverse(timeframe);
 
   const snapshot = await getSnapshot();
   const sources = new Set<string>(INDEXES[index].sources);
@@ -204,16 +222,20 @@ export async function loadPreparedUniverse(
  * 进程内缓存，按指数分开。准备段只依赖行情与成分资格，参数变化不影响，
  * 而它是整条链路里最贵的一步（冷启动十几秒），不能每次请求都重算。
  */
-const cached = new Map<IndexKey, Promise<PreparedUniverse>>();
+const cached = new Map<string, Promise<PreparedUniverse>>();
 
-export function getPreparedUniverse(index: IndexKey = DEFAULT_INDEX): Promise<PreparedUniverse> {
-  const hit = cached.get(index);
+export function getPreparedUniverse(
+  index: IndexKey = DEFAULT_INDEX,
+  timeframe: Timeframe = "1d",
+): Promise<PreparedUniverse> {
+  const key = `${index}:${timeframe}`;
+  const hit = cached.get(key);
   if (hit) return hit;
 
-  const task = loadPreparedUniverse(index).catch((error) => {
-    cached.delete(index);
+  const task = loadPreparedUniverse(index, timeframe).catch((error) => {
+    cached.delete(key);
     throw error;
   });
-  cached.set(index, task);
+  cached.set(key, task);
   return task;
 }

@@ -13,6 +13,8 @@ import {
   SMALL_FUND_UNIVERSE,
   SMALL_FUND_WINDOW_YEARS,
 } from "@/lib/backtest/smallFundUniverse";
+import { fetchAlpacaDailyBars } from "@/lib/data-sources/alpaca";
+import { fetchStooqDailyBars } from "@/lib/data-sources/stooq";
 import { fetchYahooDailyBars } from "@/lib/data-sources/yahoo";
 
 /**
@@ -59,8 +61,20 @@ async function fetchOne(ticker: string): Promise<Outcome> {
   let bars;
   try {
     bars = await fetchYahooDailyBars(ticker, { years: SMALL_FUND_HISTORY_YEARS });
-  } catch (error) {
-    return { ticker, reason: error instanceof Error ? error.message : "抓取失败" };
+  } catch (yahooError) {
+    try {
+      bars = await fetchStooqDailyBars(ticker);
+      if (bars.length === 0) throw new Error("Stooq 空响应");
+    } catch {
+      try {
+        bars = await fetchAlpacaDailyBars(ticker);
+      } catch {
+        return {
+          ticker,
+          reason: yahooError instanceof Error ? yahooError.message : "抓取失败",
+        };
+      }
+    }
   }
   if (bars.length < MIN_BARS) return { ticker, reason: `样本不足 ${bars.length} 根` };
 

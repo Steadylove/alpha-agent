@@ -1,6 +1,8 @@
 import path from "node:path";
 
+import { fetchAlpaca30MBars } from "@/lib/data-sources/alpaca";
 import { fetchYahooDailyBars } from "@/lib/data-sources/yahoo";
+import { aggregateTo4H, barTimeISO } from "@/lib/data-sources/yahooIntraday";
 
 import { readCsvPanel, writeCsvPanel } from "./csvPanel";
 import type { DayBook, YearRow, YearToDate } from "./engine";
@@ -16,6 +18,7 @@ function closesFromPanel(dates: string[], close: Float32Array): Map<string, numb
 }
 
 let cached: Promise<Map<string, number> | null> | null = null;
+let cached4h: Promise<Map<string, number> | null> | null = null;
 
 /** 进程内只拉一次。本地 CSV 优先，没有再问 Yahoo 并落盘。 */
 export function getSpyCloses(): Promise<Map<string, number> | null> {
@@ -24,6 +27,39 @@ export function getSpyCloses(): Promise<Map<string, number> | null> {
     throw error;
   });
   return cached;
+}
+
+export function getSpyCloses4h(): Promise<Map<string, number> | null> {
+  cached4h ??= loadSpyCloses4h().catch((error) => {
+    cached4h = null;
+    throw error;
+  });
+  return cached4h;
+}
+
+export async function loadSpyCloses4h(): Promise<Map<string, number> | null> {
+  const local = readCsvPanel(SPY_CSV_DIR, "SPY4H");
+  if (local && local.dates.length > 0) return closesFromPanel(local.dates, local.close);
+
+  try {
+    const bars = aggregateTo4H(await fetchAlpaca30MBars("SPY", "2021-01-01T00:00:00Z"));
+    if (bars.length === 0) return null;
+    writeCsvPanel(
+      SPY_CSV_DIR,
+      "SPY4H",
+      bars.map((b) => ({
+        date: barTimeISO(b.timestamp),
+        open: b.open,
+        high: b.high,
+        low: b.low,
+        close: b.close,
+        volume: b.volume,
+      })),
+    );
+    return new Map(bars.map((b) => [barTimeISO(b.timestamp), b.close]));
+  } catch {
+    return null;
+  }
 }
 
 export async function loadSpyCloses(): Promise<Map<string, number> | null> {

@@ -28,6 +28,8 @@
     "calibrate:stock-panel": "npx --yes tsx scripts/calibrate-stock-panel.ts",
     "compare:mpr": "npx --yes tsx scripts/compare-mpr-tradingview.ts",
     "smallfund:fetch": "npx --yes tsx scripts/fetch-smallfund-csv.ts",
+    "smallfund:fetch-4h": "npx --yes tsx scripts/fetch-smallfund-4h.ts",
+    "smallfund:fetch-2h": "npx --yes tsx scripts/fetch-smallfund-2h.ts",
     "smallfund:import": "npx --yes tsx scripts/import-smallfund-to-db.ts",
     "smallfund:diag": "npx --yes tsx scripts/diagnose-smallfund.ts"
   },

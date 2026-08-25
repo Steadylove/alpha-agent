@@ -7,7 +7,7 @@ import type { Time } from "lightweight-charts";
  * 只是占住时间槽，折线渲染时会被跳过，相邻两个有值点仍然直连。空仓期长达数年时
  * 就会拉出一条横跨全图的斜线。每段单独建一条 series 才能真正断开。
  */
-export function segments(points: { time: string; value: number | null }[]) {
+export function segments(points: { time: Time | string; value: number | null }[]) {
   const out: { time: Time; value: number }[][] = [];
   let cur: { time: Time; value: number }[] = [];
   for (const p of points) {

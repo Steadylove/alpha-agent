@@ -12,11 +12,13 @@ const nextConfig: NextConfig = {
     "/api/lab/backtest": [
       ".cache/backtest-panel.v8",
       "data/smallfund/**",
+      "data/smallfund4h/**",
       "data/benchmarks/**",
     ],
     "/api/lab/chart": [
       ".cache/backtest-panel.v8",
       "data/smallfund/**",
+      "data/smallfund4h/**",
       "data/benchmarks/**",
     ],
   },

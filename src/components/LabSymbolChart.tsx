@@ -27,6 +27,14 @@ const VEGAS_SLOW = "#6366f1";
 const RSI_LINE = "#f59e0b";
 const FILTERED = "#71717a";
 
+function toChartTime(date: string): Time {
+  if (date.includes("T")) {
+    const iso = date.length === 16 ? `${date}:00Z` : date;
+    return Math.floor(Date.parse(iso) / 1000) as Time;
+  }
+  return date as Time;
+}
+
 /** 聚焦单笔时前后各留的交易日，用来看清入场前的形态与离场后的走势。 */
 const PAD_BEFORE = 70;
 const PAD_AFTER = 45;
@@ -222,7 +230,7 @@ export function LabSymbolChart({
     });
     candles.setData(
       time.map((t, i) => ({
-        time: t as Time,
+        time: toChartTime(t),
         open: open[i],
         high: high[i],
         low: low[i],
@@ -306,7 +314,7 @@ export function LabSymbolChart({
       const tagged = focusTrade != null && (s.fillDate === focusTrade.entryDate || s.date === focusTrade.entryDate);
       const reason = s.accepted ? "" : s.reject ? ` · ${s.reject}` : "";
       markers.push({
-        time: s.date as Time,
+        time: toChartTime(s.date),
         position: "belowBar",
         shape: s.accepted ? "arrowUp" : "circle",
         color: s.accepted ? (s.sigType === 1 ? BUY1 : BUY2) : FILTERED,
@@ -317,14 +325,14 @@ export function LabSymbolChart({
     data.trades.forEach((t, i) => {
       const labelled = i === currentIdx;
       markers.push({
-        time: t.entryDate as Time,
+        time: toChartTime(t.entryDate),
         position: "belowBar",
         shape: "arrowUp",
         color: t.sigType === 1 ? BUY1 : BUY2,
         text: labelled ? `开仓 ${t.entryPrice.toFixed(2)}` : "",
       });
       markers.push({
-        time: t.exitDate as Time,
+        time: toChartTime(t.exitDate),
         position: "aboveBar",
         shape: "arrowDown",
         color: t.pnlPct >= 0 ? UP : DOWN,
@@ -351,7 +359,10 @@ export function LabSymbolChart({
     const to = trade?.exitDate ?? signal!.date;
     const lo = Math.max(0, time.indexOf(from) - PAD_BEFORE);
     const hi = Math.min(time.length - 1, time.indexOf(to) + PAD_AFTER);
-    chart.timeScale().setVisibleRange({ from: time[lo] as Time, to: time[hi] as Time });
+    chart.timeScale().setVisibleRange({
+      from: toChartTime(time[lo]),
+      to: toChartTime(time[hi]),
+    });
   }, [data, focusIdx]);
 
   const step = (delta: number) => {

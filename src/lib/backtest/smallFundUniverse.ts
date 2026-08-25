@@ -17,8 +17,8 @@ export const SMALL_FUND_EXCLUDED = [
 ] as const;
 
 /**
- * 参与回测的 97 只。抓不到价格的（疑似清单 OCR 出错的 SKHY、SPCX）由抓取层跳过，
- * 不在这里预先剔除——让它体现在抓取报告里，比静默消失好。
+ * 参与回测的 197 只（原 97 + 2026-08 再加 100）。
+ * 抓不到价格的（SKHY、SPCX 等）由抓取层跳过，不在这里预先剔除。
  */
 export const SMALL_FUND_UNIVERSE: readonly string[] = [
   "QQQ", "GOOG", "NVDA", "AAPL", "MSFT", "META", "AMZN", "TSLA", "TSM", "AVGO",
@@ -31,6 +31,16 @@ export const SMALL_FUND_UNIVERSE: readonly string[] = [
   "GLW", "GLD", "GE", "IBM", "GDX", "EOSE", "DOW", "DIS", "DELL", "DDOG",
   "CVX", "CRWV", "CRDO", "COIN", "CLSK", "CLS", "CIEN", "CENX", "CEG", "CCJ",
   "BA", "AXTI", "ASML", "APP", "APH", "AMGN", "ALAB",
+  "ARM", "KLAC", "AMAT", "MPWR", "ON", "ANET", "PANW", "FTNT", "NET", "ZS",
+  "MSTR", "TTD", "HUBS", "PSTG", "BWXT", "SMR", "LUNR", "POWL", "ETN", "VST",
+  "TLN", "SMCI", "CDNS", "SNPS", "ADI", "NXPI", "TYL", "FSLR", "ENPH", "AXON",
+  "LMT", "NOC", "GD", "TDG", "DE", "URI", "UNP", "CSX", "FDX", "EOG",
+  "SLB", "COP", "KMI", "FCX", "SCCO", "LIN", "SHW", "CRH", "VMC", "MLM",
+  "ET", "OXY", "MPC", "PSX", "VLO", "ABBV", "TMO", "DHR", "GILD", "VRTX",
+  "REGN", "BDX", "PG", "PEP", "COST", "MDLZ", "CL", "NEE", "DUK", "SO",
+  "AEP", "SYK", "BSX", "ELV", "CI", "BLK", "BX", "KKR", "APO", "CME",
+  "ICE", "SPGI", "MCO", "AXP", "MS", "PGR", "CB", "ARES", "COF", "MMC",
+  "AEM", "GOLD", "WPM", "FNV", "ALB", "MP", "PAAS", "AG", "HL", "LAC",
 ];
 
 /**
@@ -63,6 +73,9 @@ export const SMALL_FUND_WINDOW_YEARS = 5;
  */
 export const SMALL_FUND_FROM = "2021-08-24";
 export const SMALL_FUND_TO = "2026-08-24";
+/** Alpaca 1H 从 2021 起；窗口与日线对齐，RPS 252 根预热落在窗口之前。 */
+export const SMALL_FUND_4H_FROM = "2021-08-24";
+export const SMALL_FUND_2H_FROM = SMALL_FUND_4H_FROM;
 
 export const SMALL_FUND_DEFAULT_CONFIG = {
   from: SMALL_FUND_FROM,
@@ -78,4 +91,32 @@ export const SMALL_FUND_DEFAULT_CONFIG = {
   trailMult: 5.5,
   takeProfitR: 1,
   rpsWeightPower: 1,
+} as const;
+
+/**
+ * Small Fund 4H 基金组。540 组网格后按难年超额和跨年稳定性选，不是 2024 尖峰。
+ * 关闸门、RPS≥50、止损 6、吊灯 6、不止盈、一+二、k=1。
+ * 2022–2026 五年都打过同池；整段既训练又评分，数字仍偏乐观。
+ */
+export const SMALL_FUND_4H_DEFAULT_CONFIG = {
+  from: SMALL_FUND_4H_FROM,
+  to: SMALL_FUND_TO,
+  splitDate: "2099-01-01",
+  rpsMin: 50,
+  useBuy1: true,
+  useBuy2: true,
+  requireRsi: false,
+  minRsi: 30,
+  requireVegas: false,
+  stopMult: 6,
+  trailMult: 6,
+  takeProfitR: null,
+  rpsWeightPower: 1,
+  timeframe: "4h",
+} as const;
+
+export const SMALL_FUND_2H_DEFAULT_CONFIG = {
+  ...SMALL_FUND_4H_DEFAULT_CONFIG,
+  from: SMALL_FUND_2H_FROM,
+  timeframe: "2h",
 } as const;

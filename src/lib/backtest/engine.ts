@@ -31,6 +31,16 @@ import { emaSeries, rsiSeries } from "@/lib/scoring/series";
 import type { PanelBars } from "./panel";
 
 const TRADING_DAYS_PER_YEAR = 252;
+const FOUR_HOUR_BARS_PER_YEAR = 504;
+const TWO_HOUR_BARS_PER_YEAR = 1008;
+
+export type Timeframe = "1d" | "4h" | "2h";
+
+export function barsPerYearOf(tf: Timeframe = "1d"): number {
+  if (tf === "4h") return FOUR_HOUR_BARS_PER_YEAR;
+  if (tf === "2h") return TWO_HOUR_BARS_PER_YEAR;
+  return TRADING_DAYS_PER_YEAR;
+}
 
 export type MembershipSpan = { start: string; end: string | null };
 
@@ -365,6 +375,7 @@ export type BacktestConfig = {
    * null 表示等权。k=0 时每只 raw=1，必须与等权逐位相同。
    */
   rpsWeightPower: number | null;
+  timeframe: Timeframe;
 };
 
 export const DEFAULT_BACKTEST_CONFIG: BacktestConfig = {
@@ -423,6 +434,7 @@ export const DEFAULT_BACKTEST_CONFIG: BacktestConfig = {
   vegasSlowA: VEGAS_SLOW[0],
   vegasSlowB: VEGAS_SLOW[1],
   rpsWeightPower: null,
+  timeframe: "1d",
 };
 
 export type TradeStats = {
@@ -563,7 +575,11 @@ function tradeStats(trades: readonly ClosedTrade[]): TradeStats {
   };
 }
 
-function portfolioStats(returns: Float64Array, exposure?: Float64Array): PortfolioStats {
+function portfolioStats(
+  returns: Float64Array,
+  exposure?: Float64Array,
+  barsPerYear = TRADING_DAYS_PER_YEAR,
+): PortfolioStats {
   const n = returns.length;
   if (n === 0) {
     return {
@@ -594,7 +610,7 @@ function portfolioStats(returns: Float64Array, exposure?: Float64Array): Portfol
   let sq = 0;
   for (let i = 0; i < n; i += 1) sq += (returns[i] - mean) ** 2;
   const variance = n > 1 ? sq / (n - 1) : 0;
-  const years = n / TRADING_DAYS_PER_YEAR;
+  const years = n / barsPerYear;
 
   let expSum = 0;
   if (exposure) for (let i = 0; i < n; i += 1) expSum += Math.min(1, exposure[i]);
@@ -603,11 +619,20 @@ function portfolioStats(returns: Float64Array, exposure?: Float64Array): Portfol
     equity,
     cagrPct: years > 0 ? (equity ** (1 / years) - 1) * 100 : 0,
     maxDrawdownPct: maxDd * 100,
-    volPct: Math.sqrt(variance * TRADING_DAYS_PER_YEAR) * 100,
+    volPct: Math.sqrt(variance * barsPerYear) * 100,
     investedDayPct: (invested / n) * 100,
     avgExposurePct: exposure ? (expSum / n) * 100 : 100,
     days: n,
   };
+}
+
+/** 4H 日期是 `YYYY-MM-DDTHH:mm`。只跳过停牌数周以上的缺口，长周末（约 92h）仍计收益。 */
+const INTRADAY_HALT_HOURS = 24 * 7;
+
+function hoursBetween(prevDate: string, date: string): number {
+  const parse = (value: string) =>
+    Date.parse(value.includes("T") ? `${value.length === 16 ? `${value}:00` : value}Z` : `${value}T00:00:00Z`);
+  return (parse(date) - parse(prevDate)) / 3_600_000;
 }
 
 /** 等权：当日所有持仓标的收益取算术平均，无持仓则当日收益为 0（空仓不计息）。 */
@@ -812,6 +837,13 @@ export function runBacktest(universe: PreparedUniverse, config: BacktestConfig):
       if (!(prev > 0)) continue;
       const benchRet = sym.close[i] / prev - 1;
       if (!Number.isFinite(benchRet)) continue;
+      // 停牌几个月后的第一根会把整段涨跌记进一根 4H，等权基准会被一只票打飞。
+      if (
+        config.timeframe !== "1d" &&
+        hoursBetween(axis[sym.axisIndex[i - 1]], axis[sym.axisIndex[i]]) > INTRADAY_HALT_HOURS
+      ) {
+        continue;
+      }
 
       if (sym.isMember[i - 1] === 1) {
         benchSum[d] += benchRet;
@@ -853,6 +885,7 @@ export function runBacktest(universe: PreparedUniverse, config: BacktestConfig):
   let cut = 0;
   while (cut < w && win[cut] < config.splitDate) cut += 1;
 
+  const bpy = barsPerYearOf(config.timeframe);
   const buildWindow = (label: string, a: number, b: number): WindowResult => {
     const from = win[a] ?? config.from;
     const to = win[b - 1] ?? config.to;
@@ -861,8 +894,8 @@ export function runBacktest(universe: PreparedUniverse, config: BacktestConfig):
       from,
       to,
       trade: tradeStats(allTrades.filter((t) => t.entryDate >= from && t.entryDate <= to)),
-      portfolio: portfolioStats(heldRet.subarray(a, b), heldWeight.subarray(a, b)),
-      benchmark: portfolioStats(benchRet.subarray(a, b)),
+      portfolio: portfolioStats(heldRet.subarray(a, b), heldWeight.subarray(a, b), bpy),
+      benchmark: portfolioStats(benchRet.subarray(a, b), undefined, bpy),
     };
   };
 
