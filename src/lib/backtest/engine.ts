@@ -375,6 +375,11 @@ export type BacktestConfig = {
    * null 表示等权。k=0 时每只 raw=1，必须与等权逐位相同。
    */
   rpsWeightPower: number | null;
+  /**
+   * 最多同时持有只数。满员后新信号不成交，已有仓按原出场走，不按 RPS 踢仓。
+   * null 表示不限。
+   */
+  maxHoldings: number | null;
   timeframe: Timeframe;
 };
 
@@ -434,6 +439,7 @@ export const DEFAULT_BACKTEST_CONFIG: BacktestConfig = {
   vegasSlowA: VEGAS_SLOW[0],
   vegasSlowB: VEGAS_SLOW[1],
   rpsWeightPower: null,
+  maxHoldings: null,
   timeframe: "1d",
 };
 
@@ -788,6 +794,115 @@ export function runSymbol(
   return { bars, days, closed, signalCount, buy1, buy2 };
 }
 
+type SymbolPass = {
+  ticker: string;
+  days: TradeDay[];
+  closed: ClosedTrade[];
+};
+
+function stripTrade(days: TradeDay[], from: number, to: number) {
+  const last = Math.min(to, days.length - 1);
+  for (let i = from; i <= last; i += 1) {
+    const d = days[i];
+    d.entered = false;
+    d.exited = false;
+    d.sigType = 0;
+    d.entryPrice = null;
+    d.riskPct = null;
+    d.entryRps = null;
+    d.entryDate = null;
+    d.stopLevel = null;
+    d.trailLevel = null;
+    d.effectiveStop = null;
+    d.targetLevel = null;
+    d.floatPnlPct = 0;
+  }
+}
+
+/**
+ * 满员拒新单。同日先腾出当日离场的坑，再按开仓 RPS 从高到低补。
+ * 不重跑单票信号：被拒的那一段不会改成另一笔后来的买点。
+ */
+export function applyMaxHoldings(runs: SymbolPass[], maxN: number): void {
+  if (!(maxN > 0)) return;
+
+  type Job = {
+    date: string;
+    rps: number;
+    ticker: string;
+    run: SymbolPass;
+    entryIndex: number;
+    exitIndex: number;
+    exitDate: string;
+    closed: ClosedTrade | null;
+  };
+
+  const jobs: Job[] = [];
+  for (const run of runs) {
+    for (const trade of run.closed) {
+      jobs.push({
+        date: trade.entryDate,
+        rps: run.days[trade.entryIndex]?.entryRps ?? 0,
+        ticker: trade.symbol,
+        run,
+        entryIndex: trade.entryIndex,
+        exitIndex: trade.exitIndex,
+        exitDate: trade.exitDate,
+        closed: trade,
+      });
+    }
+    const last = run.days[run.days.length - 1];
+    if (last && last.sigType !== 0 && last.entryDate) {
+      const already = run.closed.some((t) => t.entryDate === last.entryDate);
+      if (!already) {
+        const entryIndex = run.days.findIndex((d) => d.entered && d.entryDate === last.entryDate);
+        jobs.push({
+          date: last.entryDate,
+          rps: last.entryRps ?? 0,
+          ticker: run.ticker,
+          run,
+          entryIndex: entryIndex >= 0 ? entryIndex : 0,
+          exitIndex: run.days.length - 1,
+          exitDate: "9999-12-31",
+          closed: null,
+        });
+      }
+    }
+  }
+
+  jobs.sort((a, b) => {
+    if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+    if (a.rps !== b.rps) return b.rps - a.rps;
+    return a.ticker < b.ticker ? -1 : 1;
+  });
+
+  const held = new Map<string, string>();
+  const rejected: Job[] = [];
+  let i = 0;
+  while (i < jobs.length) {
+    const day = jobs[i].date;
+    for (const [ticker, exitDate] of [...held]) {
+      if (exitDate <= day) held.delete(ticker);
+    }
+    while (i < jobs.length && jobs[i].date === day) {
+      const job = jobs[i];
+      i += 1;
+      if (held.size < maxN) {
+        held.set(job.ticker, job.exitDate);
+      } else {
+        rejected.push(job);
+      }
+    }
+  }
+
+  for (const job of rejected) {
+    stripTrade(job.run.days, job.entryIndex, job.exitIndex);
+    if (job.closed) {
+      job.run.closed = job.run.closed.filter((t) => t !== job.closed);
+    }
+  }
+}
+
 export function runBacktest(universe: PreparedUniverse, config: BacktestConfig): BacktestResult {
   const { axis, symbols } = universe;
 
@@ -818,14 +933,30 @@ export function runBacktest(universe: PreparedUniverse, config: BacktestConfig):
   const dayBuys: string[][] = Array.from({ length: w }, () => []);
   const daySells: string[][] = Array.from({ length: w }, () => []);
 
+  const passes: { sym: (typeof symbols)[number]; run: SymbolPass; hits: number }[] = [];
   for (const sym of symbols) {
     const n = sym.axisIndex.length;
     if (n === 0 || sym.axisIndex[n - 1] < lo || sym.axisIndex[0] >= hi) continue;
     activeSymbols += 1;
-
     const { days, closed, signalCount: hits } = runSymbol(axis, sym, config, lo, hi);
+    passes.push({
+      sym,
+      hits,
+      run: { ticker: sym.ticker, days, closed },
+    });
+  }
+  if (config.maxHoldings != null) {
+    applyMaxHoldings(
+      passes.map((p) => p.run),
+      config.maxHoldings,
+    );
+  }
+
+  for (const { sym, run, hits } of passes) {
     signalCount += hits;
-    allTrades.push(...closed);
+    allTrades.push(...run.closed);
+    const { days } = run;
+    const n = sym.axisIndex.length;
 
     // 组合层的日收益必须和成交时点对齐：建仓与清仓都发生在开盘，
     // 所以首日只吃到 open→close，末日只吃到 prevClose→open，中间才是收盘到收盘。

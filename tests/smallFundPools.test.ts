@@ -56,8 +56,14 @@ describe("small fund pools", () => {
     expect(tickersForPool("sf-2026-08")).toBe(SMALL_FUND_UNIVERSE);
   });
 
-  it("Lab 请求改不了 Small Fund 买点", () => {
-    const c = parseConfig({
+  it("Small Fund 未传旋钮用当前纪律，传入则覆盖", () => {
+    const frozen = parseConfig({ index: "SMALLFUND" });
+    expect(frozen.rpsMin).toBe(40);
+    expect(frozen.stopMult).toBe(4);
+    expect(frozen.requireVegas).toBe(true);
+    expect(frozen.takeProfitR).toBeNull();
+
+    const tuned = parseConfig({
       index: "SMALLFUND",
       rpsMin: 90,
       stopMult: 1,
@@ -65,12 +71,10 @@ describe("small fund pools", () => {
       requireVegas: false,
       takeProfitR: 1,
     });
-    expect(c.rpsMin).toBe(40);
-    expect(c.stopMult).toBe(4);
-    expect(c.useBuy1).toBe(true);
-    expect(c.useBuy2).toBe(true);
-    expect(c.requireVegas).toBe(true);
-    expect(c.requireRsi).toBe(true);
-    expect(c.takeProfitR).toBeNull();
+    expect(tuned.rpsMin).toBe(90);
+    expect(tuned.stopMult).toBe(1);
+    expect(tuned.useBuy1).toBe(false);
+    expect(tuned.requireVegas).toBe(false);
+    expect(tuned.takeProfitR).toBe(1);
   });
 });

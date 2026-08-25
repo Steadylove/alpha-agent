@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge, Button, Group, Loader, SegmentedControl, Table, Text, TextInput } from "@mantine/core";
 
 import { Card, MetricCard } from "@/components/Card";
+import { LabSymbolChart, type ChartTarget } from "@/components/LabSymbolChart";
 import { LiveBookCard } from "@/components/LiveBookCard";
 import type { DeskDecision } from "@/lib/backtest/deskLedger";
 import type { DeskHolding, DeskSignal } from "@/lib/backtest/deskScan";
@@ -40,6 +41,17 @@ const POOL_OPTIONS = SMALL_FUND_POOL_IDS.map((id) => ({
 
 const pct = (v: number) => `${v.toFixed(1)}%`;
 
+/** 日线是 YYYY-MM-DD；4H 轴带 T，展示成日期 + 时刻。 */
+function axisParts(raw: string): { day: string; time: string | null } {
+  const [day, time] = raw.split("T");
+  return { day, time: time ?? null };
+}
+
+function axisLabel(raw: string): string {
+  const { day, time } = axisParts(raw);
+  return time ? `${day} ${time}` : day;
+}
+
 export function DeskWorkbench() {
   const [timeframe, setTimeframe] = useState<Timeframe>("1d");
   const [poolId, setPoolId] = useState<SmallFundPoolId>(DEFAULT_SMALL_FUND_POOL);
@@ -47,6 +59,15 @@ export function DeskWorkbench() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [chartTarget, setChartTarget] = useState<ChartTarget | null>(null);
+  const chartRequest = useMemo(
+    () => ({ index: "SMALLFUND", timeframe, poolId }),
+    [timeframe, poolId],
+  );
+
+  const openChart = (symbol: string, entryDate: string | null | undefined) => {
+    setChartTarget({ symbol, entryDate: entryDate ?? "" });
+  };
 
   const load = useCallback(async (tf: Timeframe, pool: SmallFundPoolId) => {
     setLoading(true);
@@ -138,7 +159,11 @@ export function DeskWorkbench() {
       {data ? (
         <>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <MetricCard label="最新一根" value={data.asOf} />
+            <MetricCard
+              label="最新一根"
+              value={axisParts(data.asOf).day}
+              hint={axisParts(data.asOf).time ?? undefined}
+            />
             <MetricCard label="待执行" value={String(data.pending.length)} />
             <MetricCard label="已持仓" value={String(data.holdings.length)} />
             <MetricCard label="现金" value={pct(data.cashPct)} hint={`持仓 ${pct(data.holdingExposurePct)} · 新开 ${pct(data.pendingExposurePct)}`} />
@@ -169,7 +194,7 @@ export function DeskWorkbench() {
                     return (
                       <Table.Tr key={key}>
                         <Table.Td ff="monospace" fw={600}>
-                          {row.symbol}
+                          <TickerLink symbol={row.symbol} onClick={() => openChart(row.symbol, row.date)} />
                         </Table.Td>
                         <Table.Td>{row.sigType === 1 ? "一买" : "二买"}</Table.Td>
                         <Table.Td ta="right" ff="monospace">
@@ -238,13 +263,19 @@ export function DeskWorkbench() {
                 </Table.Thead>
                 <Table.Tbody>
                   {data.holdings.map((row) => (
-                    <Table.Tr key={row.symbol}>
+                    <Table.Tr
+                      key={row.symbol}
+                      className="cursor-pointer"
+                      onClick={() => openChart(row.symbol, row.entryDate)}
+                    >
                       <Table.Td ff="monospace" fw={600}>
-                        {row.symbol}
+                        <span className="underline decoration-zinc-600 underline-offset-2">
+                          {row.symbol}
+                        </span>
                       </Table.Td>
                       <Table.Td>{row.sigType === 1 ? "一买" : "二买"}</Table.Td>
                       <Table.Td ff="monospace" c="dimmed">
-                        {row.entryDate ?? "—"}
+                        {row.entryDate ? axisLabel(row.entryDate) : "—"}
                       </Table.Td>
                       <Table.Td ta="right" ff="monospace">
                         {pct(row.weightPct)}
@@ -265,9 +296,9 @@ export function DeskWorkbench() {
                 <Table.Tbody>
                   {data.ledger.map((row) => (
                     <Table.Tr key={row.id}>
-                      <Table.Td ff="monospace">{row.date}</Table.Td>
+                      <Table.Td ff="monospace">{axisLabel(row.date)}</Table.Td>
                       <Table.Td ff="monospace" fw={600}>
-                        {row.symbol}
+                        <TickerLink symbol={row.symbol} onClick={() => openChart(row.symbol, row.date)} />
                       </Table.Td>
                       <Table.Td>{row.decision === "confirm" ? "确认" : "否决"}</Table.Td>
                       <Table.Td c="dimmed">{row.note || "—"}</Table.Td>
@@ -288,7 +319,25 @@ export function DeskWorkbench() {
           </Group>
         </Card>
       ) : null}
+
+      <LabSymbolChart
+        target={chartTarget}
+        request={chartRequest}
+        onClose={() => setChartTarget(null)}
+      />
     </StackLike>
+  );
+}
+
+function TickerLink({ symbol, onClick }: { symbol: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className="font-mono font-semibold underline decoration-zinc-600 underline-offset-2 hover:text-zinc-100"
+      onClick={onClick}
+    >
+      {symbol}
+    </button>
   );
 }
 

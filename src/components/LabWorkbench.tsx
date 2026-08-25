@@ -360,32 +360,30 @@ export function LabWorkbench() {
   return (
     <Stack gap="lg">
       <Card
-        title={index === "SMALLFUND" ? "买点（冻结）" : "参数"}
+        title="参数"
         action={
           <Group gap="xs">
             {loading ? <Loader size="xs" color="gray" /> : null}
             <Text size="xs" c="dimmed" ff="monospace">
               {result ? `${result.elapsedMs}ms` : ""}
             </Text>
-            {index !== "SMALLFUND" ? (
-              <>
-                <Button
-                  size="compact-xs"
-                  variant="default"
-                  onClick={() => setParams(PINE_DEFAULTS)}
-                >
-                  Pine 原值
-                </Button>
-                <Button
-                  size="compact-xs"
-                  variant="default"
-                  leftSection={<RotateCcw className="h-3 w-3" />}
-                  onClick={() => setParams(DEFAULTS)}
-                >
-                  复原
-                </Button>
-              </>
-            ) : null}
+            <Button
+              size="compact-xs"
+              variant="default"
+              onClick={() => setParams(PINE_DEFAULTS)}
+            >
+              Pine 原值
+            </Button>
+            <Button
+              size="compact-xs"
+              variant="default"
+              leftSection={<RotateCcw className="h-3 w-3" />}
+              onClick={() =>
+                setParams(index === "SMALLFUND" ? smallFundDefaults(timeframe) : DEFAULTS)
+              }
+            >
+              复原
+            </Button>
           </Group>
         }
       >
@@ -429,9 +427,9 @@ export function LabWorkbench() {
             <>
               <Text size="xs" c="dimmed">
                 {timeframe === "4h"
-                  ? "Vegas+RSI · RPS≥50 · 止损 6ATR · 吊灯 6 · 不止盈 · 一买+二买 · k=1 留现金"
-                  : "Vegas+RSI · RPS≥40 · 止损 4ATR · 吊灯 5.5 · 不止盈 · 一买+二买 · k=1 留现金"}
-                。人不改买点，人改池子。
+                  ? "默认：Vegas+RSI · RPS≥50 · 止损 6ATR · 吊灯 6 · 不止盈 · 一买+二买 · k=1 留现金"
+                  : "默认：Vegas+RSI · RPS≥40 · 止损 4ATR · 吊灯 5.5 · 不止盈 · 一买+二买 · k=1 留现金"}
+                。旋钮可改，复原回这套。对照池仍可并排。
               </Text>
               <Group gap="sm" align="center" wrap="wrap">
                 <Text size="sm" fw={500}>
@@ -465,7 +463,6 @@ export function LabWorkbench() {
           )}
         </Stack>
 
-        {index !== "SMALLFUND" ? (
         <div className="grid gap-x-10 gap-y-6 md:grid-cols-2">
           <Knob
             label="截面 RPS 门槛"
@@ -521,7 +518,7 @@ export function LabWorkbench() {
               ]}
             />
             <Text size="xs" c="dimmed" mt={6}>
-              原策略没有止盈。标普池上截断右尾通常减收益；Small Fund 近五年平台组用的是 1R。
+              原策略没有止盈。截断右尾通常减收益。当前默认关掉。
             </Text>
           </div>
           <div>
@@ -547,7 +544,7 @@ export function LabWorkbench() {
               ]}
             />
             <Text size="xs" c="dimmed" mt={6}>
-              仓位 ∝ (开仓 RPS/100)^k，当日持仓归一化到满仓。k=1 是 Small Fund 默认。
+              仓位 ∝ (开仓 RPS/100)^k。和 &lt;1 是现金，和 &gt;1 缩回。k=1 是 Small Fund 默认。
             </Text>
           </div>
           <div>
@@ -622,8 +619,6 @@ export function LabWorkbench() {
             />
           </Group>
         </div>
-        ) : null}
-        {index !== "SMALLFUND" ? (
         <Button
           size="compact-xs"
           variant="subtle"
@@ -633,10 +628,9 @@ export function LabWorkbench() {
         >
           {showMore ? "收起过滤项" : "流动性 / RSI / Vegas"}
         </Button>
-        ) : null}
       </Card>
 
-      {index !== "SMALLFUND" && showMore ? (
+      {showMore ? (
       <>
       <Card
         title={
@@ -829,19 +823,16 @@ export function LabWorkbench() {
         </Card>
       ) : null}
 
-      {index === "SMALLFUND" ? (
-        <Text size="xs" c="dimmed">
-          买点已冻结。换池版本才是对照。已看 {trialCount} 组池/周期。
-        </Text>
-      ) : (
-        <Text size="xs" c="dimmed">
-          已试 {trialCount} 组
-          {result?.outOfSample.portfolio.days === 0
-            ? " · 未切分保留区"
-            : ` · 点开保留区 ${peekCount} 次`}
-          。默认是网格里挑过的平台组，不是中立起点。
-        </Text>
-      )}
+      <Text size="xs" c="dimmed">
+        已试 {trialCount} 组
+        {result?.outOfSample.portfolio.days === 0
+          ? " · 未切分保留区"
+          : ` · 点开保留区 ${peekCount} 次`}
+        。
+        {index === "SMALLFUND"
+          ? "默认是当前纪律，不是中立起点。"
+          : "默认是网格里挑过的平台组，不是中立起点。"}
+      </Text>
 
       {result && compare ? <PoolCompareCard a={result} b={compare} /> : null}
 

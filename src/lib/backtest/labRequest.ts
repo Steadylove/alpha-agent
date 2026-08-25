@@ -37,16 +37,15 @@ export function parseConfig(body: Record<string, unknown>): BacktestConfig {
   if (timeframe === "4h" && index !== "SMALLFUND") {
     throw new Error("4H 回测目前只支持 Small Fund 池（Alpaca 1H 合成）");
   }
-  // Small Fund 买点冻结：请求里的旋钮不生效，只认日线/4H 两套纪律。
-  if (index === "SMALLFUND") {
-    const frozen = timeframe === "4h" ? SMALL_FUND_4H_DEFAULT_CONFIG : SMALL_FUND_DEFAULT_CONFIG;
-    return {
-      ...DEFAULT_BACKTEST_CONFIG,
-      ...frozen,
-      timeframe,
-    };
-  }
-  const d = DEFAULT_BACKTEST_CONFIG;
+  // Small Fund 没传的旋钮落在日线/4H 当前纪律上；传了就按请求改。
+  const d: BacktestConfig =
+    index === "SMALLFUND"
+      ? {
+          ...DEFAULT_BACKTEST_CONFIG,
+          ...(timeframe === "4h" ? SMALL_FUND_4H_DEFAULT_CONFIG : SMALL_FUND_DEFAULT_CONFIG),
+          timeframe,
+        }
+      : { ...DEFAULT_BACKTEST_CONFIG, timeframe };
   return {
     from: typeof body.from === "string" ? body.from : d.from,
     to: typeof body.to === "string" ? body.to : d.to,
@@ -89,6 +88,11 @@ export function parseConfig(body: Record<string, unknown>): BacktestConfig {
       : body.rpsWeightPower == null
         ? null
         : clamp(body.rpsWeightPower, 0, 5, 1),
+    maxHoldings: !("maxHoldings" in body)
+      ? d.maxHoldings
+      : body.maxHoldings == null
+        ? null
+        : clamp(body.maxHoldings, 1, 50, 8),
     timeframe,
   };
 }

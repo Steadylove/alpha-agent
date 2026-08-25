@@ -307,6 +307,41 @@ describe("RSI / Vegas / RPS 定权重", () => {
     expect(p0.book.length).toBe(p0.equity.length);
   });
 
+  it("maxHoldings 同日只留 RPS 最高的 N 只", () => {
+    const dates = axisDates(320);
+    const panels = [
+      rising("A", dates, 80, 0.2),
+      rising("B", dates, 80, 0.15),
+      rising("C", dates, 80, 0.1),
+    ];
+    const all = { start: dates[0], end: null };
+    const u = prepareUniverse(panels, new Map(panels.map((p) => [p.ticker, [all]])));
+    for (const sym of u.symbols) {
+      sym.buy1[280] = 1;
+      if (sym.ticker === "A") sym.rps[280] = 90;
+      else if (sym.ticker === "B") sym.rps[280] = 70;
+      else sym.rps[280] = 40;
+    }
+
+    const base = {
+      ...DEFAULT_BACKTEST_CONFIG,
+      from: dates[260],
+      to: dates[319],
+      splitDate: "2099-01-01",
+      rpsMin: 0,
+      useBuy1: true,
+      useBuy2: false,
+      rpsWeightPower: 1,
+    };
+    const uncapped = runBacktest(u, base);
+    const capped = runBacktest(u, { ...base, maxHoldings: 2 });
+    const lastUn = uncapped.holdings[uncapped.holdings.length - 1];
+    const lastCap = capped.holdings[capped.holdings.length - 1];
+    expect(lastUn.rows.map((r) => r.symbol).sort()).toEqual(["A", "B", "C"]);
+    expect(lastCap.rows.map((r) => r.symbol).sort()).toEqual(["A", "B"]);
+    expect(capped.book[capped.book.length - 1].nHold).toBe(2);
+  });
+
   it("k=1 单只弱信号不满仓，现金留下", () => {
     const dates = axisDates(320);
     const panels = [rising("A", dates, 80, 0.2), rising("B", dates, 80, 0.15)];

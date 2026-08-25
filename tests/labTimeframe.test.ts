@@ -14,21 +14,26 @@ describe("lab timeframe", () => {
     expect(c.takeProfitR).toBeNull();
   });
 
-  it("Small Fund 4H 用自己的平台默认，且旋钮改不动", () => {
-    const c = parseConfig({
+  it("Small Fund 4H 未传旋钮用当前纪律，传入则覆盖", () => {
+    const frozen = parseConfig({ index: "SMALLFUND", timeframe: "4h" });
+    expect(frozen.timeframe).toBe("4h");
+    expect(frozen.from).toBe(SMALL_FUND_4H_FROM);
+    expect(frozen.rpsMin).toBe(50);
+    expect(frozen.stopMult).toBe(6);
+    expect(frozen.trailMult).toBe(6);
+    expect(frozen.takeProfitR).toBeNull();
+    expect(frozen.requireVegas).toBe(true);
+    expect(frozen.requireRsi).toBe(true);
+
+    const tuned = parseConfig({
       index: "SMALLFUND",
       timeframe: "4h",
       rpsMin: 90,
       takeProfitR: 3,
     });
-    expect(c.timeframe).toBe("4h");
-    expect(c.from).toBe(SMALL_FUND_4H_FROM);
-    expect(c.rpsMin).toBe(50);
-    expect(c.stopMult).toBe(6);
-    expect(c.trailMult).toBe(6);
-    expect(c.takeProfitR).toBeNull();
-    expect(c.requireVegas).toBe(true);
-    expect(c.requireRsi).toBe(true);
+    expect(tuned.rpsMin).toBe(90);
+    expect(tuned.takeProfitR).toBe(3);
+    expect(tuned.stopMult).toBe(6);
     expect(barsPerYearOf("4h")).toBe(504);
     expect(barsPerYearOf("2h")).toBe(1008);
   });
