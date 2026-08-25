@@ -36,7 +36,7 @@ export const SMALL_FUND_POOLS: Record<
   "sf-2026-08": {
     id: "sf-2026-08",
     label: "2026-08 扩池",
-    note: "197 只事后名单，全程都在。当前默认。",
+    note: "当前池。名单 197，有价 195（SKHY/SPCX 无日线），全程都在。",
   },
   "sf-live": {
     id: "sf-live",

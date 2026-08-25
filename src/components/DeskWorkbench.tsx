@@ -8,6 +8,7 @@ import { LiveBookCard } from "@/components/LiveBookCard";
 import type { DeskDecision } from "@/lib/backtest/deskLedger";
 import type { DeskHolding, DeskSignal } from "@/lib/backtest/deskScan";
 import {
+  DEFAULT_SMALL_FUND_POOL,
   SMALL_FUND_POOLS,
   SMALL_FUND_POOL_IDS,
   type SmallFundPoolId,
@@ -41,7 +42,7 @@ const pct = (v: number) => `${v.toFixed(1)}%`;
 
 export function DeskWorkbench() {
   const [timeframe, setTimeframe] = useState<Timeframe>("1d");
-  const [poolId, setPoolId] = useState<SmallFundPoolId>("sf-live");
+  const [poolId, setPoolId] = useState<SmallFundPoolId>(DEFAULT_SMALL_FUND_POOL);
   const [data, setData] = useState<Snapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -118,7 +119,7 @@ export function DeskWorkbench() {
           />
         </Group>
         <Text size="xs" c="dimmed" mt="sm">
-          {rule}。默认活账本。下一根开盘成交。人不改公式，只拍板。
+          {rule}。开局就是当前 195 只，账本暂无加减。下一根开盘成交。人不改公式，只拍板。
         </Text>
       </Card>
 

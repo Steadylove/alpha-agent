@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { decisionMap, deskDecisionId, readLedger } from "@/lib/backtest/deskLedger";
 import { frozenDeskConfig, scanDesk } from "@/lib/backtest/deskScan";
-import { parseSmallFundPoolId } from "@/lib/backtest/smallFundPools";
+import { DEFAULT_SMALL_FUND_POOL, parseSmallFundPoolId } from "@/lib/backtest/smallFundPools";
 import { getPreparedUniverse } from "@/lib/backtest/load";
 import type { Timeframe } from "@/lib/backtest/engine";
 
@@ -15,7 +15,7 @@ function parseTf(raw: string | null): Timeframe {
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const timeframe = parseTf(url.searchParams.get("timeframe"));
-  const poolId = parseSmallFundPoolId(url.searchParams.get("poolId") ?? "sf-live");
+  const poolId = parseSmallFundPoolId(url.searchParams.get("poolId") ?? DEFAULT_SMALL_FUND_POOL);
 
   try {
     const universe = await getPreparedUniverse("SMALLFUND", timeframe, poolId);
