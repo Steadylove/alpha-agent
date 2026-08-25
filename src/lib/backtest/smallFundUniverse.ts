@@ -44,9 +44,9 @@ export const SMALL_FUND_UNIVERSE: readonly string[] = [
 ];
 
 /**
- * 静态池没有成分变动，每只给一段全覆盖区间即可。
+ * 兼容旧调用的「全程都在」起点。带版本的区间见 `smallFundPools.membershipForPool`。
  *
- * 引擎的时点成分机制（`engine.inSpan`）对静态池退化为恒真，但不能绕过——
+ * 引擎的时点成分机制（`engine.inSpan`）不能绕过——
  * `prepareUniverse` 用 `isMember` 决定谁进当日截面，没有区间的标的一天都排不进去。
  */
 export const SMALL_FUND_MEMBERSHIP_START = "1900-01-01";
@@ -65,9 +65,7 @@ export const SMALL_FUND_WINDOW_YEARS = 5;
  * Small Fund 回测默认配置。
  *
  * 与 `/lab` 的 DEFAULT_BACKTEST_CONFIG 刻意分开：那边是标普池网格默认值。
- * 这一组是 2021-08～2026-08、95 只上扫过滤/止损后的平台参数（不是尖峰）：
- * 关 Vegas/RSI、RPS≥40、止损 4、吊灯 5.5、止盈 1R、一买+二买、k=1。
- * 整段五年既训练又评分，数字偏乐观。
+ * 手做纪律：Vegas+RSI、RPS≥40、止损 4、吊灯 5.5、不止盈、一买+二买、k=1 且不满仓归一。
  *
  * `splitDate` 推到窗口之后，五年落进一个输出窗口。
  */
@@ -84,19 +82,17 @@ export const SMALL_FUND_DEFAULT_CONFIG = {
   rpsMin: 40,
   useBuy1: true,
   useBuy2: true,
-  requireRsi: false,
+  requireRsi: true,
   minRsi: 30,
-  requireVegas: false,
+  requireVegas: true,
   stopMult: 4,
   trailMult: 5.5,
-  takeProfitR: 1,
+  takeProfitR: null,
   rpsWeightPower: 1,
 } as const;
 
 /**
- * Small Fund 4H 基金组。540 组网格后按难年超额和跨年稳定性选，不是 2024 尖峰。
- * 关闸门、RPS≥50、止损 6、吊灯 6、不止盈、一+二、k=1。
- * 2022–2026 五年都打过同池；整段既训练又评分，数字仍偏乐观。
+ * 与日线同一套纪律，周期不同：Vegas+RSI、RPS≥50、止损 6、吊灯 6、不止盈、k=1 不满仓归一。
  */
 export const SMALL_FUND_4H_DEFAULT_CONFIG = {
   from: SMALL_FUND_4H_FROM,
@@ -105,9 +101,9 @@ export const SMALL_FUND_4H_DEFAULT_CONFIG = {
   rpsMin: 50,
   useBuy1: true,
   useBuy2: true,
-  requireRsi: false,
+  requireRsi: true,
   minRsi: 30,
-  requireVegas: false,
+  requireVegas: true,
   stopMult: 6,
   trailMult: 6,
   takeProfitR: null,

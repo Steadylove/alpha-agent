@@ -13,10 +13,14 @@ import {
   writeSnapshot,
   type PanelSnapshot,
 } from "./panelCache";
+import { readLiveBook } from "./liveBook";
 import {
-  SMALL_FUND_MEMBERSHIP_START,
-  SMALL_FUND_UNIVERSE,
-} from "./smallFundUniverse";
+  DEFAULT_SMALL_FUND_POOL,
+  membershipForPool,
+  tickersForPool,
+  type SmallFundPoolId,
+} from "./smallFundPools";
+import { SMALL_FUND_UNIVERSE } from "./smallFundUniverse";
 
 /**
  * 可选的标的池。`sources` 是 IndexMembership.index 里要取的指数，多于一个即并集。
@@ -28,7 +32,7 @@ export const INDEXES = {
   UNION: { label: "标普 ∪ 纳斯达克", sources: ["SP500", "NDX100"] },
   SP500: { label: "标普 500", sources: ["SP500"] },
   NDX100: { label: "纳斯达克 100", sources: ["NDX100"] },
-  SMALLFUND: { label: "Small Fund 200", sources: ["SMALLFUND"] },
+  SMALLFUND: { label: "Small Fund", sources: ["SMALLFUND"] },
 } as const;
 
 export type IndexKey = keyof typeof INDEXES;
@@ -134,16 +138,19 @@ export function smallFundSource(): SmallFundSource {
   return raw === "db" || raw === "auto" ? raw : "csv";
 }
 
-function prepareSmallFund(panels: PanelBars[]): PreparedUniverse {
-  const membership = new Map(
-    panels.map((p) => [p.ticker, [{ start: SMALL_FUND_MEMBERSHIP_START, end: null }]]),
-  );
-  return prepareUniverse(panels, membership);
+function prepareSmallFund(
+  panels: PanelBars[],
+  poolId: SmallFundPoolId,
+): PreparedUniverse {
+  const changes = poolId === "sf-live" ? readLiveBook() : [];
+  const wanted = new Set(tickersForPool(poolId, changes));
+  const subset = panels.filter((p) => wanted.has(p.ticker));
+  return prepareUniverse(subset, membershipForPool(poolId, subset.map((p) => p.ticker), changes));
 }
 
 async function loadSmallFundFromDb(): Promise<PanelBars[]> {
   const snapshot = await getSnapshot();
-  const wanted = new Set(SMALL_FUND_UNIVERSE);
+  const wanted = new Set(tickersForPool("sf-live", readLiveBook()));
   const panels: PanelBars[] = [];
   for (const row of snapshot.panels) {
     if (!wanted.has(row.ticker)) continue;
@@ -152,49 +159,67 @@ async function loadSmallFundFromDb(): Promise<PanelBars[]> {
   return panels;
 }
 
-async function loadSmallFundUniverse(timeframe: Timeframe = "1d"): Promise<PreparedUniverse> {
-  if (timeframe === "4h" || timeframe === "2h") {
-    const dir = timeframe === "2h" ? CSV_2H_DIR : CSV_4H_DIR;
-    const label = timeframe === "2h" ? "2H" : "4H";
-    const cmd = timeframe === "2h" ? "smallfund:fetch-2h" : "smallfund:fetch-4h";
-    const csv = readCsvPanels(dir, SMALL_FUND_UNIVERSE).filter((panel) => panel.ticker !== "SPCX");
-    if (csv.length === 0) {
-      throw new Error(`Small Fund ${label} CSV 为空：${dir}。先跑 npm run ${cmd}。`);
-    }
-    console.log(`[smallfund] ${label} CSV ${csv.length} 只  ${dir}`);
-    return prepareSmallFund(csv);
-  }
+const smallFundPanels = new Map<Timeframe, Promise<PanelBars[]>>();
 
-  const source = smallFundSource();
+async function loadSmallFundPanels(timeframe: Timeframe): Promise<PanelBars[]> {
+  const hit = smallFundPanels.get(timeframe);
+  if (hit) return hit;
 
-  if (source === "csv" || source === "auto") {
-    const csv = readCsvPanels(CSV_PANEL_DIR, SMALL_FUND_UNIVERSE);
-    if (csv.length > 0) {
-      console.log(`[smallfund] CSV ${csv.length} 只  ${CSV_PANEL_DIR}`);
-      return prepareSmallFund(csv);
+  const task = (async () => {
+    if (timeframe === "4h" || timeframe === "2h") {
+      const dir = timeframe === "2h" ? CSV_2H_DIR : CSV_4H_DIR;
+      const label = timeframe === "2h" ? "2H" : "4H";
+      const cmd = timeframe === "2h" ? "smallfund:fetch-2h" : "smallfund:fetch-4h";
+      const csv = readCsvPanels(dir, tickersForPool("sf-live", readLiveBook())).filter((panel) => panel.ticker !== "SPCX");
+      if (csv.length === 0) {
+        throw new Error(`Small Fund ${label} CSV 为空：${dir}。先跑 npm run ${cmd}。`);
+      }
+      console.log(`[smallfund] ${label} CSV ${csv.length} 只  ${dir}`);
+      return csv;
     }
-    if (source === "csv") {
+
+    const source = smallFundSource();
+    if (source === "csv" || source === "auto") {
+      const csv = readCsvPanels(CSV_PANEL_DIR, tickersForPool("sf-live", readLiveBook()));
+      if (csv.length > 0) {
+        console.log(`[smallfund] CSV ${csv.length} 只  ${CSV_PANEL_DIR}`);
+        return csv;
+      }
+      if (source === "csv") {
+        throw new Error(
+          `Small Fund CSV 为空：${CSV_PANEL_DIR}。先跑 npm run smallfund:fetch，或设 SMALLFUND_SOURCE=db。`,
+        );
+      }
+    }
+
+    const db = await loadSmallFundFromDb();
+    if (db.length === 0) {
       throw new Error(
-        `Small Fund CSV 为空：${CSV_PANEL_DIR}。先跑 npm run smallfund:fetch，或设 SMALLFUND_SOURCE=db。`,
+        "Small Fund 数据库面板为空。额度恢复后跑 npm run smallfund:import，或先用 CSV：npm run smallfund:fetch。",
       );
     }
-  }
+    console.log(`[smallfund] 数据库 ${db.length} 只`);
+    return db;
+  })();
 
-  const db = await loadSmallFundFromDb();
-  if (db.length === 0) {
-    throw new Error(
-      "Small Fund 数据库面板为空。额度恢复后跑 npm run smallfund:import，或先用 CSV：npm run smallfund:fetch。",
-    );
-  }
-  console.log(`[smallfund] 数据库 ${db.length} 只`);
-  return prepareSmallFund(db);
+  smallFundPanels.set(timeframe, task);
+  task.catch(() => smallFundPanels.delete(timeframe));
+  return task;
+}
+
+async function loadSmallFundUniverse(
+  timeframe: Timeframe = "1d",
+  poolId: SmallFundPoolId = DEFAULT_SMALL_FUND_POOL,
+): Promise<PreparedUniverse> {
+  return prepareSmallFund(await loadSmallFundPanels(timeframe), poolId);
 }
 
 export async function loadPreparedUniverse(
   index: IndexKey = DEFAULT_INDEX,
   timeframe: Timeframe = "1d",
+  poolId: SmallFundPoolId = DEFAULT_SMALL_FUND_POOL,
 ): Promise<PreparedUniverse> {
-  if (index === "SMALLFUND") return loadSmallFundUniverse(timeframe);
+  if (index === "SMALLFUND") return loadSmallFundUniverse(timeframe, poolId);
 
   const snapshot = await getSnapshot();
   const sources = new Set<string>(INDEXES[index].sources);
@@ -227,15 +252,24 @@ const cached = new Map<string, Promise<PreparedUniverse>>();
 export function getPreparedUniverse(
   index: IndexKey = DEFAULT_INDEX,
   timeframe: Timeframe = "1d",
+  poolId: SmallFundPoolId = DEFAULT_SMALL_FUND_POOL,
 ): Promise<PreparedUniverse> {
-  const key = `${index}:${timeframe}`;
+  const key = `${index}:${timeframe}:${index === "SMALLFUND" ? poolId : "-"}`;
   const hit = cached.get(key);
   if (hit) return hit;
 
-  const task = loadPreparedUniverse(index, timeframe).catch((error) => {
+  const task = loadPreparedUniverse(index, timeframe, poolId).catch((error) => {
     cached.delete(key);
     throw error;
   });
   cached.set(key, task);
   return task;
+}
+
+/** 活账本加减票后必须清掉准备结果，否则仍按旧成分扫信号。 */
+export function invalidateSmallFundCache(): void {
+  for (const key of [...cached.keys()]) {
+    if (key.startsWith("SMALLFUND:")) cached.delete(key);
+  }
+  smallFundPanels.clear();
 }

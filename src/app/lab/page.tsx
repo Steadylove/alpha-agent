@@ -9,7 +9,7 @@ export default function LabPage() {
       <div className="rise-in">
         <h1 className="text-3xl font-semibold tracking-tight text-zinc-50">调参实验室</h1>
         <p className="mt-2 max-w-3xl text-sm leading-relaxed text-zinc-400">
-          抄底买点回测。绿线策略，灰线同池等权，琥珀线同期标普。看相对差，不看绝对收益。
+          抄底买点回测。绿线策略，灰线同池等权（内部看执行）。琥珀线：Small Fund 用 QQQ，标普/纳指用 SPY。看相对差，不看绝对收益。
         </p>
       </div>
 

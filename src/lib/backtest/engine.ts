@@ -477,7 +477,7 @@ export type YearRow = {
   trades: number;
   strategyPct: number;
   benchmarkPct: number;
-  /** 同期标普（SPY）涨跌幅；未叠标普曲线时为 null */
+  /** 对外基准涨跌幅（Small Fund=QQQ，其他=SPY）；未叠曲线时为 null */
   spyPct: number | null;
   isOutOfSample: boolean;
 };
@@ -500,7 +500,7 @@ export type DayBook = {
   date: string;
   strategy: number;
   benchmark: number;
-  /** 同期标普（SPY）净值，窗口首日前一交易日 = 1；未叠曲线时为 null */
+  /** 对外基准净值（Small Fund=QQQ，其他=SPY），窗口首日前一交易日 = 1；未叠曲线时为 null */
   spy: number | null;
   nHold: number;
   exposurePct: number;
@@ -650,8 +650,8 @@ function equalWeight(sum: Float64Array, count: Int32Array): Float64Array {
  *
  * 等权口径走的是同一条路径：各持仓权重记 1，和恒 ≥ 1，缩回后正好是除以只数。
  *
- * `fullyInvested` 为真时分母就是 Σw 本身（恒满仓）。RPS 定权重要这条：
- * 否则弱势日权重和 < 1 会混进「减仓」，跟「分配」分不开。
+ * RPS 定权重：仓位 = (RPS/100)^k。和 < 1 是现金，和 > 1 缩回满仓。
+ * 弱信号日必须留现金，不再为了「分配」强行满仓归一。
  */
 function positionWeight(day: TradeDay, config: BacktestConfig): number {
   if (config.rpsWeightPower != null) {
@@ -691,6 +691,8 @@ export type SymbolRun = {
   days: TradeDay[];
   closed: ClosedTrade[];
   signalCount: number;
+  buy1: boolean[];
+  buy2: boolean[];
 };
 
 /**
@@ -783,7 +785,7 @@ export function runSymbol(
     rsExitBelow: config.rpsExit,
   });
 
-  return { bars, days, closed, signalCount };
+  return { bars, days, closed, signalCount, buy1, buy2 };
 }
 
 export function runBacktest(universe: PreparedUniverse, config: BacktestConfig): BacktestResult {
@@ -802,7 +804,6 @@ export function runBacktest(universe: PreparedUniverse, config: BacktestConfig):
   const allTrades: ClosedTrade[] = [];
   let signalCount = 0;
   let activeSymbols = 0;
-  const fullyInvested = config.rpsWeightPower != null;
 
   type RawHold = {
     symbol: string;
@@ -879,7 +880,7 @@ export function runBacktest(universe: PreparedUniverse, config: BacktestConfig):
     }
   }
 
-  const heldRet = riskWeighted(heldWret, heldWeight, config.rpsWeightPower != null);
+  const heldRet = riskWeighted(heldWret, heldWeight);
   const benchRet = equalWeight(benchSum, benchCount);
 
   let cut = 0;
@@ -934,7 +935,7 @@ export function runBacktest(universe: PreparedUniverse, config: BacktestConfig):
 
     const raws = rawHolds[i];
     const sum = raws.reduce((a, h) => a + h.raw, 0);
-    const denom = sum <= 0 ? 1 : fullyInvested ? sum : Math.max(1, sum);
+    const denom = sum <= 0 ? 1 : Math.max(1, sum);
     const rows: HoldingRow[] = raws
       .map((h) => ({
         symbol: h.symbol,
@@ -954,7 +955,7 @@ export function runBacktest(universe: PreparedUniverse, config: BacktestConfig):
       benchmark: be,
       spy: null,
       nHold: rows.length,
-      exposurePct: sum <= 0 ? 0 : (fullyInvested ? 100 : Math.min(1, sum) * 100),
+      exposurePct: sum <= 0 ? 0 : Math.min(1, sum) * 100,
       buys: dayBuys[i].sort(),
       sells: daySells[i].sort(),
     };

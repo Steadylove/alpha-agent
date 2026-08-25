@@ -4,7 +4,7 @@ import { fetchAlpaca30MBars } from "@/lib/data-sources/alpaca";
 import { fetchYahooDailyBars } from "@/lib/data-sources/yahoo";
 import { aggregateTo4H, barTimeISO } from "@/lib/data-sources/yahooIntraday";
 
-import { readCsvPanel, writeCsvPanel } from "./csvPanel";
+import { CSV_4H_DIR, CSV_PANEL_DIR, readCsvPanel, writeCsvPanel } from "./csvPanel";
 import type { DayBook, YearRow, YearToDate } from "./engine";
 
 export const SPY_CSV_DIR = path.join(process.cwd(), "data", "benchmarks");
@@ -19,6 +19,8 @@ function closesFromPanel(dates: string[], close: Float32Array): Map<string, numb
 
 let cached: Promise<Map<string, number> | null> | null = null;
 let cached4h: Promise<Map<string, number> | null> | null = null;
+let cachedQqq: Promise<Map<string, number> | null> | null = null;
+let cachedQqq4h: Promise<Map<string, number> | null> | null = null;
 
 /** 进程内只拉一次。本地 CSV 优先，没有再问 Yahoo 并落盘。 */
 export function getSpyCloses(): Promise<Map<string, number> | null> {
@@ -35,6 +37,35 @@ export function getSpyCloses4h(): Promise<Map<string, number> | null> {
     throw error;
   });
   return cached4h;
+}
+
+/** Small Fund 对外基准。QQQ 已在池 CSV 里，只读本地，不另拉。 */
+export function getQqqCloses(): Promise<Map<string, number> | null> {
+  cachedQqq ??= loadQqqCloses().catch((error) => {
+    cachedQqq = null;
+    throw error;
+  });
+  return cachedQqq;
+}
+
+export function getQqqCloses4h(): Promise<Map<string, number> | null> {
+  cachedQqq4h ??= loadQqqCloses4h().catch((error) => {
+    cachedQqq4h = null;
+    throw error;
+  });
+  return cachedQqq4h;
+}
+
+export async function loadQqqCloses(): Promise<Map<string, number> | null> {
+  const local = readCsvPanel(CSV_PANEL_DIR, "QQQ");
+  if (local && local.dates.length > 0) return closesFromPanel(local.dates, local.close);
+  return null;
+}
+
+export async function loadQqqCloses4h(): Promise<Map<string, number> | null> {
+  const local = readCsvPanel(CSV_4H_DIR, "QQQ");
+  if (local && local.dates.length > 0) return closesFromPanel(local.dates, local.close);
+  return null;
 }
 
 export async function loadSpyCloses4h(): Promise<Map<string, number> | null> {
@@ -94,8 +125,9 @@ function lastWhere<T>(items: readonly T[], pred: (item: T) => boolean): T | unde
 }
 
 /**
- * 把 SPY 买入持有叠到已有账本上。净值以窗口首日前一交易日收盘为 1，
- * 这样分年 / YTD 和策略用的「含首日涨跌」口径一致。
+ * 把外部基准买入持有叠到已有账本上（Small Fund=QQQ，其他=SPY）。
+ * 净值以窗口首日前一交易日收盘为 1，分年 / YTD 和策略「含首日涨跌」口径一致。
+ * 写入字段仍叫 `spy`，避免改引擎类型。
  */
 export function overlaySpyCurve(
   book: DayBook[],

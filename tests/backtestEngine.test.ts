@@ -307,6 +307,34 @@ describe("RSI / Vegas / RPS 定权重", () => {
     expect(p0.book.length).toBe(p0.equity.length);
   });
 
+  it("k=1 单只弱信号不满仓，现金留下", () => {
+    const dates = axisDates(320);
+    const panels = [rising("A", dates, 80, 0.2), rising("B", dates, 80, 0.15)];
+    const all = { start: dates[0], end: null };
+    const u = prepareUniverse(panels, new Map(panels.map((p) => [p.ticker, [all]])));
+    const a = u.symbols.find((s) => s.ticker === "A")!;
+    a.buy1[280] = 1;
+    a.rps[280] = 40;
+    u.symbols.find((s) => s.ticker === "B")!.rps[280] = 20;
+
+    const result = runBacktest(u, {
+      ...DEFAULT_BACKTEST_CONFIG,
+      from: dates[260],
+      to: dates[319],
+      splitDate: "2099-01-01",
+      rpsMin: 0,
+      useBuy1: true,
+      useBuy2: false,
+      rpsWeightPower: 1,
+    });
+    const last = result.holdings[result.holdings.length - 1];
+    expect(last).toBeDefined();
+    const weightSum = last.rows.reduce((s, r) => s + r.weightPct, 0);
+    expect(weightSum).toBeCloseTo(40, 6);
+    const lastBook = result.book[result.book.length - 1];
+    expect(lastBook.exposurePct).toBeCloseTo(40, 6);
+  });
+
   it("改 Vegas 周期后 runSymbol 当场重算，不沿用准备段的规格缓存", () => {
     const dates = axisDates(40);
     const up = rising("UP", dates, 50, 1);

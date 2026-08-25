@@ -41,6 +41,7 @@ export function LabFundChart({
   trades,
   splitDate,
   maskAfterSplit,
+  externalLabel = "标普",
   onPick,
 }: {
   book: DayBook[];
@@ -49,6 +50,7 @@ export function LabFundChart({
   trades: TradeLite[];
   splitDate: string;
   maskAfterSplit: boolean;
+  externalLabel?: string;
   onPick: (symbol: string, entryDate: string) => void;
 }) {
   const ytdVisible = Boolean(ytd && (!maskAfterSplit || ytd.from < splitDate));
@@ -103,12 +105,12 @@ export function LabFundChart({
                   <InlineStat label="策略" value={pct(ytd.strategyPct)} color={tone(ytd.strategyPct)} />
                   <InlineStat label="同池" value={pct(ytd.benchmarkPct)} color={BENCH} />
                   {ytd.spyPct != null ? (
-                    <InlineStat label="标普" value={pct(ytd.spyPct)} color={SPY} />
+                    <InlineStat label={externalLabel} value={pct(ytd.spyPct)} color={SPY} />
                   ) : null}
                 </Group>
               ) : (
                 <Text size="xs" c="dimmed">
-                  绿策略 · 灰同池等权{hasSpy ? " · 琥珀标普" : ""}
+                  绿策略 · 灰同池等权{hasSpy ? ` · 琥珀${externalLabel}` : ""}
                 </Text>
               )}
             </Stack>
@@ -156,7 +158,11 @@ export function LabFundChart({
               {selectedDate ? (
                 <ReferenceLine x={selectedDate} stroke="#a1a1aa" strokeDasharray="3 3" />
               ) : null}
-              <Tooltip content={<FundTooltip range={view} />} cursor={{ stroke: "#52525b" }} isAnimationActive={false} />
+              <Tooltip
+                content={<FundTooltip range={view} externalLabel={externalLabel} />}
+                cursor={{ stroke: "#52525b" }}
+                isAnimationActive={false}
+              />
               <Line type="monotone" dataKey="benchmark" stroke={BENCH} strokeWidth={1.25} dot={false} isAnimationActive={false} />
               {hasSpy ? (
                 <Line type="monotone" dataKey="spy" stroke={SPY} strokeWidth={1.25} dot={false} isAnimationActive={false} connectNulls />
@@ -176,7 +182,7 @@ export function LabFundChart({
             {selected ? (
               <Text size="xs" c="dimmed" ff="monospace">
                 {selected.nHold} 只 · 策略 {selected.strategy.toFixed(2)}x
-                {selected.spy != null ? ` · 标普 ${selected.spy.toFixed(2)}x` : ""}
+                {selected.spy != null ? ` · ${externalLabel} ${selected.spy.toFixed(2)}x` : ""}
               </Text>
             ) : null}
           </Group>
@@ -273,10 +279,12 @@ function FundTooltip({
   active,
   payload,
   range,
+  externalLabel,
 }: {
   active?: boolean;
   payload?: { payload: ChartRow }[];
   range: "all" | "ytd";
+  externalLabel: string;
 }) {
   const p = payload?.[0]?.payload;
   if (!active || !p) return null;
@@ -290,7 +298,7 @@ function FundTooltip({
       <div className="font-mono text-zinc-400">同池 {p.benchmark.toFixed(digits)}x</div>
       {p.spy != null ? (
         <div className="font-mono" style={{ color: SPY }}>
-          标普 {p.spy.toFixed(digits)}x
+          {externalLabel} {p.spy.toFixed(digits)}x
         </div>
       ) : null}
       {(p.buys.length > 0 || p.sells.length > 0) && (

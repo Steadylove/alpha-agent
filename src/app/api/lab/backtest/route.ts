@@ -2,8 +2,15 @@ import { NextResponse } from "next/server";
 
 import { runBacktest, type EquityPoint } from "@/lib/backtest/engine";
 import { INDEXES, getPreparedUniverse } from "@/lib/backtest/load";
-import { parseConfig, parseIndex, tradeRows } from "@/lib/backtest/labRequest";
-import { getSpyCloses, getSpyCloses4h, overlaySpyCurve } from "@/lib/backtest/spyCurve";
+import { parseConfig, parseIndex, parsePoolId, tradeRows } from "@/lib/backtest/labRequest";
+import { SMALL_FUND_POOLS } from "@/lib/backtest/smallFundPools";
+import {
+  getQqqCloses,
+  getQqqCloses4h,
+  getSpyCloses,
+  getSpyCloses4h,
+  overlaySpyCurve,
+} from "@/lib/backtest/spyCurve";
 
 /**
  * 调参回测接口。
@@ -33,20 +40,31 @@ export async function POST(request: Request) {
 
   const config = parseConfig(body);
   const index = parseIndex(body);
+  const poolId = parsePoolId(body);
 
   try {
-    const [universe, spyCloses] = await Promise.all([
-      getPreparedUniverse(index, config.timeframe),
-      config.timeframe === "4h" ? getSpyCloses4h() : getSpyCloses(),
+    const isSmallFund = index === "SMALLFUND";
+    const [universe, externalCloses] = await Promise.all([
+      getPreparedUniverse(index, config.timeframe, poolId),
+      config.timeframe === "4h"
+        ? isSmallFund
+          ? getQqqCloses4h()
+          : getSpyCloses4h()
+        : isSmallFund
+          ? getQqqCloses()
+          : getSpyCloses(),
     ]);
     const started = Date.now();
     const result = runBacktest(universe, config);
-    if (spyCloses) overlaySpyCurve(result.book, result.byYear, result.ytd, spyCloses);
+    if (externalCloses) overlaySpyCurve(result.book, result.byYear, result.ytd, externalCloses);
 
     return NextResponse.json({
       config,
       index,
       indexLabel: INDEXES[index].label,
+      poolId,
+      poolLabel: isSmallFund ? SMALL_FUND_POOLS[poolId].label : INDEXES[index].label,
+      externalLabel: isSmallFund ? "QQQ" : "标普",
       symbolCount: universe.symbols.length,
       ...result,
       equity: downsample(result.equity),

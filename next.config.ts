@@ -21,6 +21,10 @@ const nextConfig: NextConfig = {
       "data/smallfund4h/**",
       "data/benchmarks/**",
     ],
+    "/api/desk/signals": [
+      "data/smallfund/**",
+      "data/smallfund4h/**",
+    ],
   },
 };
 

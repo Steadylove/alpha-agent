@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { DayBook, YearRow, YearToDate } from "@/lib/backtest/engine";
-import { overlaySpyCurve } from "@/lib/backtest/spyCurve";
+import { loadQqqCloses, overlaySpyCurve } from "@/lib/backtest/spyCurve";
 
 const day = (date: string, extras: Partial<DayBook> = {}): DayBook => ({
   date,
@@ -50,5 +50,13 @@ describe("overlaySpyCurve", () => {
     expect(byYear[0].spyPct).toBeCloseTo(21, 8);
     expect(byYear[1].spyPct).toBeCloseTo(10, 8);
     expect(ytd.spyPct).toBeCloseTo(10, 8);
+  });
+});
+
+describe("loadQqqCloses", () => {
+  it("读本地 QQQ 日线 CSV", async () => {
+    const closes = await loadQqqCloses();
+    expect(closes).not.toBeNull();
+    expect(closes!.get("2026-08-21")).toBeGreaterThan(0);
   });
 });

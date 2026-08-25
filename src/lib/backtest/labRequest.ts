@@ -12,8 +12,12 @@ import {
 } from "@/lib/backtest/engine";
 import { DEFAULT_INDEX, INDEXES, type IndexKey } from "@/lib/backtest/load";
 import {
+  DEFAULT_SMALL_FUND_POOL,
+  parseSmallFundPoolId,
+  type SmallFundPoolId,
+} from "@/lib/backtest/smallFundPools";
+import {
   SMALL_FUND_4H_DEFAULT_CONFIG,
-  SMALL_FUND_4H_FROM,
   SMALL_FUND_DEFAULT_CONFIG,
 } from "@/lib/backtest/smallFundUniverse";
 import type { ClosedTrade } from "@/lib/scoring/rotationTrade";
@@ -33,16 +37,18 @@ export function parseConfig(body: Record<string, unknown>): BacktestConfig {
   if (timeframe === "4h" && index !== "SMALLFUND") {
     throw new Error("4H 回测目前只支持 Small Fund 池（Alpaca 1H 合成）");
   }
-  const d: BacktestConfig =
-    index === "SMALLFUND"
-      ? {
-          ...DEFAULT_BACKTEST_CONFIG,
-          ...(timeframe === "4h" ? SMALL_FUND_4H_DEFAULT_CONFIG : SMALL_FUND_DEFAULT_CONFIG),
-        }
-      : DEFAULT_BACKTEST_CONFIG;
-  const fromDefault = timeframe === "4h" && index === "SMALLFUND" ? SMALL_FUND_4H_FROM : d.from;
+  // Small Fund 买点冻结：请求里的旋钮不生效，只认日线/4H 两套纪律。
+  if (index === "SMALLFUND") {
+    const frozen = timeframe === "4h" ? SMALL_FUND_4H_DEFAULT_CONFIG : SMALL_FUND_DEFAULT_CONFIG;
+    return {
+      ...DEFAULT_BACKTEST_CONFIG,
+      ...frozen,
+      timeframe,
+    };
+  }
+  const d = DEFAULT_BACKTEST_CONFIG;
   return {
-    from: typeof body.from === "string" ? body.from : fromDefault,
+    from: typeof body.from === "string" ? body.from : d.from,
     to: typeof body.to === "string" ? body.to : d.to,
     splitDate: typeof body.splitDate === "string" ? body.splitDate : d.splitDate,
     rpsMin: clamp(body.rpsMin, 0, 99, d.rpsMin),
@@ -94,6 +100,12 @@ export function parseConfig(body: Record<string, unknown>): BacktestConfig {
 export function parseIndex(body: Record<string, unknown>): IndexKey {
   const raw = typeof body.index === "string" ? body.index.toUpperCase() : "";
   return raw in INDEXES ? (raw as IndexKey) : DEFAULT_INDEX;
+}
+
+export function parsePoolId(body: Record<string, unknown>): SmallFundPoolId {
+  return parseIndex(body) === "SMALLFUND"
+    ? parseSmallFundPoolId(body.poolId)
+    : DEFAULT_SMALL_FUND_POOL;
 }
 
 /**

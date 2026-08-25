@@ -9,7 +9,7 @@ import {
 } from "@/lib/backtest/engine";
 import type { TradeDay } from "@/lib/scoring/rotationTrade";
 import { getPreparedUniverse } from "@/lib/backtest/load";
-import { parseConfig, parseIndex, tradeRows } from "@/lib/backtest/labRequest";
+import { parseConfig, parseIndex, parsePoolId, tradeRows } from "@/lib/backtest/labRequest";
 import { emaSeries } from "@/lib/scoring/series";
 
 /**
@@ -39,9 +39,10 @@ export async function POST(request: Request) {
 
   const config = parseConfig(body);
   const index = parseIndex(body);
+  const poolId = parsePoolId(body);
 
   try {
-    const universe = await getPreparedUniverse(index, config.timeframe);
+    const universe = await getPreparedUniverse(index, config.timeframe, poolId);
     const sym = universe.symbols.find((s) => s.ticker === symbol);
     if (!sym) {
       return NextResponse.json({ error: `${symbol} 不在当前标的池内` }, { status: 404 });

@@ -29,6 +29,12 @@ import { Card } from "@/components/Card";
 import { LabFundChart } from "@/components/LabFundChart";
 import { LabSymbolChart, type ChartTarget } from "@/components/LabSymbolChart";
 import type { DayBook, HoldingDay, YearToDate } from "@/lib/backtest/engine";
+import {
+  DEFAULT_SMALL_FUND_POOL,
+  SMALL_FUND_POOLS,
+  SMALL_FUND_POOL_IDS,
+  type SmallFundPoolId,
+} from "@/lib/backtest/smallFundPools";
 
 const POS = "#089981";
 const NEG = "#f23645";
@@ -85,6 +91,10 @@ type Result = {
   config: { splitDate: string };
   index: IndexKey;
   indexLabel: string;
+  poolId?: SmallFundPoolId;
+  poolLabel?: string;
+  /** 琥珀线名字：Small Fund 是 QQQ，其余是标普 */
+  externalLabel?: string;
   trades: TradeRow[];
   inSample: WindowResult;
   outOfSample: WindowResult;
@@ -150,19 +160,19 @@ const DEFAULTS: Params = {
   rpsWeightPower: null,
 };
 
-/** Small Fund 日线平台组：关闸门、RPS≥40、吊灯 5.5、止盈 1R、k=1。 */
+/** Small Fund 日线纪律：Vegas+RSI、RPS≥40、吊灯 5.5、不止盈、k=1。 */
 const SMALLFUND_DEFAULTS: Params = {
   ...DEFAULTS,
   rpsMin: 40,
   trailMult: 5.5,
-  takeProfitR: 1,
+  takeProfitR: null,
   useBuy2: true,
-  requireRsi: false,
-  requireVegas: false,
+  requireRsi: true,
+  requireVegas: true,
   rpsWeightPower: 1,
 };
 
-/** Small Fund 4H 基金组：RPS≥50、止损 6、吊灯 6、不止盈。 */
+/** Small Fund 4H 纪律：Vegas+RSI、RPS≥50、止损 6、吊灯 6、不止盈。 */
 const SMALLFUND_4H_DEFAULTS: Params = {
   ...DEFAULTS,
   rpsMin: 50,
@@ -170,8 +180,8 @@ const SMALLFUND_4H_DEFAULTS: Params = {
   trailMult: 6,
   takeProfitR: null,
   useBuy2: true,
-  requireRsi: false,
-  requireVegas: false,
+  requireRsi: true,
+  requireVegas: true,
   rpsWeightPower: 1,
 };
 
@@ -211,8 +221,13 @@ const POOLS: { value: IndexKey; label: string }[] = [
   { value: "UNION", label: "两者并集" },
   { value: "SP500", label: "标普 500" },
   { value: "NDX100", label: "纳斯达克 100" },
-  { value: "SMALLFUND", label: "Small Fund 200" },
+  { value: "SMALLFUND", label: "Small Fund" },
 ];
+
+const POOL_VERSIONS = SMALL_FUND_POOL_IDS.map((id) => ({
+  value: id,
+  label: SMALL_FUND_POOLS[id].label,
+}));
 
 const VEGAS_SPEC = { vegasFastA: 166, vegasFastB: 169, vegasSlowA: 576, vegasSlowB: 676 };
 const VEGAS_SHORT = { vegasFastA: 200, vegasFastB: 200, vegasSlowA: 250, vegasSlowB: 250 };
@@ -226,7 +241,7 @@ function lastWhere<T>(items: readonly T[], pred: (item: T) => boolean): T | unde
   }
 }
 
-/** 窗口内标普净值倍数；账本已按窗口首日前一日归一。 */
+/** 窗口内对外基准净值倍数；账本已按窗口首日前一日归一。 */
 function spyMultiple(book: DayBook[], from: string, to: string): number | null {
   const end = lastWhere(book, (d) => d.date <= to && d.date >= from && d.spy != null);
   const prev = lastWhere(book, (d) => d.date < from && d.spy != null);
@@ -256,7 +271,10 @@ export function LabWorkbench() {
   const [params, setParams] = useState<Params>(SMALLFUND_DEFAULTS);
   const [index, setIndex] = useState<IndexKey>("SMALLFUND");
   const [timeframe, setTimeframe] = useState<Timeframe>("1d");
+  const [poolA, setPoolA] = useState<SmallFundPoolId>(DEFAULT_SMALL_FUND_POOL);
+  const [poolB, setPoolB] = useState<SmallFundPoolId>("sf-v1");
   const [result, setResult] = useState<Result | null>(null);
+  const [compare, setCompare] = useState<Result | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showOos, setShowOos] = useState(false);
@@ -265,8 +283,8 @@ export function LabWorkbench() {
   const [chartTarget, setChartTarget] = useState<ChartTarget | null>(null);
   /** 传给弹窗的配置要是稳定引用，否则它每次渲染都会重新取数。 */
   const chartRequest = useMemo(
-    () => ({ ...params, index, timeframe }),
-    [params, index, timeframe],
+    () => ({ ...params, index, timeframe, poolId: poolA }),
+    [params, index, timeframe, poolA],
   );
 
   /** 试过的不同参数组合数，以及偷看保留区的次数——都是过拟合的计价单位。 */
@@ -274,38 +292,55 @@ export function LabWorkbench() {
   const [trialCount, setTrialCount] = useState(0);
   const [peekCount, setPeekCount] = useState(0);
 
-  const run = useCallback(async (p: Params, idx: IndexKey, tf: Timeframe) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/lab/backtest", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...p, index: idx, timeframe: tf }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "回测失败");
-      setResult(json as Result);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "回测失败");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const run = useCallback(
+    async (p: Params, idx: IndexKey, tf: Timeframe, a: SmallFundPoolId, b: SmallFundPoolId) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const post = async (poolId?: SmallFundPoolId) => {
+          const res = await fetch("/api/lab/backtest", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ...p,
+              index: idx,
+              timeframe: tf,
+              ...(idx === "SMALLFUND" ? { poolId } : {}),
+            }),
+          });
+          const json = await res.json();
+          if (!res.ok) throw new Error(json.error ?? "回测失败");
+          return json as Result;
+        };
+        if (idx === "SMALLFUND" && a !== b) {
+          const [left, right] = await Promise.all([post(a), post(b)]);
+          setResult(left);
+          setCompare(right);
+        } else {
+          setResult(await post(idx === "SMALLFUND" ? a : undefined));
+          setCompare(null);
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "回测失败");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [],
+  );
 
   // 滑块连续拖动时不必每帧都打接口
   useEffect(() => {
-    // 换池子也算一次试验：在另一个池子上重测同一组参数同样是在挑结果
-    const key = JSON.stringify({ params, index, timeframe });
+    const key = JSON.stringify({ params, index, timeframe, poolA, poolB });
     const timer = setTimeout(() => {
       if (!tried.current.has(key)) {
         tried.current.add(key);
         setTrialCount(tried.current.size);
       }
-      void run(params, index, timeframe);
+      void run(params, index, timeframe, poolA, poolB);
     }, 350);
     return () => clearTimeout(timer);
-  }, [params, index, timeframe, run]);
+  }, [params, index, timeframe, poolA, poolB, run]);
 
   const set = <K extends keyof Params>(key: K, value: Params[K]) =>
     setParams((prev) => ({ ...prev, [key]: value }));
@@ -325,30 +360,32 @@ export function LabWorkbench() {
   return (
     <Stack gap="lg">
       <Card
-        title="参数"
+        title={index === "SMALLFUND" ? "买点（冻结）" : "参数"}
         action={
           <Group gap="xs">
             {loading ? <Loader size="xs" color="gray" /> : null}
             <Text size="xs" c="dimmed" ff="monospace">
               {result ? `${result.elapsedMs}ms` : ""}
             </Text>
-            <Button
-              size="compact-xs"
-              variant="default"
-              onClick={() => setParams(PINE_DEFAULTS)}
-            >
-              Pine 原值
-            </Button>
-            <Button
-              size="compact-xs"
-              variant="default"
-              leftSection={<RotateCcw className="h-3 w-3" />}
-              onClick={() =>
-                setParams(index === "SMALLFUND" ? smallFundDefaults(timeframe) : DEFAULTS)
-              }
-            >
-              复原
-            </Button>
+            {index !== "SMALLFUND" ? (
+              <>
+                <Button
+                  size="compact-xs"
+                  variant="default"
+                  onClick={() => setParams(PINE_DEFAULTS)}
+                >
+                  Pine 原值
+                </Button>
+                <Button
+                  size="compact-xs"
+                  variant="default"
+                  leftSection={<RotateCcw className="h-3 w-3" />}
+                  onClick={() => setParams(DEFAULTS)}
+                >
+                  复原
+                </Button>
+              </>
+            ) : null}
           </Group>
         }
       >
@@ -388,12 +425,47 @@ export function LabWorkbench() {
               </Text>
             ) : null}
           </Group>
-          <Text size="xs" c="dimmed">
-            Small Fund 是事后名单，只看同池差。灰线同池等权，琥珀线标普。
-            4 小时仅 Small Fund：Alpaca 1H 合成，窗口与日线对齐，指标按 K 线根数。
-          </Text>
+          {index === "SMALLFUND" ? (
+            <>
+              <Text size="xs" c="dimmed">
+                {timeframe === "4h"
+                  ? "Vegas+RSI · RPS≥50 · 止损 6ATR · 吊灯 6 · 不止盈 · 一买+二买 · k=1 留现金"
+                  : "Vegas+RSI · RPS≥40 · 止损 4ATR · 吊灯 5.5 · 不止盈 · 一买+二买 · k=1 留现金"}
+                。人不改买点，人改池子。
+              </Text>
+              <Group gap="sm" align="center" wrap="wrap">
+                <Text size="sm" fw={500}>
+                  对照 A
+                </Text>
+                <SegmentedControl
+                  size="xs"
+                  value={poolA}
+                  onChange={(v) => setPoolA(v as SmallFundPoolId)}
+                  data={POOL_VERSIONS}
+                />
+                <Text size="sm" fw={500}>
+                  对照 B
+                </Text>
+                <SegmentedControl
+                  size="xs"
+                  value={poolB}
+                  onChange={(v) => setPoolB(v as SmallFundPoolId)}
+                  data={POOL_VERSIONS}
+                />
+              </Group>
+              <Text size="xs" c="dimmed">
+                {SMALL_FUND_POOLS[poolA].note} 对照 B：{SMALL_FUND_POOLS[poolB].note}
+                灰线同池等权（内部），琥珀线 QQQ（对外）。曲线和成交是对照 A。
+              </Text>
+            </>
+          ) : (
+            <Text size="xs" c="dimmed">
+              灰线同池等权，琥珀线标普。
+            </Text>
+          )}
         </Stack>
 
+        {index !== "SMALLFUND" ? (
         <div className="grid gap-x-10 gap-y-6 md:grid-cols-2">
           <Knob
             label="截面 RPS 门槛"
@@ -550,6 +622,8 @@ export function LabWorkbench() {
             />
           </Group>
         </div>
+        ) : null}
+        {index !== "SMALLFUND" ? (
         <Button
           size="compact-xs"
           variant="subtle"
@@ -559,9 +633,10 @@ export function LabWorkbench() {
         >
           {showMore ? "收起过滤项" : "流动性 / RSI / Vegas"}
         </Button>
+        ) : null}
       </Card>
 
-      {showMore ? (
+      {index !== "SMALLFUND" && showMore ? (
       <>
       <Card
         title={
@@ -754,13 +829,21 @@ export function LabWorkbench() {
         </Card>
       ) : null}
 
-      <Text size="xs" c="dimmed">
-        已试 {trialCount} 组
-        {result?.outOfSample.portfolio.days === 0
-          ? " · 未切分保留区"
-          : ` · 点开保留区 ${peekCount} 次`}
-        。默认是网格里挑过的平台组，不是中立起点。
-      </Text>
+      {index === "SMALLFUND" ? (
+        <Text size="xs" c="dimmed">
+          买点已冻结。换池版本才是对照。已看 {trialCount} 组池/周期。
+        </Text>
+      ) : (
+        <Text size="xs" c="dimmed">
+          已试 {trialCount} 组
+          {result?.outOfSample.portfolio.days === 0
+            ? " · 未切分保留区"
+            : ` · 点开保留区 ${peekCount} 次`}
+          。默认是网格里挑过的平台组，不是中立起点。
+        </Text>
+      )}
+
+      {result && compare ? <PoolCompareCard a={result} b={compare} /> : null}
 
       {result ? (
         <>
@@ -775,6 +858,7 @@ export function LabWorkbench() {
               window={result.inSample}
               excess={inExcess}
               spy={spyMultiple(result.book, result.inSample.from, result.inSample.to)}
+              externalLabel={result.externalLabel ?? "标普"}
               hidden={false}
               accent="训练区"
             />
@@ -783,6 +867,7 @@ export function LabWorkbench() {
                 window={result.outOfSample}
                 excess={outExcess}
                 spy={spyMultiple(result.book, result.outOfSample.from, result.outOfSample.to)}
+                externalLabel={result.externalLabel ?? "标普"}
                 hidden={!showOos}
                 accent="保留区"
                 onReveal={revealOos}
@@ -798,10 +883,16 @@ export function LabWorkbench() {
             trades={result.trades}
             splitDate={result.config.splitDate}
             maskAfterSplit={!showOos}
+            externalLabel={result.externalLabel ?? "标普"}
             onPick={(symbol, entryDate) => setChartTarget({ symbol, entryDate })}
           />
 
-          <YearTable rows={result.byYear} ytdYear={result.ytd?.year ?? null} maskOos={!showOos} />
+          <YearTable
+            rows={result.byYear}
+            ytdYear={result.ytd?.year ?? null}
+            maskOos={!showOos}
+            externalLabel={result.externalLabel ?? "标普"}
+          />
 
           <TradeBlotter
             trades={result.trades}
@@ -810,7 +901,8 @@ export function LabWorkbench() {
           />
 
           <Text size="xs" c="dimmed">
-            {result.indexLabel} {result.universeSize} 只 · {result.signalCount} 个信号 · 不含费
+            {result.poolLabel ?? result.indexLabel} {result.universeSize} 只 · {result.signalCount}{" "}
+            个信号 · 不含费
           </Text>
         </>
       ) : loading ? (
@@ -818,7 +910,7 @@ export function LabWorkbench() {
           <Group gap="sm">
             <Loader size="sm" color="gray" />
             <Text size="sm" c="dimmed">
-              首次载入要预处理全池约 300 万根日线（十几秒），之后每次调参约 450 毫秒。
+              首次载入要预处理全池（十几秒）。Small Fund 之后换池版本会再准备一份。
             </Text>
           </Group>
         </Card>
@@ -855,6 +947,99 @@ function PeriodInput({
         if (typeof v === "number") onChange(v);
       }}
     />
+  );
+}
+
+function PoolCompareCard({ a, b }: { a: Result; b: Result }) {
+  const rows: { label: string; left: number; right: number; higherBetter: boolean }[] = [
+    {
+      label: "年化",
+      left: a.inSample.portfolio.cagrPct,
+      right: b.inSample.portfolio.cagrPct,
+      higherBetter: true,
+    },
+    {
+      label: "同池年化",
+      left: a.inSample.benchmark.cagrPct,
+      right: b.inSample.benchmark.cagrPct,
+      higherBetter: true,
+    },
+    {
+      label: "超额 vs 同池",
+      left: a.inSample.portfolio.cagrPct - a.inSample.benchmark.cagrPct,
+      right: b.inSample.portfolio.cagrPct - b.inSample.benchmark.cagrPct,
+      higherBetter: true,
+    },
+    {
+      label: "回撤",
+      left: a.inSample.portfolio.maxDrawdownPct,
+      right: b.inSample.portfolio.maxDrawdownPct,
+      higherBetter: false,
+    },
+    {
+      label: "成交笔数",
+      left: a.inSample.trade.trades,
+      right: b.inSample.trade.trades,
+      higherBetter: true,
+    },
+  ];
+  const years = [...new Set([...a.byYear.map((y) => y.year), ...b.byYear.map((y) => y.year)])].sort();
+
+  return (
+    <Card
+      title={
+        <Stack gap={2}>
+          <Text size="sm" fw={700} c="gray.1">
+            同一套买点，换池对照
+          </Text>
+          <Text size="xs" c="dimmed">
+            {(a.poolLabel ?? "A") + " vs " + (b.poolLabel ?? "B")}
+          </Text>
+        </Stack>
+      }
+    >
+      <Table verticalSpacing={4} horizontalSpacing={0} withRowBorders={false} fz="xs">
+        <Table.Thead>
+          <Table.Tr>
+            <Table.Th />
+            <Table.Th ta="right">{a.poolLabel ?? "A"}</Table.Th>
+            <Table.Th ta="right">{b.poolLabel ?? "B"}</Table.Th>
+          </Table.Tr>
+        </Table.Thead>
+        <Table.Tbody>
+          {rows.map((row) => {
+            const delta = row.higherBetter ? row.left - row.right : row.right - row.left;
+            return (
+              <Table.Tr key={row.label}>
+                <Table.Td c="dimmed">{row.label}</Table.Td>
+                <Table.Td ta="right" ff="monospace" style={{ color: tone(delta) }}>
+                  {row.label === "成交笔数" ? row.left : pct(row.left)}
+                </Table.Td>
+                <Table.Td ta="right" ff="monospace">
+                  {row.label === "成交笔数" ? row.right : pct(row.right)}
+                </Table.Td>
+              </Table.Tr>
+            );
+          })}
+          {years.map((year) => {
+            const left = a.byYear.find((y) => y.year === year)?.strategyPct;
+            const right = b.byYear.find((y) => y.year === year)?.strategyPct;
+            const delta = (left ?? 0) - (right ?? 0);
+            return (
+              <Table.Tr key={year}>
+                <Table.Td c="dimmed">{year}</Table.Td>
+                <Table.Td ta="right" ff="monospace" style={{ color: tone(delta) }}>
+                  {left == null ? "—" : pct(left)}
+                </Table.Td>
+                <Table.Td ta="right" ff="monospace">
+                  {right == null ? "—" : pct(right)}
+                </Table.Td>
+              </Table.Tr>
+            );
+          })}
+        </Table.Tbody>
+      </Table>
+    </Card>
   );
 }
 
@@ -908,6 +1093,7 @@ function WindowCard({
   window: w,
   excess,
   spy,
+  externalLabel,
   hidden,
   accent,
   onReveal,
@@ -916,6 +1102,7 @@ function WindowCard({
   window: WindowResult;
   excess: number;
   spy: number | null;
+  externalLabel: string;
   hidden: boolean;
   accent: string;
   onReveal?: () => void;
@@ -966,7 +1153,7 @@ function WindowCard({
             />
             {spy != null ? (
               <Table.Tr>
-                <Table.Td c="dimmed">标普</Table.Td>
+                <Table.Td c="dimmed">{externalLabel}</Table.Td>
                 <Table.Td ta="right" ff="monospace" style={{ color: "#d97706" }} colSpan={2}>
                   {spy.toFixed(2)}x
                 </Table.Td>
@@ -1335,10 +1522,12 @@ function YearTable({
   rows,
   ytdYear,
   maskOos,
+  externalLabel,
 }: {
   rows: Result["byYear"];
   ytdYear: number | null;
   maskOos: boolean;
+  externalLabel: string;
 }) {
   return (
     <Card title="分年度">
@@ -1348,7 +1537,7 @@ function YearTable({
             <Table.Th>年份</Table.Th>
             <Table.Th ta="right">策略</Table.Th>
             <Table.Th ta="right">同池</Table.Th>
-            <Table.Th ta="right">标普</Table.Th>
+            <Table.Th ta="right">{externalLabel}</Table.Th>
             <Table.Th ta="right">超额</Table.Th>
             <Table.Th ta="right">成交</Table.Th>
           </Table.Tr>
