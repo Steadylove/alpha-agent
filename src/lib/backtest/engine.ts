@@ -1024,7 +1024,8 @@ export function runBacktest(universe: PreparedUniverse, config: BacktestConfig):
     );
     for (let j = 0; j < raws.length; j += 1) {
       heldWeight[i] += ws[j];
-      if (raws[j].ret != null) heldRet[i] += ws[j] * raws[j].ret;
+      const ret = raws[j].ret;
+      if (ret != null) heldRet[i] += ws[j] * ret;
     }
   }
   const benchRet = equalWeight(benchSum, benchCount);
