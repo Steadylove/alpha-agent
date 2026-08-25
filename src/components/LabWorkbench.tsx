@@ -35,6 +35,7 @@ import {
   SMALL_FUND_POOL_IDS,
   type SmallFundPoolId,
 } from "@/lib/backtest/smallFundPools";
+import { blendSleeve, SLEEVE_NAME_CAP } from "@/lib/backtest/sleeveBlend";
 
 const POS = "#089981";
 const NEG = "#f23645";
@@ -186,9 +187,48 @@ const SMALLFUND_4H_DEFAULTS: Params = {
 };
 
 type Timeframe = "1d" | "4h";
+type LabMode = Timeframe | "sleeve50";
 
 function smallFundDefaults(tf: Timeframe): Params {
   return tf === "4h" ? SMALLFUND_4H_DEFAULTS : SMALLFUND_DEFAULTS;
+}
+
+function assembleSleeve(daily: Result, hour: Result): Result {
+  const blended = blendSleeve(
+    {
+      book: daily.book,
+      holdings: daily.holdings,
+      byYear: daily.byYear,
+      inSample: daily.inSample,
+      ytd: daily.ytd,
+    },
+    {
+      book: hour.book,
+      holdings: hour.holdings,
+      byYear: hour.byYear,
+      inSample: hour.inSample,
+      ytd: hour.ytd,
+    },
+  );
+  return {
+    ...daily,
+    poolLabel: `${daily.poolLabel ?? daily.indexLabel} · 袖套 50/50 · 单票 15%`,
+    trades: [...daily.trades, ...hour.trades].sort((a, b) =>
+      a.entryDate.localeCompare(b.entryDate),
+    ),
+    inSample: blended.inSample,
+    outOfSample: {
+      ...daily.outOfSample,
+      portfolio: { ...daily.outOfSample.portfolio, days: 0 },
+    },
+    byYear: blended.byYear,
+    equity: blended.equity,
+    book: blended.book,
+    holdings: blended.holdings,
+    ytd: blended.ytd,
+    signalCount: daily.signalCount + hour.signalCount,
+    elapsedMs: daily.elapsedMs + hour.elapsedMs,
+  };
 }
 
 /** Pine 原值，用于一键对照。 */
@@ -271,6 +311,7 @@ export function LabWorkbench() {
   const [params, setParams] = useState<Params>(SMALLFUND_DEFAULTS);
   const [index, setIndex] = useState<IndexKey>("SMALLFUND");
   const [timeframe, setTimeframe] = useState<Timeframe>("1d");
+  const [labMode, setLabMode] = useState<LabMode>("1d");
   const [poolA, setPoolA] = useState<SmallFundPoolId>(DEFAULT_SMALL_FUND_POOL);
   const [poolB, setPoolB] = useState<SmallFundPoolId>("sf-v1");
   const [result, setResult] = useState<Result | null>(null);
@@ -282,10 +323,13 @@ export function LabWorkbench() {
   /** 点开哪只标的的哪一笔，null 为关闭弹窗。 */
   const [chartTarget, setChartTarget] = useState<ChartTarget | null>(null);
   /** 传给弹窗的配置要是稳定引用，否则它每次渲染都会重新取数。 */
-  const chartRequest = useMemo(
-    () => ({ ...params, index, timeframe, poolId: poolA }),
-    [params, index, timeframe, poolA],
-  );
+  const chartRequest = useMemo(() => {
+    if (labMode === "sleeve50") {
+      const tf: Timeframe = chartTarget?.entryDate.includes("T") ? "4h" : "1d";
+      return { index, timeframe: tf, poolId: poolA, maxNameWeight: SLEEVE_NAME_CAP };
+    }
+    return { ...params, index, timeframe, poolId: poolA };
+  }, [params, index, timeframe, poolA, labMode, chartTarget?.entryDate]);
 
   /** 试过的不同参数组合数，以及偷看保留区的次数——都是过拟合的计价单位。 */
   const tried = useRef(new Set<string>());
@@ -293,18 +337,29 @@ export function LabWorkbench() {
   const [peekCount, setPeekCount] = useState(0);
 
   const run = useCallback(
-    async (p: Params, idx: IndexKey, tf: Timeframe, a: SmallFundPoolId, b: SmallFundPoolId) => {
+    async (
+      p: Params,
+      idx: IndexKey,
+      tf: Timeframe,
+      a: SmallFundPoolId,
+      b: SmallFundPoolId,
+      mode: LabMode,
+    ) => {
       setLoading(true);
       setError(null);
       try {
-        const post = async (poolId?: SmallFundPoolId) => {
+        const post = async (
+          poolId: SmallFundPoolId | undefined,
+          timeframe: Timeframe,
+          body: Record<string, unknown>,
+        ) => {
           const res = await fetch("/api/lab/backtest", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              ...p,
+              ...body,
               index: idx,
-              timeframe: tf,
+              timeframe,
               ...(idx === "SMALLFUND" ? { poolId } : {}),
             }),
           });
@@ -312,12 +367,35 @@ export function LabWorkbench() {
           if (!res.ok) throw new Error(json.error ?? "回测失败");
           return json as Result;
         };
+        if (mode === "sleeve50" && idx === "SMALLFUND") {
+          const frozen = { maxNameWeight: SLEEVE_NAME_CAP };
+          const blendPool = async (poolId: SmallFundPoolId) => {
+            const [daily, hour] = await Promise.all([
+              post(poolId, "1d", frozen),
+              post(poolId, "4h", frozen),
+            ]);
+            return assembleSleeve(daily, hour);
+          };
+          if (a !== b) {
+            const [left, right] = await Promise.all([blendPool(a), blendPool(b)]);
+            setResult(left);
+            setCompare(right);
+          } else {
+            setResult(await blendPool(a));
+            setCompare(null);
+          }
+          return;
+        }
+        const knobs = { ...p };
         if (idx === "SMALLFUND" && a !== b) {
-          const [left, right] = await Promise.all([post(a), post(b)]);
+          const [left, right] = await Promise.all([
+            post(a, tf, knobs),
+            post(b, tf, knobs),
+          ]);
           setResult(left);
           setCompare(right);
         } else {
-          setResult(await post(idx === "SMALLFUND" ? a : undefined));
+          setResult(await post(idx === "SMALLFUND" ? a : undefined, tf, knobs));
           setCompare(null);
         }
       } catch (e) {
@@ -331,16 +409,19 @@ export function LabWorkbench() {
 
   // 滑块连续拖动时不必每帧都打接口
   useEffect(() => {
-    const key = JSON.stringify({ params, index, timeframe, poolA, poolB });
+    const key =
+      labMode === "sleeve50"
+        ? JSON.stringify({ labMode, index, poolA, poolB })
+        : JSON.stringify({ params, index, timeframe, poolA, poolB });
     const timer = setTimeout(() => {
       if (!tried.current.has(key)) {
         tried.current.add(key);
         setTrialCount(tried.current.size);
       }
-      void run(params, index, timeframe, poolA, poolB);
+      void run(params, index, timeframe, poolA, poolB, labMode);
     }, 350);
     return () => clearTimeout(timer);
-  }, [params, index, timeframe, poolA, poolB, run]);
+  }, [params, index, timeframe, poolA, poolB, labMode, run]);
 
   const set = <K extends keyof Params>(key: K, value: Params[K]) =>
     setParams((prev) => ({ ...prev, [key]: value }));
@@ -367,23 +448,27 @@ export function LabWorkbench() {
             <Text size="xs" c="dimmed" ff="monospace">
               {result ? `${result.elapsedMs}ms` : ""}
             </Text>
-            <Button
-              size="compact-xs"
-              variant="default"
-              onClick={() => setParams(PINE_DEFAULTS)}
-            >
-              Pine 原值
-            </Button>
-            <Button
-              size="compact-xs"
-              variant="default"
-              leftSection={<RotateCcw className="h-3 w-3" />}
-              onClick={() =>
-                setParams(index === "SMALLFUND" ? smallFundDefaults(timeframe) : DEFAULTS)
-              }
-            >
-              复原
-            </Button>
+            {labMode === "sleeve50" ? null : (
+              <>
+                <Button
+                  size="compact-xs"
+                  variant="default"
+                  onClick={() => setParams(PINE_DEFAULTS)}
+                >
+                  Pine 原值
+                </Button>
+                <Button
+                  size="compact-xs"
+                  variant="default"
+                  leftSection={<RotateCcw className="h-3 w-3" />}
+                  onClick={() =>
+                    setParams(index === "SMALLFUND" ? smallFundDefaults(timeframe) : DEFAULTS)
+                  }
+                >
+                  复原
+                </Button>
+              </>
+            )}
           </Group>
         }
       >
@@ -399,22 +484,29 @@ export function LabWorkbench() {
                 const next = v as IndexKey;
                 setIndex(next);
                 setParams(next === "SMALLFUND" ? smallFundDefaults(timeframe) : DEFAULTS);
-                if (next !== "SMALLFUND") setTimeframe("1d");
+                if (next !== "SMALLFUND") {
+                  setTimeframe("1d");
+                  setLabMode("1d");
+                }
               }}
               data={POOLS}
             />
             <SegmentedControl
               size="xs"
               disabled={index !== "SMALLFUND"}
-              value={timeframe}
+              value={labMode}
               onChange={(v) => {
-                const next = v as Timeframe;
-                setTimeframe(next);
-                if (index === "SMALLFUND") setParams(smallFundDefaults(next));
+                const next = v as LabMode;
+                setLabMode(next);
+                if (next !== "sleeve50") {
+                  setTimeframe(next);
+                  if (index === "SMALLFUND") setParams(smallFundDefaults(next));
+                }
               }}
               data={[
                 { value: "1d", label: "日线" },
                 { value: "4h", label: "4小时" },
+                { value: "sleeve50", label: "袖套 50/50" },
               ]}
             />
             {result ? (
@@ -426,10 +518,12 @@ export function LabWorkbench() {
           {index === "SMALLFUND" ? (
             <>
               <Text size="xs" c="dimmed">
-                {timeframe === "4h"
-                  ? "默认：Vegas+RSI · RPS≥50 · 止损 6ATR · 吊灯 6 · 不止盈 · 一买+二买 · k=1 留现金"
-                  : "默认：Vegas+RSI · RPS≥40 · 止损 4ATR · 吊灯 5.5 · 不止盈 · 一买+二买 · k=1 留现金"}
-                。旋钮可改，复原回这套。对照池仍可并排。
+                {labMode === "sleeve50"
+                  ? "日线纪律 + 4H 纪律各一本账，单票先 15% 封顶，再按 50/50 合成净值。这档不吃旋钮。"
+                  : timeframe === "4h"
+                    ? "默认：Vegas+RSI · RPS≥50 · 止损 6ATR · 吊灯 6 · 不止盈 · 一买+二买 · k=1 留现金。旋钮可改，复原回这套。"
+                    : "默认：Vegas+RSI · RPS≥40 · 止损 4ATR · 吊灯 5.5 · 不止盈 · 一买+二买 · k=1 留现金。旋钮可改，复原回这套。"}
+                {" "}对照池仍可并排。
               </Text>
               <Group gap="sm" align="center" wrap="wrap">
                 <Text size="sm" fw={500}>
@@ -463,6 +557,8 @@ export function LabWorkbench() {
           )}
         </Stack>
 
+        {labMode === "sleeve50" ? null : (
+        <>
         <div className="grid gap-x-10 gap-y-6 md:grid-cols-2">
           <Knob
             label="截面 RPS 门槛"
@@ -628,9 +724,11 @@ export function LabWorkbench() {
         >
           {showMore ? "收起过滤项" : "流动性 / RSI / Vegas"}
         </Button>
+        </>
+        )}
       </Card>
 
-      {showMore ? (
+      {showMore && labMode !== "sleeve50" ? (
       <>
       <Card
         title={
@@ -829,9 +927,11 @@ export function LabWorkbench() {
           ? " · 未切分保留区"
           : ` · 点开保留区 ${peekCount} 次`}
         。
-        {index === "SMALLFUND"
-          ? "默认是当前纪律，不是中立起点。"
-          : "默认是网格里挑过的平台组，不是中立起点。"}
+        {labMode === "sleeve50"
+          ? "袖套档用冻结纪律 + 单票 15%，不是调参起点。"
+          : index === "SMALLFUND"
+            ? "默认是当前纪律，不是中立起点。"
+            : "默认是网格里挑过的平台组，不是中立起点。"}
       </Text>
 
       {result && compare ? <PoolCompareCard a={result} b={compare} /> : null}
@@ -901,7 +1001,9 @@ export function LabWorkbench() {
           <Group gap="sm">
             <Loader size="sm" color="gray" />
             <Text size="sm" c="dimmed">
-              首次载入要预处理全池（十几秒）。Small Fund 之后换池版本会再准备一份。
+              {labMode === "sleeve50"
+                ? "袖套要并行跑日线与 4H 两本账（对照池再翻一倍）。首次载入要预处理全池。"
+                : "首次载入要预处理全池（十几秒）。Small Fund 之后换池版本会再准备一份。"}
             </Text>
           </Group>
         </Card>

@@ -380,6 +380,8 @@ export type BacktestConfig = {
    * null 表示不限。
    */
   maxHoldings: number | null;
+  /** 单票占净值上限，超出部分记现金。null 表示不限。 */
+  maxNameWeight: number | null;
   timeframe: Timeframe;
 };
 
@@ -440,6 +442,7 @@ export const DEFAULT_BACKTEST_CONFIG: BacktestConfig = {
   vegasSlowB: VEGAS_SLOW[1],
   rpsWeightPower: null,
   maxHoldings: null,
+  maxNameWeight: null,
   timeframe: "1d",
 };
 
@@ -660,14 +663,15 @@ function equalWeight(sum: Float64Array, count: Int32Array): Float64Array {
  * 弱信号日必须留现金，不再为了「分配」强行满仓归一。
  */
 function positionWeight(day: TradeDay, config: BacktestConfig): number {
+  let w = 1;
   if (config.rpsWeightPower != null) {
     const rps = day.entryRps ?? 0;
-    return rps >= 1 ? (rps / 100) ** config.rpsWeightPower : 0;
+    w = rps >= 1 ? (rps / 100) ** config.rpsWeightPower : 0;
+  } else if (config.riskBudgetPct != null && day.riskPct != null && day.riskPct > 0) {
+    w = config.riskBudgetPct / day.riskPct;
   }
-  if (config.riskBudgetPct != null && day.riskPct != null && day.riskPct > 0) {
-    return config.riskBudgetPct / day.riskPct;
-  }
-  return 1;
+  if (config.maxNameWeight != null) w = Math.min(w, config.maxNameWeight);
+  return w;
 }
 
 function riskWeighted(

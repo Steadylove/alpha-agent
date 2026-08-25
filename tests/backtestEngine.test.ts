@@ -342,6 +342,33 @@ describe("RSI / Vegas / RPS 定权重", () => {
     expect(capped.book[capped.book.length - 1].nHold).toBe(2);
   });
 
+  it("maxNameWeight 把单票压在净值上限内", () => {
+    const dates = axisDates(320);
+    const panels = [rising("A", dates, 80, 0.2), rising("B", dates, 80, 0.15)];
+    const all = { start: dates[0], end: null };
+    const u = prepareUniverse(panels, new Map(panels.map((p) => [p.ticker, [all]])));
+    const a = u.symbols.find((s) => s.ticker === "A")!;
+    a.buy1[280] = 1;
+    a.rps[280] = 90;
+    u.symbols.find((s) => s.ticker === "B")!.rps[280] = 20;
+
+    const result = runBacktest(u, {
+      ...DEFAULT_BACKTEST_CONFIG,
+      from: dates[260],
+      to: dates[319],
+      splitDate: "2099-01-01",
+      rpsMin: 0,
+      useBuy1: true,
+      useBuy2: false,
+      rpsWeightPower: 1,
+      maxNameWeight: 0.15,
+    });
+    const last = result.holdings[result.holdings.length - 1];
+    expect(last.rows).toHaveLength(1);
+    expect(last.rows[0].weightPct).toBeCloseTo(15, 6);
+    expect(result.book[result.book.length - 1].exposurePct).toBeCloseTo(15, 6);
+  });
+
   it("k=1 单只弱信号不满仓，现金留下", () => {
     const dates = axisDates(320);
     const panels = [rising("A", dates, 80, 0.2), rising("B", dates, 80, 0.15)];

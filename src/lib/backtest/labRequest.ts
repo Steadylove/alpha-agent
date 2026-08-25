@@ -93,6 +93,11 @@ export function parseConfig(body: Record<string, unknown>): BacktestConfig {
       : body.maxHoldings == null
         ? null
         : clamp(body.maxHoldings, 1, 50, 8),
+    maxNameWeight: !("maxNameWeight" in body)
+      ? d.maxNameWeight
+      : body.maxNameWeight == null
+        ? null
+        : clamp(body.maxNameWeight, 0.01, 1, 0.15),
     timeframe,
   };
 }
