@@ -106,8 +106,8 @@ export function DeskWorkbench() {
 
   const rule =
     timeframe === "4h"
-      ? "Vegas+RSI · RPS≥50 · 止损 6 · 吊灯 6 · 不止盈 · k=1 留现金"
-      : "Vegas+RSI · RPS≥40 · 止损 4 · 吊灯 5.5 · 不止盈 · k=1 留现金";
+      ? "Vegas+RSI · RPS≥50 · 止损 6 · 吊灯 6 · 不止盈 · 等权 · 单票 15%"
+      : "Vegas+RSI · RPS≥40 · 止损 4 · 吊灯 5.5 · 不止盈 · 等权 · 单票 15%";
 
   return (
     <StackLike>

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  allocateNameWeights,
   DEFAULT_BACKTEST_CONFIG,
   percentileRanksFast,
   prepareUniverse,
@@ -342,6 +343,17 @@ describe("RSI / Vegas / RPS 定权重", () => {
     expect(capped.book[capped.book.length - 1].nHold).toBe(2);
   });
 
+  it("allocateNameWeights 先按相对大小分配再封顶", () => {
+    expect(allocateNameWeights([0.9], 0.15)).toEqual([0.15]);
+    expect(allocateNameWeights([0.9, 0.45], null)[0]).toBeCloseTo(0.9 / 1.35, 8);
+    const eight = allocateNameWeights([0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.4, 0.4], 0.15);
+    expect(eight[0]).toBeCloseTo(0.15, 8);
+    expect(eight[1]).toBeCloseTo(0.15, 8);
+    expect(eight[2]).toBeCloseTo(0.7 / 4.7, 8);
+    expect(eight[5]).toBeCloseTo(0.4 / 4.7, 8);
+    expect(eight[0]).toBeGreaterThan(eight[5]);
+  });
+
   it("maxNameWeight 把单票压在净值上限内", () => {
     const dates = axisDates(320);
     const panels = [rising("A", dates, 80, 0.2), rising("B", dates, 80, 0.15)];
@@ -367,6 +379,39 @@ describe("RSI / Vegas / RPS 定权重", () => {
     expect(last.rows).toHaveLength(1);
     expect(last.rows[0].weightPct).toBeCloseTo(15, 6);
     expect(result.book[result.book.length - 1].exposurePct).toBeCloseTo(15, 6);
+  });
+
+  it("maxNameWeight 在缩仓之后封顶，RPS 高的仍更重", () => {
+    const dates = axisDates(320);
+    const tickers = ["A", "B", "C", "D", "E", "F", "G", "H"];
+    const rps = [90, 80, 70, 60, 50, 40, 40, 40];
+    const panels = tickers.map((t) => rising(t, dates, 80, 0.15));
+    const all = { start: dates[0], end: null };
+    const u = prepareUniverse(panels, new Map(panels.map((p) => [p.ticker, [all]])));
+    for (const [i, t] of tickers.entries()) {
+      const sym = u.symbols.find((s) => s.ticker === t)!;
+      sym.buy1[280] = 1;
+      sym.rps[280] = rps[i];
+    }
+    const result = runBacktest(u, {
+      ...DEFAULT_BACKTEST_CONFIG,
+      from: dates[260],
+      to: dates[319],
+      splitDate: "2099-01-01",
+      rpsMin: 0,
+      useBuy1: true,
+      useBuy2: false,
+      rpsWeightPower: 1,
+      maxNameWeight: 0.15,
+    });
+    const last = result.holdings[result.holdings.length - 1];
+    const by = Object.fromEntries(last.rows.map((r) => [r.symbol, r.weightPct]));
+    expect(by.A).toBeCloseTo(15, 5);
+    expect(by.B).toBeCloseTo(15, 5);
+    expect(by.C).toBeCloseTo((0.7 / 4.7) * 100, 5);
+    expect(by.F).toBeCloseTo((0.4 / 4.7) * 100, 5);
+    expect(by.A).toBeGreaterThan(by.F);
+    expect(Math.max(...last.rows.map((r) => r.weightPct))).toBeLessThanOrEqual(15.000001);
   });
 
   it("k=1 单只弱信号不满仓，现金留下", () => {

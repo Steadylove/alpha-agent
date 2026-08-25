@@ -380,7 +380,10 @@ export type BacktestConfig = {
    * null 表示不限。
    */
   maxHoldings: number | null;
-  /** 单票占净值上限，超出部分记现金。null 表示不限。 */
+  /**
+   * 单票占净值上限。先按 RPS/风险预算分配，和超过 100% 再缩，
+   * 然后才把单票压到这个比例，多出来的记现金。null 表示不限。
+   */
   maxNameWeight: number | null;
   timeframe: Timeframe;
 };
@@ -663,28 +666,27 @@ function equalWeight(sum: Float64Array, count: Int32Array): Float64Array {
  * 弱信号日必须留现金，不再为了「分配」强行满仓归一。
  */
 function positionWeight(day: TradeDay, config: BacktestConfig): number {
-  let w = 1;
   if (config.rpsWeightPower != null) {
     const rps = day.entryRps ?? 0;
-    w = rps >= 1 ? (rps / 100) ** config.rpsWeightPower : 0;
-  } else if (config.riskBudgetPct != null && day.riskPct != null && day.riskPct > 0) {
-    w = config.riskBudgetPct / day.riskPct;
+    return rps >= 1 ? (rps / 100) ** config.rpsWeightPower : 0;
   }
-  if (config.maxNameWeight != null) w = Math.min(w, config.maxNameWeight);
-  return w;
+  if (config.riskBudgetPct != null && day.riskPct != null && day.riskPct > 0) {
+    return config.riskBudgetPct / day.riskPct;
+  }
+  return 1;
 }
 
-function riskWeighted(
-  wret: Float64Array,
-  weight: Float64Array,
-  fullyInvested = false,
-): Float64Array {
-  const out = new Float64Array(wret.length);
-  for (let i = 0; i < wret.length; i += 1) {
-    if (weight[i] <= 0) continue;
-    out[i] = wret[i] / (fullyInvested ? weight[i] : Math.max(1, weight[i]));
-  }
-  return out;
+/**
+ * 组合层仓位：先按 raw 相对大小分配，和超过 1 缩回，再封单票占净值上限。
+ */
+export function allocateNameWeights(raw: readonly number[], cap: number | null): number[] {
+  const sum = raw.reduce((a, b) => a + b, 0);
+  if (sum <= 0) return raw.map(() => 0);
+  const denom = Math.max(1, sum);
+  return raw.map((r) => {
+    const w = r / denom;
+    return cap == null ? w : Math.min(w, cap);
+  });
 }
 
 /** 回测窗口在全局日期轴上的下标区间 `[lo, hi)`。 */
@@ -914,9 +916,6 @@ export function runBacktest(universe: PreparedUniverse, config: BacktestConfig):
   const win = axis.slice(lo, hi);
   const w = win.length;
 
-  /** Σ 权重 × 当日收益，与 Σ 权重 配对，见 RISK_BUDGET_PCT。 */
-  const heldWret = new Float64Array(w);
-  const heldWeight = new Float64Array(w);
   const benchSum = new Float64Array(w);
   const benchCount = new Int32Array(w);
 
@@ -927,6 +926,7 @@ export function runBacktest(universe: PreparedUniverse, config: BacktestConfig):
   type RawHold = {
     symbol: string;
     raw: number;
+    ret: number | null;
     sigType: 1 | 2;
     entryDate: string | null;
     entryPrice: number;
@@ -993,18 +993,16 @@ export function runBacktest(universe: PreparedUniverse, config: BacktestConfig):
       else if (day.exited) ret = open / prev - 1;
       else if (day.sigType !== 0) ret = benchRet;
 
-      if (ret != null && Number.isFinite(ret) && day.riskPct != null && day.riskPct > 0) {
-        const weight = positionWeight(day, config);
-        heldWret[d] += weight * ret;
-        heldWeight[d] += weight;
-      }
-
       if (day.entered) dayBuys[d].push(sym.ticker);
       if (day.exited) daySells[d].push(sym.ticker);
       if (day.sigType !== 0 && day.entryPrice != null) {
         rawHolds[d].push({
           symbol: sym.ticker,
           raw: positionWeight(day, config),
+          ret:
+            ret != null && Number.isFinite(ret) && day.riskPct != null && day.riskPct > 0
+              ? ret
+              : null,
           sigType: day.sigType,
           entryDate: day.entryDate,
           entryPrice: day.entryPrice,
@@ -1015,7 +1013,20 @@ export function runBacktest(universe: PreparedUniverse, config: BacktestConfig):
     }
   }
 
-  const heldRet = riskWeighted(heldWret, heldWeight);
+  const heldRet = new Float64Array(w);
+  const heldWeight = new Float64Array(w);
+  for (let i = 0; i < w; i += 1) {
+    const raws = rawHolds[i];
+    if (raws.length === 0) continue;
+    const ws = allocateNameWeights(
+      raws.map((h) => h.raw),
+      config.maxNameWeight,
+    );
+    for (let j = 0; j < raws.length; j += 1) {
+      heldWeight[i] += ws[j];
+      if (raws[j].ret != null) heldRet[i] += ws[j] * raws[j].ret;
+    }
+  }
   const benchRet = equalWeight(benchSum, benchCount);
 
   let cut = 0;
@@ -1069,12 +1080,14 @@ export function runBacktest(universe: PreparedUniverse, config: BacktestConfig):
     equity[i] = { date: win[i], strategy: se, benchmark: be };
 
     const raws = rawHolds[i];
-    const sum = raws.reduce((a, h) => a + h.raw, 0);
-    const denom = sum <= 0 ? 1 : Math.max(1, sum);
+    const ws = allocateNameWeights(
+      raws.map((h) => h.raw),
+      config.maxNameWeight,
+    );
     const rows: HoldingRow[] = raws
-      .map((h) => ({
+      .map((h, j) => ({
         symbol: h.symbol,
-        weightPct: (h.raw / denom) * 100,
+        weightPct: ws[j] * 100,
         sigType: h.sigType,
         entryDate: h.entryDate,
         entryPrice: h.entryPrice,
@@ -1090,7 +1103,7 @@ export function runBacktest(universe: PreparedUniverse, config: BacktestConfig):
       benchmark: be,
       spy: null,
       nHold: rows.length,
-      exposurePct: sum <= 0 ? 0 : Math.min(1, sum) * 100,
+      exposurePct: heldWeight[i] * 100,
       buys: dayBuys[i].sort(),
       sells: daySells[i].sort(),
     };

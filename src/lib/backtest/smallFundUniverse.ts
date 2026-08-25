@@ -65,7 +65,7 @@ export const SMALL_FUND_WINDOW_YEARS = 5;
  * Small Fund 回测默认配置。
  *
  * 与 `/lab` 的 DEFAULT_BACKTEST_CONFIG 刻意分开：那边是标普池网格默认值。
- * 手做纪律：Vegas+RSI、RPS≥40、止损 4、吊灯 5.5、不止盈、一买+二买、k=1 且不满仓归一。
+ * 手做纪律：Vegas+RSI、RPS≥40、止损 4、吊灯 5.5、不止盈、一买+二买、持仓等权、单票 15%。
  *
  * `splitDate` 推到窗口之后，五年落进一个输出窗口。
  */
@@ -88,11 +88,12 @@ export const SMALL_FUND_DEFAULT_CONFIG = {
   stopMult: 4,
   trailMult: 5.5,
   takeProfitR: null,
-  rpsWeightPower: 1,
+  rpsWeightPower: null,
+  maxNameWeight: 0.15,
 } as const;
 
 /**
- * 与日线同一套纪律，周期不同：Vegas+RSI、RPS≥50、止损 6、吊灯 6、不止盈、k=1 不满仓归一。
+ * 与日线同一套纪律，周期不同：Vegas+RSI、RPS≥50、止损 6、吊灯 6、不止盈、等权、单票 15%。
  */
 export const SMALL_FUND_4H_DEFAULT_CONFIG = {
   from: SMALL_FUND_4H_FROM,
@@ -107,7 +108,8 @@ export const SMALL_FUND_4H_DEFAULT_CONFIG = {
   stopMult: 6,
   trailMult: 6,
   takeProfitR: null,
-  rpsWeightPower: 1,
+  rpsWeightPower: null,
+  maxNameWeight: 0.15,
   timeframe: "4h",
 } as const;
 

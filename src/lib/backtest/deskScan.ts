@@ -4,6 +4,7 @@
  */
 
 import {
+  allocateNameWeights,
   DEFAULT_BACKTEST_CONFIG,
   runBacktest,
   runSymbol,
@@ -68,9 +69,9 @@ export function frozenDeskConfig(timeframe: Timeframe, to: string): BacktestConf
   };
 }
 
-function rawWeightPct(rps: number, power: number | null): number {
-  if (power == null) return 100;
-  return rps >= 1 ? (rps / 100) ** power * 100 : 0;
+function rawWeight(rps: number, power: number | null): number {
+  if (power == null) return 1;
+  return rps >= 1 ? (rps / 100) ** power : 0;
 }
 
 export function scanDesk(
@@ -98,7 +99,7 @@ export function scanDesk(
       close,
       floatPnlPct: row.floatPnlPct,
       entryRps: row.entryRps,
-      rawWeightPct: rawWeightPct(row.entryRps ?? 0, k),
+      rawWeightPct: rawWeight(row.entryRps ?? 0, k) * 100,
       weightPct: 0,
     };
   });
@@ -116,18 +117,21 @@ export function scanDesk(
       date: asOf,
       rps: sym.rps[i],
       close: bars[i].close,
-      rawWeightPct: rawWeightPct(sym.rps[i], k),
+      rawWeightPct: rawWeight(sym.rps[i], k) * 100,
       weightPct: 0,
     });
   }
   pending.sort((a, b) => b.rps - a.rps);
 
-  const rawHold = holdings.reduce((s, h) => s + h.rawWeightPct, 0);
-  const rawPend = pending.reduce((s, p) => s + p.rawWeightPct, 0);
-  const used = rawHold + rawPend;
-  const scale = used > 100 ? 100 / used : 1;
-  for (const h of holdings) h.weightPct = h.rawWeightPct * scale;
-  for (const p of pending) p.weightPct = p.rawWeightPct * scale;
+  const raws = [
+    ...holdings.map((h) => rawWeight(h.entryRps ?? 0, k)),
+    ...pending.map((p) => rawWeight(p.rps, k)),
+  ];
+  const ws = allocateNameWeights(raws, config.maxNameWeight);
+  for (const [i, h] of holdings.entries()) h.weightPct = (ws[i] ?? 0) * 100;
+  for (const [i, p] of pending.entries()) p.weightPct = (ws[holdings.length + i] ?? 0) * 100;
+  const holdingExposurePct = holdings.reduce((s, h) => s + h.weightPct, 0);
+  const pendingExposurePct = pending.reduce((s, p) => s + p.weightPct, 0);
 
   return {
     timeframe: config.timeframe,
@@ -137,8 +141,8 @@ export function scanDesk(
     universeSize: result.universeSize,
     holdings,
     pending,
-    holdingExposurePct: rawHold * scale,
-    pendingExposurePct: rawPend * scale,
-    cashPct: Math.max(0, 100 - used),
+    holdingExposurePct,
+    pendingExposurePct,
+    cashPct: Math.max(0, 100 - holdingExposurePct - pendingExposurePct),
   };
 }

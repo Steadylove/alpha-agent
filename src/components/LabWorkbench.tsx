@@ -161,7 +161,7 @@ const DEFAULTS: Params = {
   rpsWeightPower: null,
 };
 
-/** Small Fund 日线纪律：Vegas+RSI、RPS≥40、吊灯 5.5、不止盈、k=1。 */
+/** Small Fund 日线纪律：Vegas+RSI、RPS≥40、吊灯 5.5、不止盈、等权、单票 15%。 */
 const SMALLFUND_DEFAULTS: Params = {
   ...DEFAULTS,
   rpsMin: 40,
@@ -170,10 +170,10 @@ const SMALLFUND_DEFAULTS: Params = {
   useBuy2: true,
   requireRsi: true,
   requireVegas: true,
-  rpsWeightPower: 1,
+  rpsWeightPower: null,
 };
 
-/** Small Fund 4H 纪律：Vegas+RSI、RPS≥50、止损 6、吊灯 6、不止盈。 */
+/** Small Fund 4H 纪律：Vegas+RSI、RPS≥50、止损 6、吊灯 6、不止盈、等权、单票 15%。 */
 const SMALLFUND_4H_DEFAULTS: Params = {
   ...DEFAULTS,
   rpsMin: 50,
@@ -183,7 +183,7 @@ const SMALLFUND_4H_DEFAULTS: Params = {
   useBuy2: true,
   requireRsi: true,
   requireVegas: true,
-  rpsWeightPower: 1,
+  rpsWeightPower: null,
 };
 
 type Timeframe = "1d" | "4h";
@@ -521,8 +521,8 @@ export function LabWorkbench() {
                 {labMode === "sleeve50"
                   ? "日线纪律 + 4H 纪律各一本账，单票先 15% 封顶，再按 50/50 合成净值。这档不吃旋钮。"
                   : timeframe === "4h"
-                    ? "默认：Vegas+RSI · RPS≥50 · 止损 6ATR · 吊灯 6 · 不止盈 · 一买+二买 · k=1 留现金。旋钮可改，复原回这套。"
-                    : "默认：Vegas+RSI · RPS≥40 · 止损 4ATR · 吊灯 5.5 · 不止盈 · 一买+二买 · k=1 留现金。旋钮可改，复原回这套。"}
+                    ? "默认：Vegas+RSI · RPS≥50 · 止损 6ATR · 吊灯 6 · 不止盈 · 一买+二买 · 等权 · 单票 15%。旋钮可改，复原回这套。"
+                    : "默认：Vegas+RSI · RPS≥40 · 止损 4ATR · 吊灯 5.5 · 不止盈 · 一买+二买 · 等权 · 单票 15%。旋钮可改，复原回这套。"}
                 {" "}对照池仍可并排。
               </Text>
               <Group gap="sm" align="center" wrap="wrap">
@@ -640,7 +640,7 @@ export function LabWorkbench() {
               ]}
             />
             <Text size="xs" c="dimmed" mt={6}>
-              仓位 ∝ (开仓 RPS/100)^k。和 &lt;1 是现金，和 &gt;1 缩回。k=1 是 Small Fund 默认。
+              仓位 ∝ (开仓 RPS/100)^k。和 &lt;1 是现金，和 &gt;1 缩回。Small Fund 默认等权，单票 15%。
             </Text>
           </div>
           <div>
