@@ -39,13 +39,13 @@
 // 挂告警的步骤
 // -----------------------------------------------------------------------------
 //
-// 1. 服务端配好 TV_WEBHOOK_TOKEN 与 DISCORD_SIGNAL_WEBHOOK_URL 两个环境变量。
+// 1. 服务端配好 DISCORD_SIGNAL_WEBHOOK_URL 环境变量。
 // 2. TradingView 图表加载本脚本 → 创建告警。
 // 3. 「条件」选本脚本 →「Any alert() function call」。
 //    不要选具体的 plot，alert() 的正文是脚本动态拼的 JSON，选别的收不到。
 // 4. 「触发频率」选 Once Per Bar Close。
-// 5. 「通知」页勾选 Webhook URL，填 https://你的域名/api/tv/alert?token=上面那个 token。
-//    TV 的 webhook 不能自定义请求头，所以令牌只能走 query。
+// 5. 「通知」页勾选 Webhook URL，填 https://你的域名/api/tv/alert。
+//    该地址不鉴权，谁都能往你的频道推伪造信号，别外传。
 //
 // 告警数量按「标的 × 周期」算，TV 的上限是 Plus 100 / Premium 400 / Ultimate 1000。
 //

@@ -6,11 +6,15 @@
  * 上限决定了它在 TradingView 上无解。这里补的就是那一刀，用的是与回测
  * 同一份 `getPreparedUniverse`，口径不会漂。
  *
- * 闸门只标注不拦截：不达标的买点照样推，但标题与末行都会写明未达标，
+ * 闸门只标注不拦截：不达标的买点照样推，但标题与 RPS 那一格都会写明未达标，
  * 免得「没收到消息」和「消息没发出去」两种情况在频道里长得一样。
  *
  * 卖点不过闸门：RPS 是入场闸门，持仓该走就得走。何况持仓状态机整个在
  * Pine 里，本接口无状态，不知道任何一笔持仓的存在。
+ *
+ * 本接口不做鉴权，是明知代价后的选择，不是漏掉了：任何人 POST 一段合法
+ * JSON 都能让频道收到一条伪造的买卖点。挡不住扫描器的话就把 token 校验加
+ * 回来（TV 的 webhook 不能自定义请求头，只能走 query）。
  */
 
 import { NextResponse } from "next/server";
@@ -154,15 +158,6 @@ function renderSell(p: Payload, label: string): DiscordPayload {
 }
 
 export async function POST(request: Request) {
-  const token = process.env.TV_WEBHOOK_TOKEN;
-  if (!token) {
-    return NextResponse.json({ error: "TV_WEBHOOK_TOKEN is not configured." }, { status: 503 });
-  }
-  // TV 的 webhook 不能自定义请求头，令牌只能走 query
-  if (new URL(request.url).searchParams.get("token") !== token) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
   const webhookUrl = process.env.DISCORD_SIGNAL_WEBHOOK_URL;
   if (!webhookUrl) {
     return NextResponse.json(
