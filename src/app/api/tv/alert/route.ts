@@ -158,10 +158,11 @@ function renderSell(p: Payload, label: string): DiscordPayload {
 }
 
 export async function POST(request: Request) {
-  const webhookUrl = process.env.DISCORD_SIGNAL_WEBHOOK_URL;
+  // 想分频道就配 DISCORD_SIGNAL_WEBHOOK_URL，不配就跟每日简报挤一个频道
+  const webhookUrl = process.env.DISCORD_SIGNAL_WEBHOOK_URL || process.env.DISCORD_WEBHOOK_URL;
   if (!webhookUrl) {
     return NextResponse.json(
-      { error: "DISCORD_SIGNAL_WEBHOOK_URL is not configured." },
+      { error: "Neither DISCORD_SIGNAL_WEBHOOK_URL nor DISCORD_WEBHOOK_URL is configured." },
       { status: 503 },
     );
   }
