@@ -29,11 +29,23 @@ import { postDiscordPayload, type DiscordPayload } from "@/lib/discord/sendWebho
 
 export const maxDuration = 60;
 
-/** TV 的 timeframe.period 原样送来，只认脚本支持的这两档。 */
-const TIMEFRAMES: Record<string, { tf: Timeframe; label: string; rpsMin: number }> = {
-  D: { tf: "1d", label: "日线", rpsMin: SMALL_FUND_DEFAULT_CONFIG.rpsMin },
-  "240": { tf: "4h", label: "4H", rpsMin: SMALL_FUND_4H_DEFAULT_CONFIG.rpsMin },
+/**
+ * 只有这两档有离线 RPS 面板。别的周期照样转发，但闸门会标成「无面板」——
+ * 周期限制是从 Pine 那边去掉的，接口跟着放开，不然 1H 的信号会直接 400 掉。
+ */
+const RPS_PANELS: Record<string, { tf: Timeframe; rpsMin: number }> = {
+  D: { tf: "1d", rpsMin: SMALL_FUND_DEFAULT_CONFIG.rpsMin },
+  "240": { tf: "4h", rpsMin: SMALL_FUND_4H_DEFAULT_CONFIG.rpsMin },
 };
+
+/** TV 的 timeframe.period 是 "D"/"W"/"M" 或纯分钟数，转成人看的写法。 */
+function tfLabel(period: string): string {
+  const mins = Number(period);
+  if (Number.isFinite(mins) && mins > 0) {
+    return mins % 60 === 0 ? `${mins / 60}H` : `${mins}m`;
+  }
+  return period === "D" ? "日线" : period === "W" ? "周线" : period === "M" ? "月线" : period;
+}
 
 const KIND_LABEL: Record<number, string> = { 1: "❤️ 一买", 2: "⭐️ 二买" };
 
@@ -178,47 +190,46 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Malformed alert payload." }, { status: 400 });
   }
 
-  const spec = TIMEFRAMES[payload.tf];
-  if (!spec) {
-    return NextResponse.json(
-      { error: `Unsupported timeframe ${payload.tf}; expected D or 240.` },
-      { status: 400 },
-    );
-  }
+  const label = tfLabel(payload.tf);
+  const panel = RPS_PANELS[payload.tf] ?? null;
 
   if (payload.event === "sell") {
-    await postDiscordPayload(webhookUrl, renderSell(payload, spec.label));
+    await postDiscordPayload(webhookUrl, renderSell(payload, label));
     return NextResponse.json({ ok: true, forwarded: true });
   }
 
   let found: { rps: number; asOf: string } | null = null;
   let lookupError: string | null = null;
-  try {
-    found = await latestRps(payload.symbol, spec.tf);
-  } catch (error) {
-    lookupError = error instanceof Error ? error.message : String(error);
+  if (panel) {
+    try {
+      found = await latestRps(payload.symbol, panel.tf);
+    } catch (error) {
+      lookupError = error instanceof Error ? error.message : String(error);
+    }
   }
 
   let gate: Gate;
-  if (!found) {
+  if (!panel) {
+    gate = { state: "unknown", field: `\`—\`\n${label} 无 RPS 面板`, note: null };
+  } else if (!found) {
     const why = lookupError ? "面板读取失败" : "不在 Small Fund 池";
     gate = { state: "unknown", field: `\`—\`\n${why}`, note: null };
-  } else if (found.rps < spec.rpsMin) {
+  } else if (found.rps < panel.rpsMin) {
     // 带一位小数：39.8 取整成 40 会让「RPS 40 < 40」看着像 bug
     gate = {
       state: "reject",
-      field: `\`${found.rps.toFixed(1)}\`\n< ${spec.rpsMin} 未达标`,
+      field: `\`${found.rps.toFixed(1)}\`\n< ${panel.rpsMin} 未达标`,
       note: `RPS 面板截至 ${found.asOf}`,
     };
   } else {
     gate = {
       state: "pass",
-      field: `\`${found.rps.toFixed(0)}\`\n≥ ${spec.rpsMin} 通过`,
+      field: `\`${found.rps.toFixed(0)}\`\n≥ ${panel.rpsMin} 通过`,
       note: `RPS 面板截至 ${found.asOf}`,
     };
   }
 
-  await postDiscordPayload(webhookUrl, renderBuy(payload, spec.label, gate));
+  await postDiscordPayload(webhookUrl, renderBuy(payload, label, gate));
   return NextResponse.json({
     ok: true,
     forwarded: true,
