@@ -25,6 +25,10 @@ const nextConfig: NextConfig = {
       "data/smallfund/**",
       "data/smallfund4h/**",
     ],
+    "/api/tv/alert": [
+      "data/smallfund/**",
+      "data/smallfund4h/**",
+    ],
   },
 };
 

@@ -12,8 +12,8 @@ import { request } from "node:https";
 
 const DISCORD_LIMIT = 1900;
 
-type DiscordEmbed = {
-  title: string;
+export type DiscordEmbed = {
+  title?: string;
   description?: string;
   color?: number;
   fields?: Array<{
@@ -24,7 +24,7 @@ type DiscordEmbed = {
   footer?: { text: string };
 };
 
-type DiscordPayload = {
+export type DiscordPayload = {
   content?: string;
   embeds?: DiscordEmbed[];
 };
@@ -67,7 +67,10 @@ export async function sendDiscordWebhook(input: {
   }
 }
 
-async function postDiscordPayload(webhookUrl: string, payload: DiscordPayload): Promise<void> {
+export async function postDiscordPayload(
+  webhookUrl: string,
+  payload: DiscordPayload,
+): Promise<void> {
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= 3; attempt += 1) {
