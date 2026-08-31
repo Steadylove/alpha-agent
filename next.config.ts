@@ -25,9 +25,9 @@ const nextConfig: NextConfig = {
       "data/smallfund/**",
       "data/smallfund4h/**",
     ],
+    // 只读构建时算好的分位快照，不需要整套 CSV，见 lib/backtest/rpsSnapshot.ts
     "/api/tv/alert": [
-      "data/smallfund/**",
-      "data/smallfund4h/**",
+      "data/rps-latest.json",
     ],
   },
 };

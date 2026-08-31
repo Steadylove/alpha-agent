@@ -42,3 +42,6 @@ tmp/
 
 # 历史面板的本地落盘缓存，可由数据库重建
 .cache/
+
+# 构建产物：由 data/smallfund*/ 的 CSV 确定性派生，见 scripts/build-rps-snapshot.ts
+data/rps-latest.json

@@ -3,8 +3,11 @@
  *
  * Pine 只算得出单标的自足的信号（一买/二买 + RSI + Vegas），
  * `rps >= rpsMin` 要把当日全池 197 只一起排名，单脚本 40 个 request.*() 的
- * 上限决定了它在 TradingView 上无解。这里补的就是那一刀，用的是与回测
- * 同一份 `getPreparedUniverse`，口径不会漂。
+ * 上限决定了它在 TradingView 上无解。这里补的就是那一刀。
+ *
+ * 分位读的是构建时算好的 `data/rps-latest.json`，不在请求里现算：那要载入
+ * 全池 13 年行情重跑一遍准备段，冷启动十几秒，TV 的 webhook 等不了。
+ * 快照由 `getPreparedUniverse` 生成，与回测同一份口径，不会漂。
  *
  * 闸门只标注不拦截：不达标的买点照样推，但标题与 RPS 那一格都会写明未达标，
  * 免得「没收到消息」和「消息没发出去」两种情况在频道里长得一样。
@@ -20,14 +23,15 @@
 import { NextResponse } from "next/server";
 
 import type { Timeframe } from "@/lib/backtest/engine";
-import { getPreparedUniverse } from "@/lib/backtest/load";
+import { latestRps, type RpsEntry } from "@/lib/backtest/rpsSnapshot";
 import {
   SMALL_FUND_4H_DEFAULT_CONFIG,
   SMALL_FUND_DEFAULT_CONFIG,
 } from "@/lib/backtest/smallFundUniverse";
 import { postDiscordPayload, type DiscordPayload } from "@/lib/discord/sendWebhook";
 
-export const maxDuration = 60;
+// 读一个小 JSON 加一次 Discord 投递，不该超过这个量级
+export const maxDuration = 15;
 
 /**
  * 只有这两档有离线 RPS 面板。别的周期照样转发，但闸门会标成「无面板」——
@@ -76,31 +80,6 @@ function parsePayload(raw: unknown): Payload | null {
 
 const money = (v: number) => `$${v.toFixed(2)}`;
 const signed = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
-
-/**
- * 面板最后一根的截面分位。
- *
- * 取最后一根而非「告警当日」：面板靠离线抓取，通常落后 TV 几天。
- * 分位本身走 21/63/126/252 根的加权动量，几天的滞后不改变量级，
- * 但滞后多少要让人看得见，所以把日期一起带出去。
- */
-async function latestRps(
-  symbol: string,
-  tf: Timeframe,
-): Promise<{ rps: number; asOf: string } | null> {
-  const universe = await getPreparedUniverse("SMALLFUND", tf);
-  const sym = universe.symbols.find((s) => s.ticker === symbol);
-  if (!sym) return null;
-
-  const last = sym.rps.length - 1;
-  if (last < 0) return null;
-
-  // 0 表示当日未进入截面（回看未齐），与「不在池里」同等对待
-  const rps = sym.rps[last];
-  if (rps < 1) return null;
-
-  return { rps, asOf: universe.axis[sym.axisIndex[last]] };
-}
 
 /**
  * 消息用 embed 而不是纯文本：左侧色条能在刷屏的频道里一眼分出闸门三态，
@@ -198,11 +177,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, forwarded: true });
   }
 
-  let found: { rps: number; asOf: string } | null = null;
+  let found: RpsEntry | null = null;
   let lookupError: string | null = null;
   if (panel) {
     try {
-      found = await latestRps(payload.symbol, panel.tf);
+      found = latestRps(payload.symbol, panel.tf);
     } catch (error) {
       lookupError = error instanceof Error ? error.message : String(error);
     }
