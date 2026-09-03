@@ -53,10 +53,13 @@ type WindowResult = {
     avgBarsHeld: number;
     worstPnlPct: number;
     meanR: number;
-    exits: { stop: number; target: number; veto: number; rsWeak: number };
+    exits: { stop: number; target: number; veto: number; rsWeak: number; rotate: number };
   };
   portfolio: Stats;
+  /** 同池但每根拉回等权，含再平衡溢价 */
   benchmark: Stats;
+  /** 同池等权买入持有，实盘能照做的那条线 */
+  buyHold?: Stats;
 };
 
 type Stats = {
@@ -69,7 +72,7 @@ type Stats = {
   days: number;
 };
 
-type ExitReason = "stop" | "target" | "veto" | "rsWeak";
+type ExitReason = "stop" | "target" | "veto" | "rsWeak" | "rotate";
 
 type TradeRow = {
   symbol: string;
@@ -161,7 +164,7 @@ const DEFAULTS: Params = {
   rpsWeightPower: null,
 };
 
-/** Small Fund 日线纪律：Vegas+RSI、RPS≥40、吊灯 5.5、不止盈、等权、单票 15%。 */
+/** Small Fund 日线实验室默认。不是现金账本冻结档（那套是 4H 止 8 / 吊 10 / 每笔 8%）。 */
 const SMALLFUND_DEFAULTS: Params = {
   ...DEFAULTS,
   rpsMin: 40,
@@ -173,12 +176,12 @@ const SMALLFUND_DEFAULTS: Params = {
   rpsWeightPower: null,
 };
 
-/** Small Fund 4H 纪律：Vegas+RSI、RPS≥50、止损 6、吊灯 6、不止盈、等权、单票 15%。 */
+/** Small Fund 4H 信号层与冻结档一致（止 8 / 吊 10 / 门 0）。本页仍是权重法，不是每笔 8% 的现金账本。 */
 const SMALLFUND_4H_DEFAULTS: Params = {
   ...DEFAULTS,
-  rpsMin: 50,
-  stopMult: 6,
-  trailMult: 6,
+  rpsMin: 0,
+  stopMult: 8,
+  trailMult: 10,
   takeProfitR: null,
   useBuy2: true,
   requireRsi: true,
@@ -506,7 +509,7 @@ export function LabWorkbench() {
               data={[
                 { value: "1d", label: "日线" },
                 { value: "4h", label: "4小时" },
-                { value: "sleeve50", label: "袖套 50/50" },
+                { value: "sleeve50", label: "袖套 50/50（旧实验）" },
               ]}
             />
             {result ? (
@@ -519,10 +522,10 @@ export function LabWorkbench() {
             <>
               <Text size="xs" c="dimmed">
                 {labMode === "sleeve50"
-                  ? "日线纪律 + 4H 纪律各一本账，单票先 15% 封顶，再按 50/50 合成净值。这档不吃旋钮。"
+                  ? "旧实验，不是冻结档。日线+4H 各一本账再 50/50 合成，横评已否决。这档不吃旋钮。"
                   : timeframe === "4h"
-                    ? "默认：Vegas+RSI · RPS≥50 · 止损 6ATR · 吊灯 6 · 不止盈 · 一买+二买 · 等权 · 单票 15%。旋钮可改，复原回这套。"
-                    : "默认：Vegas+RSI · RPS≥40 · 止损 4ATR · 吊灯 5.5 · 不止盈 · 一买+二买 · 等权 · 单票 15%。旋钮可改，复原回这套。"}
+                    ? "信号层是冻结档（Vegas+RSI · 门 0 · 止 8 · 吊 10 · 不止盈）。本页是权重法，现金账本请跑 scripts/fund-rotate.ts。"
+                    : "实验室日线默认（Vegas+RSI · RPS≥40 · 止 4 · 吊 5.5 · 不止盈），不是现金账本定档。旋钮可改。"}
                 {" "}对照池仍可并排。
               </Text>
               <Group gap="sm" align="center" wrap="wrap">
@@ -1233,7 +1236,7 @@ function WindowCard({
           <div className="font-mono text-2xl" style={{ color: tone(excess) }}>
             {pct(excess)}
           </div>
-          <div className="text-xs text-zinc-500">年化超额 vs 同池</div>
+          <div className="text-xs text-zinc-500">年化超额 vs 同池（每根等权）</div>
         </div>
 
         <Table verticalSpacing={4} horizontalSpacing={0} withRowBorders={false} fz="xs">
@@ -1257,6 +1260,14 @@ function WindowCard({
               a={`-${w.portfolio.maxDrawdownPct.toFixed(1)}%`}
               b={`-${w.benchmark.maxDrawdownPct.toFixed(1)}%`}
             />
+            {/* 右列那条基准每根都把全池拉回等权，实盘做不到；这行才是能照做的对照 */}
+            {w.buyHold ? (
+              <Row
+                label="买入持有"
+                a={pct(w.portfolio.cagrPct - w.buyHold.cagrPct)}
+                b={`${w.buyHold.equity.toFixed(2)}x · ${pct(w.buyHold.cagrPct)}`}
+              />
+            ) : null}
           </Table.Tbody>
         </Table>
 
@@ -1305,6 +1316,7 @@ const EXIT_LABEL: Record<ExitReason, string> = {
   target: "止盈",
   rsWeak: "转弱",
   veto: "否决",
+  rotate: "置换",
 };
 
 type SortKey = "entryDate" | "pnlPct" | "r" | "barsHeld";

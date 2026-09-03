@@ -23,22 +23,28 @@ import {
   computeRotationTrades,
   type ClosedTrade,
   type ExitReason,
+  type RotationTradeParams,
   type TradeBar,
   type TradeDay,
 } from "@/lib/scoring/rotationTrade";
 import { emaSeries, rsiSeries } from "@/lib/scoring/series";
 
 import type { PanelBars } from "./panel";
+import { scalePercentile, type RpsScale } from "./rpsScale";
 
+// 按 6.5 小时的常规时段实测：4H 每天 2 根、2H 每天 3 根、1H 每天 6 根。
+// 2H 不是 252×4——最后那段不足两小时并不单独成根，按 4 根算会把年化高估三分之一。
 const TRADING_DAYS_PER_YEAR = 252;
 const FOUR_HOUR_BARS_PER_YEAR = 504;
-const TWO_HOUR_BARS_PER_YEAR = 1008;
+const TWO_HOUR_BARS_PER_YEAR = 756;
+const ONE_HOUR_BARS_PER_YEAR = 1512;
 
-export type Timeframe = "1d" | "4h" | "2h";
+export type Timeframe = "1d" | "4h" | "2h" | "1h";
 
 export function barsPerYearOf(tf: Timeframe = "1d"): number {
   if (tf === "4h") return FOUR_HOUR_BARS_PER_YEAR;
   if (tf === "2h") return TWO_HOUR_BARS_PER_YEAR;
+  if (tf === "1h") return ONE_HOUR_BARS_PER_YEAR;
   return TRADING_DAYS_PER_YEAR;
 }
 
@@ -129,7 +135,7 @@ export function percentileRanksFast(scores: ArrayLike<number>): Float64Array {
  * 也不用「按剩余权重归一化」：那样一只刚上市 22 天的标的会拿 21 日动量冒充
  * 四周期复合分，而新上市标的初期常有暴涨，反而会被系统性推高。
  */
-function alphaScore(closes: ArrayLike<number>, at: number): number {
+export function alphaScore(closes: ArrayLike<number>, at: number): number {
   let total = 0;
   for (const { lookback, weight } of PERCENTILE_RS_TERMS) {
     const base = closes[at - lookback];
@@ -172,7 +178,7 @@ export type VegasLens = {
   slow: readonly [number, number];
 };
 
-const DEFAULT_VEGAS: VegasLens = { fast: VEGAS_FAST, slow: VEGAS_SLOW };
+export const DEFAULT_VEGAS: VegasLens = { fast: VEGAS_FAST, slow: VEGAS_SLOW };
 
 const toCloses = (values: Float32Array) => Array.from(values);
 
@@ -199,10 +205,37 @@ function vegasMask(closes: number[], lens: VegasLens): Uint8Array {
   return out;
 }
 
+/**
+ * 日线 RPS 表，供盘中周期取用。
+ *
+ * 盘中周期不能自己算 RPS：`PERCENTILE_RS_TERMS` 的 lookback 单位是「根」，
+ * 4H 一天两根，同一套 21/63/126/252 在那里只有 10 天 / 1.5 月 / 3 月 / 6 月 的
+ * 跨度，是日线的一半。强度口径不该随交易周期变，所以统一取日线的值。
+ */
+export type DailyRpsTable = {
+  /** 日线交易日升序 */
+  dates: readonly string[];
+  /** ticker → 与 dates 等长的 RPS 序列 */
+  byTicker: ReadonlyMap<string, Float32Array>;
+};
+
+/**
+ * RPS 从哪儿来。
+ *
+ * - `pool`：在本池当日成分间排名。值依赖池子构成，加减票会让留存票的 RPS 漂动。
+ * - `scale`：把分数插进外生标尺（标普 500 的当日分布）取百分位。加票不动历史值。
+ * - `daily`：盘中周期专用，取**严格早于当根日期**的最后一个日线交易日的值，防前视。
+ */
+export type RpsSource =
+  | { kind: "pool" }
+  | { kind: "scale"; scale: RpsScale }
+  | { kind: "daily"; daily: DailyRpsTable };
+
 export function prepareUniverse(
   panels: readonly PanelBars[],
   membership: ReadonlyMap<string, readonly MembershipSpan[]>,
   vegas: VegasLens = DEFAULT_VEGAS,
+  rpsSource: RpsSource = { kind: "pool" },
 ): PreparedUniverse {
   const axis = [...new Set(panels.flatMap((p) => p.dates))].sort();
   const axisPos = new Map(axis.map((d, i) => [d, i]));
@@ -273,42 +306,87 @@ export function prepareUniverse(
     };
   });
 
-  // 逐日截面排名。各标的的 axisIndex 已升序，用游标同步推进即可，
-  // 无需为每个日期建 Map。
-  const cursor = new Int32Array(symbols.length);
-  const scores = new Float64Array(symbols.length);
-  const slotSym = new Int32Array(symbols.length);
-  const slotLocal = new Int32Array(symbols.length);
-
-  for (let d = 0; d < axis.length; d += 1) {
-    let m = 0;
-
-    for (let s = 0; s < symbols.length; s += 1) {
-      const sym = symbols[s];
-      const c = cursor[s];
-      if (c >= sym.axisIndex.length || sym.axisIndex[c] !== d) continue;
-      cursor[s] = c + 1;
-
-      if (sym.isMember[c] === 0) continue;
-
-      // 回看未齐的标的不进当日截面：rps 保持 0，入场闸门据此排除
-      const score = alphaScore(sym.close, c);
-      if (Number.isNaN(score)) continue;
-
-      slotSym[m] = s;
-      slotLocal[m] = c;
-      scores[m] = score;
-      m += 1;
-    }
-
-    if (m === 0) continue;
-    const ranks = percentileRanksFast(scores.subarray(0, m));
-    for (let k = 0; k < m; k += 1) {
-      symbols[slotSym[k]].rps[slotLocal[k]] = ranks[k];
-    }
-  }
+  fillRps(axis, symbols, rpsSource);
 
   return { axis, symbols };
+}
+
+/** 三种 RPS 来源的填充。任何一种都保持「非成分或回看未齐 → 0」。 */
+function fillRps(axis: string[], symbols: PreparedSymbol[], source: RpsSource): void {
+  if (source.kind === "pool") {
+    // 逐日截面排名。各标的的 axisIndex 已升序，用游标同步推进即可，
+    // 无需为每个日期建 Map。
+    const cursor = new Int32Array(symbols.length);
+    const scores = new Float64Array(symbols.length);
+    const slotSym = new Int32Array(symbols.length);
+    const slotLocal = new Int32Array(symbols.length);
+
+    for (let d = 0; d < axis.length; d += 1) {
+      let m = 0;
+
+      for (let s = 0; s < symbols.length; s += 1) {
+        const sym = symbols[s];
+        const c = cursor[s];
+        if (c >= sym.axisIndex.length || sym.axisIndex[c] !== d) continue;
+        cursor[s] = c + 1;
+
+        if (sym.isMember[c] === 0) continue;
+
+        // 回看未齐的标的不进当日截面：rps 保持 0，入场闸门据此排除
+        const score = alphaScore(sym.close, c);
+        if (Number.isNaN(score)) continue;
+
+        slotSym[m] = s;
+        slotLocal[m] = c;
+        scores[m] = score;
+        m += 1;
+      }
+
+      if (m === 0) continue;
+      const ranks = percentileRanksFast(scores.subarray(0, m));
+      for (let k = 0; k < m; k += 1) {
+        symbols[slotSym[k]].rps[slotLocal[k]] = ranks[k];
+      }
+    }
+    return;
+  }
+
+  if (source.kind === "scale") {
+    // 外生标尺下各标的互不影响，逐票算即可，不必按日聚合
+    for (const sym of symbols) {
+      for (let i = 0; i < sym.axisIndex.length; i += 1) {
+        if (sym.isMember[i] === 0) continue;
+        const cuts = source.scale.at.get(axis[sym.axisIndex[i]]);
+        if (!cuts) continue;
+        const score = alphaScore(sym.close, i);
+        if (Number.isNaN(score)) continue;
+        sym.rps[i] = scalePercentile(cuts, score);
+      }
+    }
+    return;
+  }
+
+  // 盘中周期：先把轴上每个位置映射到「严格更早」的那个日线交易日
+  const { dates, byTicker } = source.daily;
+  const dailyIdx = new Int32Array(axis.length).fill(-1);
+  let cur = -1;
+  for (let d = 0; d < axis.length; d += 1) {
+    const day = axis[d].slice(0, 10);
+    // 同一天的多根共用同一个值，游标只前移不回退
+    while (cur + 1 < dates.length && dates[cur + 1] < day) cur += 1;
+    dailyIdx[d] = cur;
+  }
+
+  for (const sym of symbols) {
+    const table = byTicker.get(sym.ticker);
+    if (!table) continue;
+    for (let i = 0; i < sym.axisIndex.length; i += 1) {
+      if (sym.isMember[i] === 0) continue;
+      const k = dailyIdx[sym.axisIndex[i]];
+      if (k < 0) continue;
+      sym.rps[i] = table[k];
+    }
+  }
 }
 
 export type BacktestConfig = {
@@ -480,8 +558,13 @@ export type WindowResult = {
   to: string;
   trade: TradeStats;
   portfolio: PortfolioStats;
-  /** 同一时点池等权买入持有 */
+  /**
+   * 同一时点池，**每根拉回等权**。不是买入持有——那是 `buyHold`。
+   * 两者差一个再平衡溢价，这五年里值 3.5（日线）到 5.2（4H）个点年化。
+   */
   benchmark: PortfolioStats;
+  /** 同一时点池等权买入持有，首个成分根买入后不再调仓。可选：袖套合成档没有这一项。 */
+  buyHold?: PortfolioStats;
 };
 
 export type YearRow = {
@@ -550,7 +633,13 @@ export type BacktestResult = {
 };
 
 function tradeStats(trades: readonly ClosedTrade[]): TradeStats {
-  const exits: Record<ExitReason, number> = { stop: 0, target: 0, veto: 0, rsWeak: 0 };
+  const exits: Record<ExitReason, number> = {
+    stop: 0,
+    target: 0,
+    veto: 0,
+    rsWeak: 0,
+    rotate: 0,
+  };
   for (const t of trades) exits[t.exitReason] += 1;
 
   if (trades.length === 0) {
@@ -647,6 +736,66 @@ function hoursBetween(prevDate: string, date: string): number {
   return (parse(date) - parse(prevDate)) / 3_600_000;
 }
 
+/**
+ * 买入持有基准：每只标的在窗口内首个成分根按 1/N 等权买入，之后一动不动。
+ *
+ * 与 `equalWeight` 那条基准的区别是后者每根都把成分股拉回等权，实测五年能多出
+ * 3.5（日线）到 5.2（4H）个点的年化再平衡溢价——而那个操作在实盘意味着每根都要
+ * 调全池近两百只票。两条都留着：超额到底跟谁比是个口径选择，不该藏在一个数字里。
+ *
+ * 后加入池的标的在它首个成分根才买入，此前那 1/N 记现金（不计息），与组合层
+ * 「未投资部分收益为 0」的处理一致。
+ */
+function buyHoldReturns(
+  symbols: readonly PreparedSymbol[],
+  lo: number,
+  hi: number,
+): Float64Array {
+  const w = hi - lo;
+  const rets = new Float64Array(w);
+  if (w <= 0) return rets;
+
+  const picks: { sym: PreparedSymbol; first: number }[] = [];
+  for (const sym of symbols) {
+    const n = sym.axisIndex.length;
+    let first = -1;
+    for (let i = 0; i < n; i += 1) {
+      const d = sym.axisIndex[i];
+      if (d < lo) continue;
+      if (d >= hi) break;
+      if (sym.isMember[i] === 1 && sym.close[i] > 0) {
+        first = i;
+        break;
+      }
+    }
+    if (first >= 0) picks.push({ sym, first });
+  }
+  if (picks.length === 0) return rets;
+
+  const share = 1 / picks.length;
+  const equity = new Float64Array(w);
+  for (const { sym, first } of picks) {
+    const base = sym.close[first];
+    const start = sym.axisIndex[first] - lo;
+    for (let d = 0; d < start; d += 1) equity[d] += share;
+
+    // 停牌或缺根时沿用上一根收盘，游标随 d 单调前移
+    let cursor = first;
+    const idx = sym.axisIndex;
+    for (let d = start; d < w; d += 1) {
+      while (cursor + 1 < idx.length && idx[cursor + 1] - lo <= d) cursor += 1;
+      const px = sym.close[cursor];
+      equity[d] += share * (px > 0 ? px / base : 1);
+    }
+  }
+
+  for (let d = 0; d < w; d += 1) {
+    const prev = d === 0 ? 1 : equity[d - 1];
+    rets[d] = prev > 0 ? equity[d] / prev - 1 : 0;
+  }
+  return rets;
+}
+
 /** 等权：当日所有持仓标的收益取算术平均，无持仓则当日收益为 0（空仓不计息）。 */
 function equalWeight(sum: Float64Array, count: Int32Array): Float64Array {
   const out = new Float64Array(sum.length);
@@ -729,13 +878,35 @@ function isDefaultVegas(config: BacktestConfig): boolean {
   );
 }
 
-export function runSymbol(
+/** 喂给持仓状态机的逐根输入。轮换组合层要自己驱动状态机，故与出场推进分开。 */
+export type SymbolInputs = {
+  bars: TradeBar[];
+  buy1: boolean[];
+  buy2: boolean[];
+  rs: number[];
+  signalCount: number;
+};
+
+/** 入场闸门已由 RPS 掩码承担，故 minRs 置 0；rs 只用于转弱离场。 */
+export function tradeParamsOf(config: BacktestConfig): RotationTradeParams {
+  return {
+    minRs: 0,
+    useCommercialRsGate: false,
+    useEarlyBreakeven: false,
+    takeProfitR: config.takeProfitR,
+    stopMult: config.stopMult,
+    trailMult: config.trailMult,
+    rsExitBelow: config.rpsExit,
+  };
+}
+
+export function prepareSymbolInputs(
   axis: string[],
   sym: PreparedSymbol,
   config: BacktestConfig,
   lo: number,
   hi: number,
-): SymbolRun {
+): SymbolInputs {
   const n = sym.axisIndex.length;
   const bars: TradeBar[] = new Array(n);
   const buy1 = new Array<boolean>(n);
@@ -786,16 +957,25 @@ export function runSymbol(
     rs[i] = sym.isMember[i] === 1 && sym.rps[i] >= 1 ? sym.rps[i] : 100;
   }
 
-  // 入场闸门已由上面的 RPS 掩码承担，故 minRs 置 0；rs 只用于转弱离场
-  const { days, closed } = computeRotationTrades(sym.ticker, bars, buy1, buy2, rs, {
-    minRs: 0,
-    useCommercialRsGate: false,
-    useEarlyBreakeven: false,
-    takeProfitR: config.takeProfitR,
-    stopMult: config.stopMult,
-    trailMult: config.trailMult,
-    rsExitBelow: config.rpsExit,
-  });
+  return { bars, buy1, buy2, rs, signalCount };
+}
+
+export function runSymbol(
+  axis: string[],
+  sym: PreparedSymbol,
+  config: BacktestConfig,
+  lo: number,
+  hi: number,
+): SymbolRun {
+  const { bars, buy1, buy2, rs, signalCount } = prepareSymbolInputs(axis, sym, config, lo, hi);
+  const { days, closed } = computeRotationTrades(
+    sym.ticker,
+    bars,
+    buy1,
+    buy2,
+    rs,
+    tradeParamsOf(config),
+  );
 
   return { bars, days, closed, signalCount, buy1, buy2 };
 }
@@ -934,6 +1114,17 @@ export function runBacktest(universe: PreparedUniverse, config: BacktestConfig):
     entryRps: number | null;
   };
   const rawHolds: RawHold[][] = Array.from({ length: w }, () => []);
+  /**
+   * 清仓根单列一份。该根开盘就卖了，收盘已不在持仓表里，但开盘前那段仍占着仓位，
+   * 要参与当根的权重分母与收益——`rotationTrade` 正是为此在清空状态前留了
+   * `riskPct` / `entryRps` / `entryDate`。
+   *
+   * 不混进 `rawHolds`：后者还要拿去渲染当日持仓，混进去会出现已卖出的票。
+   */
+  const exitHolds: { raw: number; ret: number | null }[][] = Array.from(
+    { length: w },
+    () => [],
+  );
   const dayBuys: string[][] = Array.from({ length: w }, () => []);
   const daySells: string[][] = Array.from({ length: w }, () => []);
 
@@ -995,40 +1186,47 @@ export function runBacktest(universe: PreparedUniverse, config: BacktestConfig):
 
       if (day.entered) dayBuys[d].push(sym.ticker);
       if (day.exited) daySells[d].push(sym.ticker);
+      const usableRet =
+        ret != null && Number.isFinite(ret) && day.riskPct != null && day.riskPct > 0 ? ret : null;
       if (day.sigType !== 0 && day.entryPrice != null) {
         rawHolds[d].push({
           symbol: sym.ticker,
           raw: positionWeight(day, config),
-          ret:
-            ret != null && Number.isFinite(ret) && day.riskPct != null && day.riskPct > 0
-              ? ret
-              : null,
+          ret: usableRet,
           sigType: day.sigType,
           entryDate: day.entryDate,
           entryPrice: day.entryPrice,
           floatPnlPct: day.floatPnlPct,
           entryRps: day.entryRps,
         });
+      } else if (day.exited) {
+        exitHolds[d].push({ raw: positionWeight(day, config), ret: usableRet });
       }
     }
   }
 
+  /** 当根参与分配的 raw：持仓 + 当根开盘卖出的（后者开盘前还占着仓位）。 */
+  const rawsOf = (i: number) => [
+    ...rawHolds[i].map((h) => h.raw),
+    ...exitHolds[i].map((h) => h.raw),
+  ];
+
   const heldRet = new Float64Array(w);
   const heldWeight = new Float64Array(w);
   for (let i = 0; i < w; i += 1) {
-    const raws = rawHolds[i];
-    if (raws.length === 0) continue;
-    const ws = allocateNameWeights(
-      raws.map((h) => h.raw),
-      config.maxNameWeight,
-    );
-    for (let j = 0; j < raws.length; j += 1) {
+    const holds = rawHolds[i];
+    const exits = exitHolds[i];
+    if (holds.length === 0 && exits.length === 0) continue;
+    const ws = allocateNameWeights(rawsOf(i), config.maxNameWeight);
+    for (let j = 0; j < ws.length; j += 1) {
+      // 卖出票的那一份在开盘后变成现金，当根剩余时间不再生息，与整体口径一致
+      const ret = j < holds.length ? holds[j].ret : exits[j - holds.length].ret;
       heldWeight[i] += ws[j];
-      const ret = raws[j].ret;
       if (ret != null) heldRet[i] += ws[j] * ret;
     }
   }
   const benchRet = equalWeight(benchSum, benchCount);
+  const bhRet = buyHoldReturns(symbols, lo, hi);
 
   let cut = 0;
   while (cut < w && win[cut] < config.splitDate) cut += 1;
@@ -1044,6 +1242,7 @@ export function runBacktest(universe: PreparedUniverse, config: BacktestConfig):
       trade: tradeStats(allTrades.filter((t) => t.entryDate >= from && t.entryDate <= to)),
       portfolio: portfolioStats(heldRet.subarray(a, b), heldWeight.subarray(a, b), bpy),
       benchmark: portfolioStats(benchRet.subarray(a, b), undefined, bpy),
+      buyHold: portfolioStats(bhRet.subarray(a, b), undefined, bpy),
     };
   };
 
@@ -1081,10 +1280,8 @@ export function runBacktest(universe: PreparedUniverse, config: BacktestConfig):
     equity[i] = { date: win[i], strategy: se, benchmark: be };
 
     const raws = rawHolds[i];
-    const ws = allocateNameWeights(
-      raws.map((h) => h.raw),
-      config.maxNameWeight,
-    );
+    // 分母含当根卖出的票，故这里只取前 raws.length 个权重
+    const ws = allocateNameWeights(rawsOf(i), config.maxNameWeight);
     const rows: HoldingRow[] = raws
       .map((h, j) => ({
         symbol: h.symbol,

@@ -73,7 +73,6 @@ export const SMALL_FUND_FROM = "2021-08-24";
 export const SMALL_FUND_TO = "2026-08-24";
 /** Alpaca 1H 从 2021 起；窗口与日线对齐，RPS 252 根预热落在窗口之前。 */
 export const SMALL_FUND_4H_FROM = "2021-08-24";
-export const SMALL_FUND_2H_FROM = SMALL_FUND_4H_FROM;
 
 export const SMALL_FUND_DEFAULT_CONFIG = {
   from: SMALL_FUND_FROM,
@@ -93,28 +92,33 @@ export const SMALL_FUND_DEFAULT_CONFIG = {
 } as const;
 
 /**
- * 与日线同一套纪律，周期不同：Vegas+RSI、RPS≥50、止损 6、吊灯 6、不止盈、等权、单票 15%。
+ * 与日线同一套纪律，周期不同：Vegas+RSI、不设 RPS 门槛、止损 8、吊灯 10、不止盈、等权、单票 15%。
+ *
+ * 这一档是 4H 数据补到 2016 之后在 576 组网格上重选的。此前的 5/6/门槛10 选自只有
+ * 2021 起点的数据，那时 Vegas 676 根慢线未播种、`vegasOk` 恒为 0，4H 被迫空仓到
+ * 2022-05，整段缺席 2022 熊市跌段——参数是在一段"没有熊市的历史"上挑的。
+ * 补数据后旧档在三段最差榜上排 56/576。详见 docs/spec-conformance.md 的口径审计一节。
  */
 export const SMALL_FUND_4H_DEFAULT_CONFIG = {
   from: SMALL_FUND_4H_FROM,
   to: SMALL_FUND_TO,
   splitDate: "2099-01-01",
-  rpsMin: 50,
+  // 门槛归零。此前认为"剔除最弱一小撮仍有价值"是坏数据下的结论：补数据后只要抬到 5
+  // 三段最差就从 1.77 掉到 1.32，到 30 掉到 0.86。4H 的收益本就大量来自深度回撤后的
+  // 反弹，那些票当时 RPS 不高，一卡就没了。
+  rpsMin: 0,
   useBuy1: true,
   useBuy2: true,
   requireRsi: true,
   minRsi: 30,
   requireVegas: true,
-  stopMult: 6,
-  trailMult: 6,
+  // 止损 7 以上是平台（三段最差 1.77/1.77/1.79/1.79），9 往上因吊灯先触发而饱和。
+  // 吊灯 10 是孤峰：邻居 9 是 1.26、12 是 1.33，所以实盘预期该按 1.3~1.5 折算，别按 1.77。
+  stopMult: 8,
+  trailMult: 10,
   takeProfitR: null,
   rpsWeightPower: null,
   maxNameWeight: 0.15,
   timeframe: "4h",
 } as const;
 
-export const SMALL_FUND_2H_DEFAULT_CONFIG = {
-  ...SMALL_FUND_4H_DEFAULT_CONFIG,
-  from: SMALL_FUND_2H_FROM,
-  timeframe: "2h",
-} as const;

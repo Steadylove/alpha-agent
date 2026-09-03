@@ -11,12 +11,14 @@ import {
   Microscope,
   Radar,
   Repeat,
+  Wallet,
 } from "lucide-react";
 
 /** 量化面板本身。 */
 const primaryNav = [
   { href: "/", label: "总览", icon: LayoutDashboard },
   { href: "/desk", label: "信号台", icon: ListChecks },
+  { href: "/fund", label: "资金账本", icon: Wallet },
   { href: "/mpr", label: "市场雷达", icon: Radar },
   { href: "/rotation", label: "轮动持仓", icon: Repeat },
   { href: "/depth", label: "个股面板", icon: Microscope },

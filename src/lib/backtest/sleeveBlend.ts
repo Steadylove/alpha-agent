@@ -31,6 +31,7 @@ function combineTrade(a: TradeStats, b: TradeStats): TradeStats {
       target: a.exits.target + b.exits.target,
       veto: a.exits.veto + b.exits.veto,
       rsWeak: a.exits.rsWeak + b.exits.rsWeak,
+      rotate: a.exits.rotate + b.exits.rotate,
     },
   };
 }

@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && npx --yes tsx scripts/fetch-panel-cache.ts && npx --yes tsx scripts/ensure-lab-csv.ts && npm run rps:snapshot && next build",
+    "build": "prisma generate && npx --yes tsx scripts/fetch-panel-cache.ts && npx --yes tsx scripts/ensure-lab-csv.ts && npm run rps:scale && npm run rps:snapshot && next build",
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
@@ -30,9 +30,12 @@
     "smallfund:fetch": "npx --yes tsx scripts/fetch-smallfund-csv.ts",
     "smallfund:fetch-4h": "npx --yes tsx scripts/fetch-smallfund-4h.ts",
     "smallfund:fetch-2h": "npx --yes tsx scripts/fetch-smallfund-2h.ts",
+    "smallfund:fetch-1h": "npx --yes tsx scripts/fetch-smallfund-1h.ts",
     "smallfund:import": "npx --yes tsx scripts/import-smallfund-to-db.ts",
     "smallfund:diag": "npx --yes tsx scripts/diagnose-smallfund.ts",
-    "rps:snapshot": "NODE_OPTIONS=--max-old-space-size=6144 npx --yes tsx scripts/build-rps-snapshot.ts"
+    "fund:rotate": "NODE_OPTIONS=--max-old-space-size=6144 npx --yes tsx scripts/fund-rotate.ts",
+    "rps:snapshot": "NODE_OPTIONS=--max-old-space-size=6144 npx --yes tsx scripts/build-rps-snapshot.ts",
+    "rps:scale": "NODE_OPTIONS=--max-old-space-size=8192 npx --yes tsx scripts/build-rps-scale.ts"
   },
   "keywords": [],
   "author": "",

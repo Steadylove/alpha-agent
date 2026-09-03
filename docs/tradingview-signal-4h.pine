@@ -1,0 +1,448 @@
+// =============================================================================
+// Alpha Agent · 4H 冻结档专用　一买/二买 + 吊灯止损　买卖点推送
+// =============================================================================
+//
+// 与通用版 tradingview-signal.pine 的区别只有两处，但都是要命的两处：
+//
+//   一、倍数换成 4H 冻结档：初始止损 8×ATR、吊灯 10×ATR（通用版默认是日线的
+//       4 / 5.5，而 4H 那一档在通用版里写的还是旧值 6 / 6）。
+//   二、**入场只在美东当天最后一根 4H 收盘点火**，次日开盘成交。通用版是每根
+//       都能点火。
+//
+// 买点公式、Vegas/RSI 闸门、吊灯分档、成交时点这些一律与引擎逐行一致，没有改动。
+//
+// -----------------------------------------------------------------------------
+// 为什么入场要限制在收盘那根
+// -----------------------------------------------------------------------------
+//
+// 这不是为了不熬夜而付的代价，它在回测里明确更好（三段最差 MAR，成本 10bps）：
+//
+//   收盘入场 / 即时出场   1.77   ← 冻结档
+//   收盘入场 / 收盘出场   1.70
+//   每根入场 / 即时出场   0.71
+//   每根入场 / 收盘出场   0.82
+//
+// 机制：美股 6.5 小时被 4H 切成 9:30–13:30 的整根和 13:30–16:00 的 2.5 小时残根。
+// 上午那根收盘点火的话，成交后只剩 2.5 小时就收盘，这根残根会让 ATR 和吊灯失真。
+// 限制在当天最后一根点火，等于只用整根的信息定策，次日开盘才建仓。
+//
+// 出场则相反，慢半天是纯损失：每根都判破位能把最大回撤从 23% 压到 16%。所以
+// 出场保持每根 4H 收盘判、下一根开盘成交——美东 13:30 那个检查点是北京时间
+// 凌晨 1:30，靠这个脚本推信号、程序下单，别指望手动盯。
+//
+// -----------------------------------------------------------------------------
+// 这个脚本不负责的事
+// -----------------------------------------------------------------------------
+//
+// **仓位管理在账本层，不在这里。** 冻结档是每笔投当时权益的 8%、满仓时放弃新
+// 信号且不做置换（置换实测明确有害：不置换 1.77，置换 +0/+10/+20/+30 分别只有
+// 0.13/0.19/0.10/0.49）。Pine 只知道单只票，算不出组合还剩几个坑位，所以它会把
+// 每个信号都推出来——**收到推送不等于该买，得先看账本还有没有空位。**
+//
+// **截面 RPS 闸门在服务端。** 不过 4H 冻结档的 RPS 门槛是 0（门槛只要抬到 5，
+// 三段最差就从 1.77 掉到 1.32），所以这道闸门现在实际上不拦任何东西——服务端
+// 读的就是 SMALL_FUND_4H_DEFAULT_CONFIG.rpsMin，会跟着显示「≥ 0 通过」。
+//
+// -----------------------------------------------------------------------------
+// 挂告警
+// -----------------------------------------------------------------------------
+//
+// 1. 图表周期**必须**是 4 小时，且用**常规交易时段**。开了盘前盘后，4H 的边界会
+//    整体挪位，「当天最后一根」和回测的切法就对不上了。挂错周期时本脚本不点火，
+//    信息面板第一行会显红——因为 8/10 这套倍数只在 4H 上标定过。
+// 2. 图表向左拖到至少 2000 根（4H 约 4 年）。Vegas 的 EMA676 播种后还要约 1300 根
+//    才收敛，屏幕左侧那段的闸门状态不可信。这一点吃过大亏：4H 数据当年只从 2021
+//    起，慢线没播种、vegasOk 恒为 0，回测被迫空仓穿过整个 2022 熊市而不自知。
+// 3. 创建告警 →「条件」选本脚本 →「Any alert() function call」。
+//    不要选具体的 plot，alert() 正文是动态拼的 JSON，选别的收不到。
+// 4. 「触发频率」选 Once Per Bar Close。
+// 5. 「通知」页勾 Webhook URL，填 https://你的域名/api/tv/alert。
+//    该地址不鉴权，谁都能往你的频道推伪造信号，别外传。
+//
+// -----------------------------------------------------------------------------
+// 业绩预期
+// -----------------------------------------------------------------------------
+//
+// 回测（2021-08→2026-08，成本 10bps）：CAGR 35.9%、最大回撤 17%、MAR 2.09。
+// 但邻域检查显示吊灯 10 和每笔 8% 是孤峰（吊灯 9 和 12 都掉到 1.3 上下），说明
+// 里面有运气成分。**实盘预期按 MAR 1.3~1.5 折算。** 另外那 35.9% 里有 15.6pt 来自
+// 池子本身是 2026 年回看维护的手工列表，这部分不可复制。
+//
+// =============================================================================
+
+//@version=6
+indicator("Alpha Agent 买卖点 4H", "AA 4H", overlay = true, max_bars_back = 2000, max_labels_count = 500)
+
+// ───────────────────────── 参数 ─────────────────────────
+//
+// 默认值即 4H 冻结档，来自 smallFundUniverse.ts 的 SMALL_FUND_4H_DEFAULT_CONFIG。
+// 留成 input 是为了试验，改动后信息面板会标 ⚠——别拿改过的值当回测业绩看。
+// 没有止盈项：无止盈的三段最差 1.77，4R 止盈全期更漂亮（MAR 2.28）但三段最差
+// 只有 1.53，右尾是这套策略正期望的全部来源，截断它最伤。
+
+bool useBuy1Input = input.bool(true, "❤️ 一买")
+bool useBuy2Input = input.bool(true, "⭐️ 二买")
+bool requireRsi   = input.bool(true, "RSI14 闸门")
+int  minRsi       = input.int(30, "RSI14 下限", minval = 0, maxval = 100)
+bool requireVegas = input.bool(true, "Vegas 多头排列闸门")
+float stopMult    = input.float(8.0, "初始止损 ATR 倍数", minval = 0.5, step = 0.5)
+float trailMult   = input.float(10.0, "吊灯止损 ATR 倍数", minval = 0.5, step = 0.5)
+
+// 关掉它就退回「每根都点火」，用来在图上对拍两种口径的差异。
+// 实盘别关：每根入场的三段最差只有 0.71，不到冻结档的一半。
+bool entryAtDayCloseOnly = input.bool(true, "入场只在当天最后一根 4H")
+
+string labelSize = input.string(size.normal, "信号标签大小", options = [size.tiny, size.small, size.normal, size.large])
+
+// ───────────────────────── 工具 ─────────────────────────
+//
+// Pine 里 na 参与比较得到的是 na 而不是 false，直接写 a > b 会在预热段出错。
+// TS 侧用 null 安全比较复现通达信语义，这里照抄。
+
+gt(float a, float b) => not na(a) and not na(b) and a > b
+lt(float a, float b) => not na(a) and not na(b) and a < b
+lte(float a, float b) => not na(a) and not na(b) and a <= b
+
+// 通达信 INTPART：向零截断。不能用 math.floor——底背离要求 MACD < 0、DIF 通常
+// 也在零轴下方，而 INTPART(-37.5) = -37、floor(-37.5) = -38，这个差别几乎每次
+// 判断都会碰上。指数那一步同理。
+trunc0(float x) =>
+    float out = na
+    if not na(x)
+        out := x >= 0 ? math.floor(x) : math.ceil(x)
+    out
+
+// 按量级规约到同一位数后取整，用于跨周期比较 DIF 高低，
+// 避免用绝对差值判背离时因标的价格量级不同而失真。
+reduceMag(float num, float ref) =>
+    float out = na
+    if not na(num) and not na(ref) and ref != 0
+        out := trunc0(num / math.pow(10, trunc0(math.log10(math.abs(ref))) - 1))
+    out
+
+// ───────────────────────── MACD 与底背离 ─────────────────────────
+
+float dif   = (ta.ema(close, 12) - ta.ema(close, 26)) * 100
+float dea   = ta.ema(dif, 9)
+float macdv = (dif - dea) * 2
+
+bool condMacdNeg = not na(macdv) and macdv < 0 and not na(macdv[1]) and macdv[1] < 0
+
+bool deathCross = gt(dea, dif) and lt(dea[1], dif[1])
+int  dcD1       = ta.barssince(deathCross)
+
+// 自上次死叉以来的 rolling lowest。窗口长度随 dcD1 逐根变化，用递推状态实现：
+// 死叉根重置，其后取 min。从未死叉时窗口退化为当根。
+var float lvC1 = na
+lvC1 := na(dcD1) or deathCross ? close : math.min(lvC1[1], close)
+
+// DIF 的同款递推。窗口内出现 na 则整根为 na，且一直污染到下次死叉重置——
+// 这正是 lowestDynamic「窗口含 null 即返回 null」的语义。
+var float lvD1 = na
+lvD1 := na(dcD1) or deathCross ? dif : (na(dif) or na(lvD1[1]) ? na : math.min(lvD1[1], dif))
+
+// Pine 原式的动态回溯 x[dc_d1 + 1]：取上一个下跌周期结束前那根的值
+float lvC2 = na(dcD1) ? na : lvC1[dcD1 + 1]
+float lvC3 = na(dcD1) ? na : lvC2[dcD1 + 1]
+float lvD2 = na(dcD1) ? na : lvD1[dcD1 + 1]
+float lvD3 = na(dcD1) ? na : lvD2[dcD1 + 1]
+
+float difLd2 = reduceMag(dif, lvD2)
+float difLd3 = reduceMag(dif, lvD3)
+float llvLd2 = reduceMag(lvD2, lvD2)
+float llvLd3 = reduceMag(lvD3, lvD3)
+
+bool divDirect   = condMacdNeg and gt(difLd2, llvLd2) and lte(difLd2, difLd2[1]) and lt(lvC1, lvC2)
+// 中间那轮不算数时的退路：与上上轮比
+bool divIndirect = condMacdNeg and gt(difLd3, llvLd3) and lte(difLd3, difLd3[1]) and lt(lvC1, lvC3) and lt(lvC3, lvC2)
+
+bool condBuy = (gt(difLd2, difLd2[1]) and divDirect[1]) or (gt(difLd3, difLd3[1]) and divIndirect[1])
+bool btmDis  = (divDirect[1] and lte(lvD1, lvD2)) or (divIndirect[1] and lte(lvD1, lvD3))
+
+bool anyDiv   = divDirect or divIndirect
+int  bsBtmDis = ta.barssince(btmDis)
+int  bsAnyDiv = ta.barssince(anyDiv)
+
+// ───────────────────────── 顶背离（二买的否决项） ─────────────────────────
+//
+// DEA 掉头那根上实体上沿创了新高而 DIF 没有。它本身不是卖点。
+
+float bodyTop  = math.max(close, open)
+float hhvBody  = ta.highest(bodyTop, 4)
+bool  deaDown  = bar_index >= 2 and lt(dea, dea[1]) and lt(dea[2], dea[1])
+int   tpddD    = ta.barssince(deaDown[1])
+float prevBody = na(tpddD) ? na : hhvBody[tpddD + 1]
+float prevDif  = na(tpddD) ? na : dif[tpddD + 1]
+bool  topD     = deaDown and lt(prevBody, hhvBody) and lt(dif, prevDif)
+int   topDays  = ta.barssince(topD)
+
+// ───────────────────────── 二买前置 ─────────────────────────
+
+bool  golden    = gt(dif, dea) and lt(dif[1], dea[1])
+float emaHigh24 = ta.ema(high, 24)
+float emaLow90  = ta.ema(low, 90)
+
+bool orderRight  = lt(bsBtmDis, bsAnyDiv) and lt(bsAnyDiv, dcD1)
+bool weakRegime  = lt(emaHigh24, emaLow90) or lt(emaHigh24[1], emaLow90[1])
+// 最近一次顶背离要比最近一次死叉更久远，即死叉之后没再出过顶背离
+bool noRecentTop = gt(topDays, dcD1)
+bool condBuy1    = golden and orderRight and weakRegime and noRecentTop
+
+// 距上次触发超过 10 根才算数；从未触发过时 barssince 为 na，比较取 false
+bool buy1Raw = gt(ta.barssince(condBuy[1]), 10) and condBuy
+bool buy2Raw = gt(ta.barssince(condBuy1[1]), 10) and condBuy1
+
+// ───────────────────────── 入场闸门 ─────────────────────────
+
+float rsi14 = ta.rsi(close, 14)
+float ef1   = ta.ema(close, 166)
+float ef2   = ta.ema(close, 169)
+float es1   = ta.ema(close, 576)
+float es2   = ta.ema(close, 676)
+
+bool vegasOk = not na(ef1) and not na(ef2) and not na(es1) and not na(es2) and math.min(ef1, ef2) > math.max(es1, es2)
+bool rsiOk   = not na(rsi14) and rsi14 >= minRsi
+
+// 4H 专用：挂错周期就不点火。8/10 这套倍数只在 240 分钟上标定过，
+// 换到别的周期出来的是一套没人验证过的止损纪律，静默发信号比不发更糟。
+bool tfOk = timeframe.period == "240"
+
+// 当天最后一根 4H。要求图表用常规交易时段：开了盘前盘后，session 边界会挪位。
+// 半日市（如感恩节次日 13:00 收市）只有一根 4H，那根既是首根也是末根，
+// 照样放行——它就是当天的收盘根，与引擎的 isDayClose 一致。
+bool dayCloseBar = session.islastbar
+bool entryWindowOk = not entryAtDayCloseOnly or dayCloseBar
+
+bool gateOk = tfOk and (not requireRsi or rsiOk) and (not requireVegas or vegasOk)
+
+bool buy1 = gateOk and useBuy1Input and buy1Raw
+bool buy2 = gateOk and useBuy2Input and buy2Raw
+
+// ATR14 再套一层 SMA14，与 rotationTrade.ts 的 atrRisk 同口径。
+// nz 对齐 TS 侧「ATR 预热段填 0 再进 SMA」的处理。
+float atrRisk = ta.sma(nz(ta.atr(14)), 14)
+
+// 浮盈越高吊灯收得越紧。ratio 相对 5.5 基准，与 TS 的 TRAIL_MULT_TIERS 同构：
+// 基准 10 时三档实际是 10 / 7.64 / 6.36 ×ATR。换基准时保持这两个比例不变。
+trailMultFor(float pnl) =>
+    (pnl >= 50 ? 3.5 / 5.5 : pnl >= 25 ? 4.2 / 5.5 : 1.0) * trailMult
+
+// ───────────────────────── 持仓状态机 ─────────────────────────
+//
+// 逐行对齐 computeRotationTrades：开盘执行前一根挂的单 → 持仓管理 → 收盘点火。
+
+var int   sigType      = 0
+var float entryPrice   = na
+// 只为离场标签算持有根数用，不参与任何判定
+var int   entryBar     = na
+var float stopLevel    = na
+var float trailLevel   = na
+var float highWater    = na
+var float maxPnlPct    = 0.0
+var int   pendingEntry = 0
+var float pendingAtr   = 0.0
+var bool  pendingExit  = false
+
+bool didExit = false
+
+// 开盘：先平后建。平仓价与建仓价都是当根开盘价。
+if pendingExit and not na(entryPrice)
+    didExit    := true
+    sigType    := 0
+    entryPrice := na
+    entryBar   := na
+    stopLevel  := na
+    trailLevel := na
+    highWater  := na
+    maxPnlPct  := 0.0
+pendingExit := false
+
+if pendingEntry != 0
+    // ATR 取点火根的值：开盘时只知道到前一根为止的 ATR
+    sigType      := pendingEntry
+    entryPrice   := open
+    entryBar     := bar_index
+    stopLevel    := open - stopMult * pendingAtr
+    trailLevel   := open - trailMult * pendingAtr
+    highWater    := open
+    maxPnlPct    := 0.0
+    pendingEntry := 0
+
+// 持仓管理：开仓当根同样执行。出场不受入场窗口限制，每根都判。
+if sigType != 0 and not na(entryPrice) and not na(atrRisk)
+    highWater  := math.max(highWater, high)
+    maxPnlPct  := math.max(maxPnlPct, (close - entryPrice) / entryPrice * 100)
+    trailLevel := math.max(trailLevel, highWater - trailMultFor(maxPnlPct) * atrRisk)
+    // 浮盈到 10% 把止损提到成本价之上锁住
+    if maxPnlPct >= 10
+        stopLevel := math.max(stopLevel, entryPrice * 1.01)
+    if close < stopLevel or close < trailLevel
+        pendingExit := true
+
+// 点火：条件全取自收盘价，故成交落到下一根开盘。已挂出场单的持仓不再点火。
+// entryWindowOk 是与通用版唯一的行为差异：非收盘根的信号直接作废，不排队——
+// 引擎那边也是 rejectEntry 而不是延后成交，延后等于用了它不该知道的价格。
+if sigType == 0 and not pendingExit and entryWindowOk and not na(atrRisk) and atrRisk > 0
+    int fired = buy1 ? 1 : buy2 ? 2 : 0
+    if fired != 0
+        pendingEntry := fired
+        pendingAtr   := atrRisk
+
+// 本根是否产生了信号：pendingEntry 要到下一根开盘才消费，故非 0 即本根点火
+bool fire1       = pendingEntry == 1
+bool fire2       = pendingEntry == 2
+bool entrySignal = fire1 or fire2
+bool exitSignal  = pendingExit
+
+// 被入场窗口挡掉的信号：图上标出来，才知道哪些机会是规则主动放弃的。
+// 前提与点火那段逐条相同，只把 entryWindowOk 取反——buy1/buy2 里已经含了
+// gateOk 和开关，所以这里不必再写一遍。
+bool blockedByWindow = sigType == 0 and not pendingExit and not entryWindowOk and
+   not na(atrRisk) and atrRisk > 0 and (buy1 or buy2)
+
+// ───────────────────────── 图表 ─────────────────────────
+//
+// Vegas 通道。166/169 与 576/676 各自贴得很近，画出来是两条带而不是四条线；
+// 闸门看的就是快带整体在慢带之上。不需要时在指标设置的「样式」页逐条关掉。
+
+plot_ef1 = plot(ef1, "EMA166", color.new(color.aqua, 55), 1)
+plot_ef2 = plot(ef2, "EMA169", color.new(color.aqua, 55), 1)
+plot_es1 = plot(es1, "EMA576", color.new(color.fuchsia, 55), 1)
+plot_es2 = plot(es2, "EMA676", color.new(color.fuchsia, 55), 1)
+fill(plot_ef1, plot_ef2, color = color.new(color.aqua, 88), title = "快带")
+fill(plot_es1, plot_es2, color = color.new(color.fuchsia, 88), title = "慢带")
+
+// 标签落在**信号根**而不是成交根，与告警推送的时点一致：
+// 你收到消息时看到的就是这根，成交要到下一根开盘。
+// 买点只写开仓原因，百分比留到平仓才亮——建仓时把 1R 摆出来太像已实现亏损。
+
+if entrySignal
+    float refStop = close - stopMult * atrRisk
+    float riskPct = (refStop - close) / close * 100
+    string buyCard = (fire1 ? "❤️ 一买" : "⭐️ 二买") + "　当天收盘根\n" +
+       "信号价 " + str.tostring(close, format.mintick) + "\n" +
+       "执行　 次日开盘买入\n" +
+       "参考止损 " + str.tostring(refStop, format.mintick) +
+       "（" + str.tostring(riskPct, "#.##") + "%　即 1R）\n" +
+       "吊灯　 " + str.tostring(trailMult, "#.#") + "×ATR（浮盈 25%/50% 后收紧到 " +
+       str.tostring(4.2 / 5.5 * trailMult, "#.#") + " / " + str.tostring(3.5 / 5.5 * trailMult, "#.#") + "）\n" +
+       "RSI14 " + (na(rsi14) ? "—" : str.tostring(rsi14, "#.#")) + "　Vegas " + (vegasOk ? "多头" : "未排列") + "\n" +
+       "⚠️ 账本满仓时应放弃本信号，不置换"
+    label.new(bar_index, low, fire1 ? "❤️ 一买" : "⭐️ 二买",
+       yloc = yloc.belowbar, style = label.style_label_up,
+       color = fire1 ? #E53935 : #EF6C00, textcolor = color.white,
+       size = labelSize, tooltip = buyCard)
+
+if exitSignal
+    float pnlNow = (close - entryPrice) / entryPrice * 100
+    // 触发机制只有一个（收盘跌破生效止损），叫止盈还是止损看这一笔的结果
+    bool won = pnlNow >= 0
+    string exitCard = (won ? "止盈离场" : "止损离场") + "　收盘跌破生效止损\n" +
+       "信号价 " + str.tostring(close, format.mintick) + "\n" +
+       "执行　 下一根 4H 开盘卖出\n" +
+       "开仓　 " + (sigType == 1 ? "❤️ 一买" : "⭐️ 二买") + " @ " + str.tostring(entryPrice, format.mintick) + "\n" +
+       "盈亏　 " + (won ? "+" : "") + str.tostring(pnlNow, "#.##") + "%　持有 " + str.tostring(bar_index - entryBar) + " 根\n" +
+       "吊灯档 " + str.tostring(trailMultFor(maxPnlPct), "#.##") + "×ATR　峰值 +" + str.tostring(maxPnlPct, "#.#") + "%"
+    label.new(bar_index, high,
+       (won ? "止盈 +" : "止损 ") + str.tostring(pnlNow, "#.#") + "%",
+       yloc = yloc.abovebar, style = label.style_label_down,
+       color = won ? #00897B : #546E7A, textcolor = color.white,
+       size = labelSize, tooltip = exitCard)
+
+// 被窗口挡掉的信号画成小叉，不挂标签：这类点在 4H 上比成交点还多，
+// 挂标签会把图刷满。它们不是漏信号，是纪律主动放弃的。
+plotshape(blockedByWindow, "非收盘根信号（作废）", shape.xcross, location.belowbar,
+   color.new(color.gray, 30), size = size.tiny)
+
+// 信号根整列染色：缩到看全程时标签会挤成一团，染色是唯一还认得出来的定位点
+bgcolor(fire1 ? color.new(#E53935, 88) : fire2 ? color.new(#EF6C00, 88) : exitSignal ? color.new(#00897B, 88) : na,
+   title = "信号根高亮")
+
+// 生效止损：引擎的退出条件 close < sl or close < trail 等价于 close < max(两者)
+float effectiveStop = sigType != 0 and not na(stopLevel) and not na(trailLevel) ? math.max(stopLevel, trailLevel) : na
+plot(effectiveStop, "生效止损", color.new(color.red, 20), style = plot.style_linebr, linewidth = 2)
+plot(sigType != 0 ? entryPrice : na, "开仓价", color.new(color.gray, 40), style = plot.style_linebr)
+
+plotshape(didExit, "平仓成交", shape.xcross, location.abovebar, color.new(color.teal, 40), size = size.tiny)
+
+// ───────────────────────── 信息面板 ─────────────────────────
+//
+// 只在最后一根重绘。没有「止盈价」这一行是因为这套纪律本来就没有止盈：
+// 保护利润全靠吊灯随峰值上移并分档收紧，所以那一行显示的是当前档位。
+
+var table info = table.new(position.top_right, 2, 9, bgcolor = color.new(color.black, 25),
+   border_width = 1, border_color = color.new(color.gray, 75))
+
+infoRow(int r, string k, string v, color c) =>
+    table.cell(info, 0, r, k, text_color = color.new(color.silver, 30), text_size = size.small, text_halign = text.align_left)
+    table.cell(info, 1, r, v, text_color = c, text_size = size.small, text_halign = text.align_right)
+
+if barstate.islast
+    color okColor = color.new(color.teal, 0)
+    color noColor = color.new(color.red, 15)
+    color neutral = color.new(color.silver, 0)
+
+    // 周期放第一行：挂错周期时脚本完全不点火，这是唯一能看出来的地方
+    string tfTxt = timeframe.isminutes
+       ? (timeframe.multiplier % 60 == 0 ? str.tostring(timeframe.multiplier / 60, "#") + "H" : str.tostring(timeframe.multiplier, "#") + "m")
+       : timeframe.period
+    infoRow(0, "周期", tfTxt + (tfOk ? "　✓" : "　✗ 本脚本仅限 4H，已停止点火"), tfOk ? neutral : noColor)
+
+    // 倍数偏离冻结档就标 ⚠：改过参数的图不能拿回测业绩看
+    bool frozen = stopMult == 8.0 and trailMult == 10.0 and requireRsi and minRsi == 30 and requireVegas
+    infoRow(1, "倍数",
+       str.tostring(stopMult, "#.#") + "/" + str.tostring(trailMult, "#.#") + "×ATR" + (frozen ? "　冻结档" : "　⚠ 已偏离"),
+       frozen ? neutral : noColor)
+
+    // ○ 表示该闸门被关掉了：数值仍显示但不参与放行，不能沿用 ✓/✗——
+    // 否则面板画着 ✗、信号却照发。
+    string rsiTxt = na(rsi14) ? "—" : str.tostring(rsi14, "#.#")
+    infoRow(2, "RSI14", rsiTxt + (not requireRsi ? "  ○" : rsiOk ? "  ✓" : "  ✗"),
+       not requireRsi ? neutral : rsiOk ? okColor : noColor)
+    infoRow(3, "Vegas", (vegasOk ? "多头" : "未排列") + (not requireVegas ? "  ○" : vegasOk ? "  ✓" : "  ✗"),
+       not requireVegas ? neutral : vegasOk ? okColor : noColor)
+    infoRow(4, "入场窗口",
+       not entryAtDayCloseOnly ? "每根（⚠ 非冻结档）" : dayCloseBar ? "本根可点火　✓" : "非收盘根　✗",
+       not entryAtDayCloseOnly ? noColor : dayCloseBar ? okColor : neutral)
+
+    if sigType == 0
+        infoRow(5, "持仓", "空仓", neutral)
+        for r = 6 to 8
+            table.cell(info, 0, r, "")
+            table.cell(info, 1, r, "")
+    else
+        float pnlNow  = (close - entryPrice) / entryPrice * 100
+        float stopGap = (effectiveStop - close) / close * 100
+        infoRow(5, "开仓原因", (sigType == 1 ? "❤️ 一买" : "⭐️ 二买") + " @ " + str.tostring(entryPrice, format.mintick), neutral)
+        infoRow(6, "浮动盈亏", (pnlNow >= 0 ? "+" : "") + str.tostring(pnlNow, "#.##") + "%", pnlNow >= 0 ? okColor : noColor)
+        infoRow(7, "生效止损", str.tostring(effectiveStop, format.mintick) + "　" + str.tostring(stopGap, "#.##") + "%", noColor)
+        infoRow(8, "吊灯档", str.tostring(trailMultFor(maxPnlPct), "#.##") + "×ATR　峰值+" + str.tostring(maxPnlPct, "#.#") + "%", neutral)
+
+// ───────────────────────── 告警 ─────────────────────────
+//
+// 正文是给 /api/tv/alert 吃的结构化 JSON，不是 Discord 的 {"content": ...}。
+// 中文文案由服务端渲染，Pine 只报事实。
+// 数字一律用不含千分位的格式串输出，否则 5,000.12 这种会把 JSON 拆坏。
+
+n4(float v) => str.tostring(v, "#.####")
+n2(float v) => str.tostring(v, "#.##")
+
+if entrySignal
+    // atr 交给服务端换算参考止损：建仓价要等次日开盘，这里只报点火根的口径
+    string buyPayload = '{"event":"buy","symbol":"' + syminfo.ticker +
+       '","tf":"' + timeframe.period +
+       '","kind":' + str.tostring(pendingEntry) +
+       ',"price":' + n4(close) +
+       ',"atr":' + n4(atrRisk) +
+       ',"stopMult":' + n2(stopMult) + '}'
+    alert(buyPayload, alert.freq_once_per_bar_close)
+
+if exitSignal
+    string sellPayload = '{"event":"sell","symbol":"' + syminfo.ticker +
+       '","tf":"' + timeframe.period +
+       '","kind":' + str.tostring(sigType) +
+       ',"price":' + n4(close) +
+       ',"entry":' + n4(entryPrice) +
+       ',"stop":' + n4(math.max(stopLevel, trailLevel)) +
+       ',"pnl":' + n2((close - entryPrice) / entryPrice * 100) + '}'
+    alert(sellPayload, alert.freq_once_per_bar_close)

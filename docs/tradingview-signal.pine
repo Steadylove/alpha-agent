@@ -53,9 +53,9 @@
 // 周期与历史长度
 // -----------------------------------------------------------------------------
 //
-// 任何周期都能挂，公式完全相同，差别只在止损/吊灯两个 ATR 倍数。但只有日线
-// （4 / 5.5）与 4H（6 / 6）是回测标定过的，倍数要在指标设置里手动切，脚本不
-// 会替你判断——挂到 1H 而忘了改倍数，出来的就是一套没人验证过的止损纪律。
+// 4H 实盘用 docs/tradingview-signal-4h.pine，不要用这一份。专用版写死了止 8 /
+// 吊 10、当日末根才开仓。这一份是通用试验脚本，默认倍数是实验室日线档（4 / 5.5），
+// 不是现金账本冻结档。挂到别的周期要自己改倍数，脚本不会替你判断。
 //
 // TV 的 4H 美股 K 线是 9:30–13:30 / 13:30–16:00，与仓库 aggregateTo4H 的切法
 // 一致，可以直接对拍。前提是图表用**常规交易时段**：开了盘前盘后，4H 的边界
@@ -74,7 +74,7 @@ indicator("Alpha Agent 买卖点", "AA 买卖点", overlay = true, max_bars_back
 
 // ───────────────────────── 参数 ─────────────────────────
 //
-// 阈值取自 smallFundUniverse.ts 的冻结配置，日线与 4H 只差止损/吊灯倍数。
+// 默认倍数是实验室日线档，不是 4H 冻结档。4H 请用 tradingview-signal-4h.pine。
 // 原策略没有止盈（Pine 原版里名为 tp_level 的变量实为吊灯止损，在开仓价下方），
 // 故此处也不提供止盈——右尾是这套策略正期望的全部来源，截断它最伤。
 
@@ -87,13 +87,13 @@ bool requireVegas = input.bool(true, "Vegas 多头排列闸门")
 // 合适的标签大小取决于屏幕和缩放，留个开关免得每次都得改脚本
 string labelSize = input.string(size.normal, "信号标签大小", options = [size.tiny, size.small, size.normal, size.large])
 
-// 倍数手调。只有两档是回测标定过的，换周期务必跟着改，Pine 不会替你判断：
+// 倍数手调。4H 不要改这里的数去凑——去挂专用版。这里默认是实验室日线档：
 //
-//   日线（1D）  止损 4.0  吊灯 5.5
-//   4 小时（4H）止损 6.0  吊灯 6.0
+//   日线（1D）  止损 4.0  吊灯 5.5   ← 实验室默认，不是现金账本定档
+//   4 小时      用 tradingview-signal-4h.pine（止 8 / 吊 10 / 末根入场）
 //
-// 其余周期都没标定过，属于自担风险的试验田。另外服务端只有 1D 与 4H 两份
-// RPS 面板，别的周期推过去会标成「无面板」，等于没有截面闸门。
+// 其余周期都没标定过。服务端只有 1D 与 4H 两份 RPS 面板，别的周期推过去
+// 会标成「无面板」，等于没有截面闸门。
 float stopMult  = input.float(4.0, "初始止损 ATR 倍数", minval = 0.5, step = 0.5)
 float trailMult = input.float(5.5, "吊灯止损 ATR 倍数", minval = 0.5, step = 0.5)
 
@@ -370,13 +370,13 @@ if barstate.islast
     infoRow(1, "Vegas", (vegasOk ? "多头" : "未排列") + (not requireVegas ? "  ○" : vegasOk ? "  ✓" : "  ✗"),
        not requireVegas ? neutral : vegasOk ? okColor : noColor)
 
-    // 倍数改成手调之后，脚本不再拦截未标定的周期，这一行就是唯一的提醒：
-    // 只有日线 4/5.5 与 4H 6/6 是回测标定过的，其余组合标 ⚠ 并转红。
+    // 4H 图上永远标 ⚠：实盘应改挂 tradingview-signal-4h.pine。
+    // 日线 4/5.5 只表示对上了实验室默认，不是现金账本冻结档。
     string tfTxt = timeframe.isminutes
        ? (timeframe.multiplier % 60 == 0 ? str.tostring(timeframe.multiplier / 60, "#") + "H" : str.tostring(timeframe.multiplier, "#") + "m")
        : timeframe.period
-    bool tuned = (timeframe.period == "D" and stopMult == 4.0 and trailMult == 5.5)
-       or (timeframe.period == "240" and stopMult == 6.0 and trailMult == 6.0)
+    bool labDaily = timeframe.period == "D" and stopMult == 4.0 and trailMult == 5.5
+    bool tuned = labDaily
     infoRow(2, "周期/倍数",
        tfTxt + "　" + str.tostring(stopMult, "#.#") + "/" + str.tostring(trailMult, "#.#") + "×ATR" + (tuned ? "" : "  ⚠"),
        tuned ? neutral : noColor)

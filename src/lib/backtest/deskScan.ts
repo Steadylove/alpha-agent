@@ -63,7 +63,7 @@ export function frozenDeskConfig(timeframe: Timeframe, to: string): BacktestConf
   return {
     ...DEFAULT_BACKTEST_CONFIG,
     ...frozen,
-    timeframe: timeframe === "2h" ? "2h" : timeframe,
+    timeframe,
     to,
     splitDate: "2099-01-01",
   };

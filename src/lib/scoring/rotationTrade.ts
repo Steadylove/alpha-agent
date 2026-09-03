@@ -73,6 +73,15 @@ export type RotationTradeParams = {
    * 原策略只有入场闸门，开仓后完全不看 RS。
    */
   rsExitBelow?: number | null;
+  /**
+   * 哪些根允许挂出场单。返回 false 的根即使收盘已破位也不挂，顺延到下一根重判。
+   *
+   * 这是执行口径而非策略口径。日内周期上「每根收盘都决策」要求盯盘：4H 盘中
+   * 那根收在美东 13:30，对应北京时间凌晨。若实盘只在美东收盘看一次、用次日
+   * 开盘单成交，止损就会慢半天，这个闸门用来量化那半天的代价。
+   * 省略即每根都可出场，与原口径逐位一致。
+   */
+  exitGate?: (index: number) => boolean;
 };
 
 /** 商业化文档第 148~152 行的截面 RS 门槛。 */
@@ -121,8 +130,9 @@ export type SignalType = 0 | 1 | 2;
  *
  * `veto` 仅在商业化 RS 闸门开启时出现（阈值写死 40）；
  * `rsWeak` 是可调阈值的 RS 转弱离场，两者互不依赖。
+ * `rotate` 由组合层注入：满仓时来了更强的信号，把最弱的持仓置换掉。
  */
-export type ExitReason = "stop" | "target" | "veto" | "rsWeak";
+export type ExitReason = "stop" | "target" | "veto" | "rsWeak" | "rotate";
 
 export type ClosedTrade = {
   symbol: string;
@@ -172,27 +182,114 @@ export type TradeDay = {
 
 export type RotationTradeResult = { days: TradeDay[]; closed: ClosedTrade[] };
 
+/**
+ * 组合层对单票的干预，在**上一根收盘之后、这一根开盘之前**生效。
+ *
+ * 时点与止损一致（收盘决定、次日开盘成交），组合层因此拿不到任何它在收盘时
+ * 不该知道的价格。
+ */
+export type StepDecision = {
+  /** 拒掉上一根收盘挂出的开仓单。仓位满了又不值得置换时用。 */
+  rejectEntry?: boolean;
+  /** 强制平仓。已经自然触发出场的不覆盖——那个理由更准确。 */
+  forceExit?: boolean;
+};
+
+export type StepView = {
+  day: TradeDay;
+  /** 本根开盘平掉的那笔。 */
+  justClosed: ClosedTrade | null;
+  /** 本根收盘挂出的开仓单，待下一根开盘成交。组合层据此决定是否放行。 */
+  pendingEntry: SignalType;
+};
+
 const trailMultFor = (maxPnlPct: number, base: number) =>
   TRAIL_MULT_TIERS.find((tier) => maxPnlPct >= tier.minPnl)!.ratio * base;
 
-export function computeRotationTrades(
+/**
+ * 一笔持仓的风控位。
+ *
+ * 路径依赖：`trailLevel` 只上移不下移，`stopLevel` 在浮盈触发保本后锁到开仓价之上。
+ * 所以拿今天的价格反推不出今天的止损位，必须从开仓那根逐根推过来。
+ */
+export type PositionRisk = {
+  highWater: number;
+  maxPnlPct: number;
+  stopLevel: number;
+  trailLevel: number;
+};
+
+export function openPositionRisk(
+  entryPrice: number,
+  atr: number,
+  stopMult = INITIAL_STOP_MULT,
+  trailMult = INITIAL_TRAIL_MULT,
+): PositionRisk {
+  return {
+    highWater: entryPrice,
+    maxPnlPct: 0,
+    stopLevel: entryPrice - stopMult * atr,
+    trailLevel: entryPrice - trailMult * atr,
+  };
+}
+
+/**
+ * 把一笔持仓推进一根。开仓当根同样要过这一步（Pine 如此）。
+ *
+ * 实盘账本和回测共用这一个函数，口径因此不可能漂移——这正是把它单独拎出来的原因。
+ */
+export function advancePositionRisk(
+  state: PositionRisk,
+  bar: TradeBar,
+  atr: number,
+  entryPrice: number,
+  trailMult = INITIAL_TRAIL_MULT,
+  breakevenTrigger = BREAKEVEN_TRIGGER_PCT,
+): PositionRisk {
+  const highWater = Math.max(state.highWater, bar.high);
+  const maxPnlPct = Math.max(state.maxPnlPct, ((bar.close - entryPrice) / entryPrice) * 100);
+  return {
+    highWater,
+    maxPnlPct,
+    trailLevel: Math.max(state.trailLevel, highWater - trailMultFor(maxPnlPct, trailMult) * atr),
+    stopLevel:
+      maxPnlPct >= breakevenTrigger
+        ? Math.max(state.stopLevel, entryPrice * BREAKEVEN_LOCK_RATIO)
+        : state.stopLevel,
+  };
+}
+
+/** Pine 的 `close < sl or close < trail` 等价于 close < max(两者)。 */
+export const effectiveStopOf = (state: PositionRisk) =>
+  Math.max(state.stopLevel, state.trailLevel);
+
+/**
+ * 逐根推进的持仓状态机。组合层每根收到 `StepView`，回传 `StepDecision`。
+ *
+ * 拆成生成器是为了让组合层能在「信号已产生、尚未成交」的那个间隙介入：满仓拒单、
+ * 按 RPS 置换。`computeRotationTrades` 是它的薄包装，一路回传 undefined 即等于
+ * 无人干预，权重法的行为因此逐位不变。
+ */
+/** 风控用的 ATR：14 根 ATR 再取 14 根 SMA。实盘账本共用，口径因此只有一份。 */
+export function riskAtrSeries(bars: TradeBar[]): (number | null)[] {
+  return smaSeries(
+    atrSeries(bars, ATR_LENGTH).map((v) => v ?? 0),
+    ATR_SMOOTH,
+  );
+}
+
+export function* rotationTradeSteps(
   symbol: string,
   bars: TradeBar[],
   buy1: boolean[],
   buy2: boolean[],
   rs: number[],
   params: RotationTradeParams = DEFAULT_TRADE_PARAMS,
-): RotationTradeResult {
-  const atrRisk = smaSeries(
-    atrSeries(bars, ATR_LENGTH).map((v) => v ?? 0),
-    ATR_SMOOTH,
-  );
+): Generator<StepView, void, StepDecision | undefined> {
+  const atrRisk = riskAtrSeries(bars);
 
   const stopMult = params.stopMult ?? INITIAL_STOP_MULT;
   const trailMult = params.trailMult ?? INITIAL_TRAIL_MULT;
-
-  const days: TradeDay[] = [];
-  const closed: ClosedTrade[] = [];
 
   let sigType: SignalType = 0;
   let entryPrice: number | null = null;
@@ -210,7 +307,14 @@ export function computeRotationTrades(
   let pendingExit: ExitReason | null = null;
   let entryRps: number | null = null;
 
+  let decision: StepDecision | undefined;
+
   for (let i = 0; i < bars.length; i += 1) {
+    // 组合层的干预：上一根收盘做的决定，在这一根开盘生效
+    if (decision?.rejectEntry) pendingEntry = 0;
+    if (decision?.forceExit && sigType !== 0 && pendingExit == null) pendingExit = "rotate";
+    decision = undefined;
+
     const bar = bars[i];
     const atr = atrRisk[i];
     let entered = false;
@@ -227,11 +331,12 @@ export function computeRotationTrades(
 
     let exitedEntryRps: number | null = null;
     let exitedEntryDate: string | null = null;
+    let justClosed: ClosedTrade | null = null;
     if (pendingExit != null && entryPrice != null) {
       exitedRiskPct = (initialRisk / entryPrice) * 100;
       exitedEntryRps = entryRps;
       exitedEntryDate = bars[entryIndex].date;
-      closed.push({
+      justClosed = {
         symbol,
         sigType: sigType as 1 | 2,
         entryIndex,
@@ -244,7 +349,7 @@ export function computeRotationTrades(
         barsHeld: i - entryIndex,
         exitReason: pendingExit,
         riskPct: (initialRisk / entryPrice) * 100,
-      });
+      };
       sigType = 0;
       entryPrice = null;
       entryIndex = -1;
@@ -263,12 +368,13 @@ export function computeRotationTrades(
       sigType = pendingEntry;
       entryPrice = fill;
       entryIndex = i;
-      stopLevel = fill - stopMult * pendingEntryAtr;
-      trailLevel = fill - trailMult * pendingEntryAtr;
+      const risk = openPositionRisk(fill, pendingEntryAtr, stopMult, trailMult);
+      stopLevel = risk.stopLevel;
+      trailLevel = risk.trailLevel;
+      highWater = risk.highWater;
+      maxPnlPct = risk.maxPnlPct;
       initialRisk = stopMult * pendingEntryAtr;
       entryRps = pendingEntryRps;
-      highWater = fill;
-      maxPnlPct = 0;
       entered = true;
       pendingEntry = 0;
     }
@@ -276,13 +382,18 @@ export function computeRotationTrades(
     // 持仓管理：Pine 中这一段在开仓当根同样执行
     let targetLevel: number | null = null;
     if (sigType !== 0 && entryPrice != null && atr != null) {
-      highWater = Math.max(highWater, bar.high);
-      maxPnlPct = Math.max(maxPnlPct, ((bar.close - entryPrice) / entryPrice) * 100);
-
-      trailLevel = Math.max(trailLevel!, highWater - trailMultFor(maxPnlPct, trailMult) * atr);
-      if (maxPnlPct >= breakevenTrigger) {
-        stopLevel = Math.max(stopLevel!, entryPrice * BREAKEVEN_LOCK_RATIO);
-      }
+      const next = advancePositionRisk(
+        { highWater, maxPnlPct, stopLevel: stopLevel!, trailLevel: trailLevel! },
+        bar,
+        atr,
+        entryPrice,
+        trailMult,
+        breakevenTrigger,
+      );
+      highWater = next.highWater;
+      maxPnlPct = next.maxPnlPct;
+      stopLevel = next.stopLevel;
+      trailLevel = next.trailLevel;
       targetLevel =
         params.takeProfitR != null && initialRisk > 0
           ? entryPrice + params.takeProfitR * initialRisk
@@ -295,7 +406,7 @@ export function computeRotationTrades(
       // 止损先判：同一根上二者理论上可同时成立，此时按不利的一侧结算
       const targetHit = targetLevel != null && bar.close >= targetLevel;
 
-      if (vetoed || rsWeak || stopHit || targetHit) {
+      if ((params.exitGate?.(i) ?? true) && (vetoed || rsWeak || stopHit || targetHit)) {
         pendingExit = vetoed ? "veto" : stopHit ? "stop" : rsWeak ? "rsWeak" : "target";
       }
     }
@@ -317,7 +428,7 @@ export function computeRotationTrades(
     const floatPnlPct =
       sigType !== 0 && entryPrice != null ? ((bar.close - entryPrice) / entryPrice) * 100 : 0;
 
-    days.push({
+    const day: TradeDay = {
       sigType,
       entryPrice,
       stopLevel,
@@ -335,8 +446,25 @@ export function computeRotationTrades(
       entryDate: exitedEntryDate ?? (entryIndex >= 0 ? bars[entryIndex].date : null),
       entered,
       exited,
-    });
-  }
+    };
 
+    decision = yield { day, justClosed, pendingEntry };
+  }
+}
+
+export function computeRotationTrades(
+  symbol: string,
+  bars: TradeBar[],
+  buy1: boolean[],
+  buy2: boolean[],
+  rs: number[],
+  params: RotationTradeParams = DEFAULT_TRADE_PARAMS,
+): RotationTradeResult {
+  const days: TradeDay[] = [];
+  const closed: ClosedTrade[] = [];
+  for (const step of rotationTradeSteps(symbol, bars, buy1, buy2, rs, params)) {
+    days.push(step.day);
+    if (step.justClosed) closed.push(step.justClosed);
+  }
   return { days, closed };
 }

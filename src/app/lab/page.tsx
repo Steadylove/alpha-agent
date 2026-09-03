@@ -9,7 +9,7 @@ export default function LabPage() {
       <div className="rise-in">
         <h1 className="text-3xl font-semibold tracking-tight text-zinc-50">调参实验室</h1>
         <p className="mt-2 max-w-3xl text-sm leading-relaxed text-zinc-400">
-          抄底买点回测。Small Fund 默认是当前纪律，旋钮可改。另有一档「袖套 50/50」：日线+4H 各一本账、单票 15% 封顶后再合成。绿线策略，灰线同池等权（内部）。琥珀线：Small Fund 用 QQQ，标普/纳指用 SPY。
+          抄底买点回测，权重法。冻结档是 4H 现金账本（止 8 / 吊 10 / 每笔 8% / 不置换），数字只从 scripts/fund-rotate.ts 复现。「袖套 50/50」是已否决的旧实验。绿线策略，灰线同池等权。琥珀线：Small Fund 用 QQQ，标普/纳指用 SPY。
         </p>
       </div>
 

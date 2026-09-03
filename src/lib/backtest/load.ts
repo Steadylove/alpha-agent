@@ -1,10 +1,14 @@
-import { CSV_2H_DIR, CSV_4H_DIR, CSV_PANEL_DIR, readCsvPanels } from "./csvPanel";
+import { CSV_1H_DIR, CSV_2H_DIR, CSV_4H_DIR, CSV_PANEL_DIR, readCsvPanels } from "./csvPanel";
 import {
+  DEFAULT_VEGAS,
   prepareUniverse,
+  type DailyRpsTable,
   type MembershipSpan,
   type PreparedUniverse,
+  type RpsSource,
   type Timeframe,
 } from "./engine";
+import { requireRpsScale, type RpsScale } from "./rpsScale";
 import { unpackPanel, type PanelBars } from "./panel";
 import {
   PANEL_CACHE_PATH,
@@ -141,11 +145,57 @@ export function smallFundSource(): SmallFundSource {
 function prepareSmallFund(
   panels: PanelBars[],
   poolId: SmallFundPoolId,
+  rpsSource: RpsSource,
 ): PreparedUniverse {
   const changes = poolId === "sf-live" ? readLiveBook() : [];
   const wanted = new Set(tickersForPool(poolId, changes));
   const subset = panels.filter((p) => wanted.has(p.ticker));
-  return prepareUniverse(subset, membershipForPool(poolId, subset.map((p) => p.ticker), changes));
+  return prepareUniverse(
+    subset,
+    membershipForPool(poolId, subset.map((p) => p.ticker), changes),
+    DEFAULT_VEGAS,
+    rpsSource,
+  );
+}
+
+/**
+ * 标尺落后于行情时必须炸掉，不能放过去。
+ *
+ * 未覆盖的日期在 `fillRps` 里 RPS 保持 0，而 0 会被入场闸门当成「回看未齐」挡掉，
+ * 于是最新那几天的信号全部静默消失——正好是实盘最关心的几天。
+ */
+function assertScaleFresh(axis: readonly string[], scale: RpsScale): void {
+  const lastBar = axis.at(-1);
+  const lastCut = scale.dates.at(-1);
+  if (!lastBar || !lastCut || lastBar <= lastCut) return;
+  throw new Error(
+    `RPS 标尺只到 ${lastCut}，行情已到 ${lastBar}，这中间的信号会拿不到 RPS。` +
+      `跑 npm run rps:scale 重建标尺。`,
+  );
+}
+
+/**
+ * 把日线 universe 的 RPS 摊平到日线轴，供盘中周期取用。
+ *
+ * 停牌（该日无 bar）沿用上一个值，而「有 bar 但 RPS 为 0」（回看未齐、非成分）
+ * 照实记 0——后者必须挡住入场，不能被前值填掉。
+ */
+function dailyRpsTable(daily: PreparedUniverse): DailyRpsTable {
+  const byTicker = new Map<string, Float32Array>();
+  for (const sym of daily.symbols) {
+    const arr = new Float32Array(daily.axis.length);
+    let last = 0;
+    let c = 0;
+    for (let d = 0; d < daily.axis.length; d += 1) {
+      if (c < sym.axisIndex.length && sym.axisIndex[c] === d) {
+        last = sym.rps[c];
+        c += 1;
+      }
+      arr[d] = last;
+    }
+    byTicker.set(sym.ticker, arr);
+  }
+  return { dates: daily.axis, byTicker };
 }
 
 async function loadSmallFundFromDb(): Promise<PanelBars[]> {
@@ -166,10 +216,10 @@ async function loadSmallFundPanels(timeframe: Timeframe): Promise<PanelBars[]> {
   if (hit) return hit;
 
   const task = (async () => {
-    if (timeframe === "4h" || timeframe === "2h") {
-      const dir = timeframe === "2h" ? CSV_2H_DIR : CSV_4H_DIR;
-      const label = timeframe === "2h" ? "2H" : "4H";
-      const cmd = timeframe === "2h" ? "smallfund:fetch-2h" : "smallfund:fetch-4h";
+    if (timeframe === "4h" || timeframe === "2h" || timeframe === "1h") {
+      const dir = { "4h": CSV_4H_DIR, "2h": CSV_2H_DIR, "1h": CSV_1H_DIR }[timeframe];
+      const label = timeframe.toUpperCase();
+      const cmd = `smallfund:fetch-${timeframe}`;
       const csv = readCsvPanels(dir, tickersForPool("sf-live", readLiveBook())).filter((panel) => panel.ticker !== "SPCX");
       if (csv.length === 0) {
         throw new Error(`Small Fund ${label} CSV 为空：${dir}。先跑 npm run ${cmd}。`);
@@ -211,7 +261,31 @@ async function loadSmallFundUniverse(
   timeframe: Timeframe = "1d",
   poolId: SmallFundPoolId = DEFAULT_SMALL_FUND_POOL,
 ): Promise<PreparedUniverse> {
-  return prepareSmallFund(await loadSmallFundPanels(timeframe), poolId);
+  const scale = requireRpsScale();
+  const panels = await loadSmallFundPanels(timeframe);
+  if (timeframe === "1d") {
+    const prepared = prepareSmallFund(panels, poolId, { kind: "scale", scale });
+    assertScaleFresh(prepared.axis, scale);
+    return prepared;
+  }
+
+  // 盘中周期的强度一律取日线值，理由见 DailyRpsTable
+  const dailyPrepared = prepareSmallFund(await loadSmallFundPanels("1d"), poolId, {
+    kind: "scale",
+    scale,
+  });
+  assertScaleFresh(dailyPrepared.axis, scale);
+  const daily = dailyRpsTable(dailyPrepared);
+  const prepared = prepareSmallFund(panels, poolId, { kind: "daily", daily });
+
+  const missing = prepared.symbols.filter((s) => !daily.byTicker.has(s.ticker));
+  if (missing.length > 0) {
+    console.warn(
+      `[smallfund] ${timeframe} 有 ${missing.length} 只票在日线里没有数据，` +
+        `它们拿不到 RPS 因此永不入场：${missing.map((s) => s.ticker).join(" ")}`,
+    );
+  }
+  return prepared;
 }
 
 export async function loadPreparedUniverse(

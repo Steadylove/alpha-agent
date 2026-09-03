@@ -96,10 +96,44 @@ function mergeBars(chunk: IntradayBar[]): IntradayBar {
   };
 }
 
-/** 按美东交易日每 2 根 1H 合成一根，不跨日。末日不足 2 根也收。 */
-export function aggregateTo2H(oneHourBars: IntradayBar[]): IntradayBar[] {
+type Slot = { hour: number; minute: number };
+
+/**
+ * 2H 的三个桶，按美东墙钟切：9:30–11:30、11:30–13:30、13:30 之后（含盘后，2.5 小时）。
+ * 首桶同时收下盘前，与 `aggregateTo4H` 一致，避免丢 bar。
+ */
+const TWO_HOUR_SLOTS: readonly Slot[] = [
+  { hour: 9, minute: 30 },
+  { hour: 11, minute: 30 },
+  { hour: 13, minute: 30 },
+];
+
+/**
+ * 1H 的七个桶，从开盘起每小时切一刀，末桶 15:30 之后只有半小时。
+ *
+ * 切点必须从 9:30 起算而不是整点，这样 11:30 / 13:30 同时是 2H 与 4H 的桶边界，
+ * 三个周期的 bar 完美嵌套：同一时刻在哪个周期上看，边界都对得齐。
+ */
+const ONE_HOUR_SLOTS: readonly Slot[] = [
+  { hour: 9, minute: 30 },
+  { hour: 10, minute: 30 },
+  { hour: 11, minute: 30 },
+  { hour: 12, minute: 30 },
+  { hour: 13, minute: 30 },
+  { hour: 14, minute: 30 },
+  { hour: 15, minute: 30 },
+];
+
+/**
+ * 按美东墙钟的固定切点分桶合成，不跨交易日。首桶下界开放（收下盘前），末桶上界开放。
+ *
+ * 必须按墙钟绝对分桶，不能按「每 N 根配一根」：某只票某天开盘那根没成交时，相对配对
+ * 会让它当天之后所有 bar 整体错开一格，跨票时间戳对不上，横截面比较（RPS 门槛、同时刻
+ * 决策）随之失真；每天根数也会随票浮动，年化基数跟着错。
+ */
+function aggregateBySlots(bars: IntradayBar[], slots: readonly Slot[]): IntradayBar[] {
   const byTradingDay = new Map<string, IntradayBar[]>();
-  for (const bar of oneHourBars) {
+  for (const bar of bars) {
     const day = nyTradingDate(bar.timestamp);
     const list = byTradingDay.get(day);
     if (list) list.push(bar);
@@ -109,11 +143,37 @@ export function aggregateTo2H(oneHourBars: IntradayBar[]): IntradayBar[] {
   const result: IntradayBar[] = [];
   for (const day of [...byTradingDay.keys()].sort()) {
     const daysBars = byTradingDay.get(day)!;
-    for (let i = 0; i < daysBars.length; i += 2) {
-      result.push(mergeBars(daysBars.slice(i, i + 2)));
+    for (const [i, slot] of slots.entries()) {
+      const next = slots[i + 1];
+      const upper = next == null ? Infinity : next.hour * 60 + next.minute;
+      const lower = i === 0 ? -Infinity : slot.hour * 60 + slot.minute;
+      const inSlot = daysBars.filter((b) => {
+        const m = nyMinutesOf(b.timestamp);
+        return m >= lower && m < upper;
+      });
+      if (inSlot.length === 0) continue;
+      const merged = mergeBars(inSlot);
+      merged.timestamp = nyWallClockUnix(day, slot.hour, slot.minute);
+      result.push(merged);
     }
   }
   return result;
+}
+
+/**
+ * 按美东交易日合成 1H。
+ *
+ * 输入应为 30 分钟棒，不要用 Alpaca 的 `1Hour`：它按整点分桶，承载 9:30–10:00 开盘
+ * 交易的那根时间戳是 9:00，会被 `isNyRegularHours` 当成盘前丢掉，每天少掉开盘后
+ * 成交最密集的半小时。
+ */
+export function aggregateTo1H(intradayBars: IntradayBar[]): IntradayBar[] {
+  return aggregateBySlots(intradayBars, ONE_HOUR_SLOTS);
+}
+
+/** 按美东交易日合成 2H。输入可以是 30 分钟棒，也可以是本函数口径下的 1H 棒。 */
+export function aggregateTo2H(intradayBars: IntradayBar[]): IntradayBar[] {
+  return aggregateBySlots(intradayBars, TWO_HOUR_SLOTS);
 }
 
 const SESSION_SPLIT_MINUTES = 13 * 60 + 30;

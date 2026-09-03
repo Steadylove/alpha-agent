@@ -23,6 +23,18 @@ type AlpacaBarsResponse = {
 
 let resolvedFeed: AlpacaFeed | null = null;
 
+/** 强制指定 feed，绕过自动降级。`ALPACA_FEED=sip` 用来保证拿到长历史。 */
+const FORCED_FEED = (process.env.ALPACA_FEED as AlpacaFeed | undefined) ?? null;
+
+/**
+ * 订阅类错误是永久的（这个 key 就是没有 sip），限流和超时是临时的。
+ * 只有永久错误才该把降级结果记进 `resolvedFeed`。
+ */
+function isPermanentFeedError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return /HTTP 403/.test(msg) || /subscription/i.test(msg) || /invalid feed/i.test(msg);
+}
+
 export function alpacaCredentials(): { key: string; secret: string } {
   const key = process.env.ALPACA_API_KEY ?? process.env.APCA_API_KEY_ID ?? "";
   const secret = process.env.ALPACA_API_SECRET ?? process.env.APCA_API_SECRET_KEY ?? "";
@@ -64,7 +76,8 @@ function toBar(row: AlpacaBar): IntradayBar | null {
 
 const PAGE_TIMEOUT_MS = 20_000;
 const MAX_RETRIES = 6;
-const MAX_INFLIGHT = 3;
+/** 全局在途请求数。批量回补分钟级数据时可调高，Alpaca 触发 429 会自行退避重试。 */
+const MAX_INFLIGHT = Number(process.env.ALPACA_MAX_INFLIGHT ?? 3);
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -116,7 +129,11 @@ async function fetchPage(
         signal: AbortSignal.timeout(PAGE_TIMEOUT_MS),
       }));
       if (response.status === 429 || response.status >= 500) {
-        await sleep(2_000 * 2 ** attempt);
+        // 429 要按分钟级退避：Alpaca 的配额窗口是滚动一分钟，2s/4s/8s 这种短退避必然
+        // 还落在同一个窗口里，只会白烧掉重试次数（实测批量回补时 126 秒内 6 次全 429）。
+        // 5xx 是瞬时故障，保留指数退避。
+        const delay = response.status === 429 ? 30_000 * (attempt + 1) : 2_000 * 2 ** attempt;
+        await sleep(delay);
         lastError = new Error(`Alpaca ${timeframe} ${symbol} ${feed}: HTTP ${response.status}`);
         continue;
       }
@@ -209,21 +226,36 @@ async function fetchAlpacaIntraday(
   timeframe: Exclude<AlpacaTimeframe, "1Day">,
   label: string,
 ): Promise<IntradayBar[]> {
-  const feeds: AlpacaFeed[] = resolvedFeed ? [resolvedFeed] : [...FEEDS];
+  const feeds: AlpacaFeed[] = FORCED_FEED
+    ? [FORCED_FEED]
+    : resolvedFeed
+      ? [resolvedFeed]
+      : [...FEEDS];
   let lastError: unknown;
   for (const feed of feeds) {
     try {
       const bars = await fetchBars(symbol, feed, from, timeframe);
-      resolvedFeed = feed;
+      // 只记忆首选 feed 的成功。降级成功不记忆：429 是临时限流，若因此把 iex 锁成
+      // 全局默认，后续所有标的都会**静默**拿到 iex 的短历史（30Min 只到 2020-07），
+      // 而 Vegas 的 676 根慢线需要窗口起点之前约 2000 根才收敛。
+      if (feed === FEEDS[0]) resolvedFeed = feed;
       return bars.map(toBar).filter((bar): bar is IntradayBar => bar != null);
     } catch (error) {
       lastError = error;
       if (!shouldTryNextFeed(error)) throw error;
+      if (isPermanentFeedError(error)) resolvedFeed = FEEDS[FEEDS.length - 1];
     }
   }
   throw lastError instanceof Error ? lastError : new Error(`Alpaca ${label} ${symbol}: 无可用 feed`);
 }
 
+/**
+ * ⚠ 回测别用这个，改用 `fetchAlpaca30MBars` + `aggregateTo1H`。
+ *
+ * Alpaca 的 `1Hour` 按整点分桶，承载 9:30–10:00 开盘交易的那根时间戳是 9:00，
+ * 会被 `isNyRegularHours`（比较的是 bar 起始戳）当成盘前丢弃，每天少掉开盘后
+ * 成交最密集的半小时。30 分钟棒的起始戳正好是 9:30，不受影响。
+ */
 export async function fetchAlpaca1HBars(
   symbol: string,
   from = "2021-01-01T00:00:00Z",
@@ -231,7 +263,7 @@ export async function fetchAlpaca1HBars(
   return fetchAlpacaIntraday(symbol, from, "1Hour", "1H");
 }
 
-/** 常规时段 30 分钟棒，用来按 9:30–13:30 / 13:30–16:00 合成 4H。 */
+/** 常规时段 30 分钟棒，1H / 2H / 4H 全部由它聚合，是唯一的日内数据源。 */
 export async function fetchAlpaca30MBars(
   symbol: string,
   from = "2021-01-01T00:00:00Z",
@@ -247,12 +279,16 @@ export async function fetchAlpacaDailyBars(
   symbol: string,
   from = "2013-01-01T00:00:00Z",
 ): Promise<DailyBar[]> {
-  const feeds: AlpacaFeed[] = resolvedFeed ? [resolvedFeed] : [...FEEDS];
+  const feeds: AlpacaFeed[] = FORCED_FEED
+    ? [FORCED_FEED]
+    : resolvedFeed
+      ? [resolvedFeed]
+      : [...FEEDS];
   let lastError: unknown;
   for (const feed of feeds) {
     try {
       const rows = await fetchBars(symbol, feed, from, "1Day");
-      resolvedFeed = feed;
+      if (feed === FEEDS[0]) resolvedFeed = feed;
       return rows
         .filter((row) => Number.isFinite(row.c))
         .map((row) => ({

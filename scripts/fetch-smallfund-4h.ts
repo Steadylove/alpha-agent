@@ -22,7 +22,12 @@ import { aggregateTo4H, barTimeISO } from "@/lib/data-sources/yahooIntraday";
 const CONCURRENCY = Number(process.env.BACKFILL_CONCURRENCY ?? 4);
 const REFETCH = process.env.SMALLFUND_REFETCH === "1";
 const MIN_BARS = 253;
-const FROM = "2021-01-01T00:00:00Z";
+// 2016 起（Alpaca 30Min 的数据边界）。窗口起点 2021-08 之前需要约 2000 根 4H 才能让
+// EMA676 收敛到稳态——与 SMALL_FUND_HISTORY_YEARS=13 对日线的要求同一个标准。
+// 从 2016 起有约 2820 根；此前从 2021 起只有 322 根，EMA 未播种使 vegasOk 恒为 0，
+// 4H 被迫空仓到 2022-05，白躲掉 2022 熊市主跌段。
+// 注意必须 ALPACA_FEED=sip：iex 的 30Min 只到 2020-07。
+const FROM = "2016-01-01T00:00:00Z";
 
 type Outcome = { ticker: string; bars?: number; first?: string; reason?: string };
 
@@ -47,10 +52,27 @@ async function fetchFourHour(ticker: string) {
   return four;
 }
 
+/**
+ * 已有文件够不够，看的是**历史起点**而不是文件在不在。此前只判存在，导致 2020-07 起点的
+ * 短历史文件被当成已完成跳过；而全量重抓又让每次中断都得从头再来三小时。改成按起点判断后
+ * 天然支持断点续抓：抓到位的跳过，没到位的补。
+ * 宽限到 2016 年底：IPO 晚于该日的票拿不到更早的数据，其起点就是它的上市日。
+ */
+const HISTORY_OK_BEFORE = "2017-01-01";
+
+function historyGoodEnough(ticker: string): Outcome | null {
+  if (!hasCsvPanel(CSV_4H_DIR, ticker)) return null;
+  const existing = readCsvPanel(CSV_4H_DIR, ticker);
+  if (!existing?.dates.length) return null;
+  const first = existing.dates[0];
+  if (first >= HISTORY_OK_BEFORE) return null;
+  return { ticker, bars: existing.dates.length, first };
+}
+
 async function fetchOne(ticker: string): Promise<Outcome> {
-  if (!REFETCH && hasCsvPanel(CSV_4H_DIR, ticker)) {
-    const existing = readCsvPanel(CSV_4H_DIR, ticker);
-    if (existing) return { ticker, bars: existing.dates.length, first: existing.dates[0] };
+  if (!REFETCH) {
+    const cached = historyGoodEnough(ticker);
+    if (cached) return cached;
   }
   try {
     const four = await fetchFourHour(ticker);

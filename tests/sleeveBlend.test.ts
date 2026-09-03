@@ -12,7 +12,7 @@ const emptyTrade = {
   avgBarsHeld: 0,
   worstPnlPct: 0,
   meanR: 0,
-  exits: { stop: 0, target: 0, veto: 0, rsWeak: 0 },
+  exits: { stop: 0, target: 0, veto: 0, rsWeak: 0, rotate: 0 },
 };
 
 const windowOf = (from: string, to: string): WindowResult => ({

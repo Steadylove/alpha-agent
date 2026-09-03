@@ -475,4 +475,89 @@ describe("RSI / Vegas / RPS 定权重", () => {
     });
     expect(short.signalCount).toBe(1);
   });
+
+  /**
+   * 清仓根在开盘成交，`prevClose → open` 那一跳属于组合。曾经它被算出来又丢掉，
+   * 因为那一根 sigType 已归 0、entryPrice 已置 null，进不了当日持仓表。
+   */
+  it("清仓根开盘那一跳计入净值：单票满仓时净值等于成交价之比", () => {
+    const dates = axisDates(140);
+    // 平稳段撑起 ATR14→SMA14 的预热，止损/吊灯才有非零距离
+    const n = dates.length;
+    const close = new Float32Array(n);
+    const open = new Float32Array(n);
+    const high = new Float32Array(n);
+    const low = new Float32Array(n);
+    for (let i = 0; i < n; i += 1) {
+      close[i] = 100;
+      open[i] = 100;
+      high[i] = 101;
+      low[i] = 99;
+    }
+    // 100 根点火 → 101 根开盘建仓 @100 → 102 根收盘 95 跌破生效止损 96
+    // → 103 根开盘 90 平仓（相对前收 95 跳空 -5.26%）
+    close[102] = 95;
+    low[102] = 94;
+    open[103] = 90;
+    close[103] = 90;
+    low[103] = 89;
+    high[103] = 91;
+
+    const all = { start: dates[0], end: null };
+    const u = prepareUniverse(
+      [{ ticker: "A", dates, high, low, close, volume: null, open }],
+      new Map([["A", [all]]]),
+    );
+    const a = u.symbols[0];
+    a.buy1[100] = 1;
+    a.rps[100] = 50;
+
+    const r = runBacktest(u, {
+      ...DEFAULT_BACKTEST_CONFIG,
+      from: dates[100],
+      to: dates[103],
+      splitDate: "2099-01-01",
+      rpsMin: 0,
+      useBuy1: true,
+      useBuy2: false,
+    });
+
+    expect(r.trades).toHaveLength(1);
+    const t = r.trades[0];
+    expect(t.entryPrice).toBeCloseTo(100, 6);
+    expect(t.exitPrice).toBeCloseTo(90, 6);
+    expect(t.pnlPct).toBeCloseTo(-10, 6);
+
+    // 单票、无单票上限 → 全程满仓，组合净值必须等于 90/100
+    expect(r.inSample.portfolio.equity).toBeCloseTo(0.9, 6);
+    // 漏掉那一跳会停在 0.95，这里显式钉住，防回归
+    expect(r.inSample.portfolio.equity).toBeLessThan(0.94);
+  });
+
+  it("buyHold 是真买入持有，与每根拉回等权的 benchmark 不是一回事", () => {
+    const dates = axisDates(100);
+    const last = dates.length - 1;
+    // A 翻倍、B 腰斩：等权买入持有终值 = (2 + 0.5) / 2 = 1.25
+    const panels = [
+      rising("A", dates, 100, 100 / last),
+      rising("B", dates, 100, -50 / last),
+    ];
+    const all = { start: dates[0], end: null };
+    const u = prepareUniverse(panels, new Map(panels.map((p) => [p.ticker, [all]])));
+
+    const r = runBacktest(u, {
+      ...DEFAULT_BACKTEST_CONFIG,
+      from: dates[0],
+      to: dates[last],
+      splitDate: "2099-01-01",
+      useBuy1: false,
+      useBuy2: false,
+    });
+
+    expect(r.inSample.buyHold).toBeDefined();
+    expect(r.inSample.buyHold!.equity).toBeCloseTo(1.25, 4);
+    // 每根再平衡会持续把钱从赢家挪给输家，两条基准必然分岔
+    expect(r.inSample.benchmark.equity).not.toBeCloseTo(1.25, 3);
+    expect(r.inSample.buyHold!.avgExposurePct).toBe(100);
+  });
 });
