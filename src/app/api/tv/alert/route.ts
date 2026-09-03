@@ -28,18 +28,19 @@ import {
   SMALL_FUND_4H_DEFAULT_CONFIG,
   SMALL_FUND_DEFAULT_CONFIG,
 } from "@/lib/backtest/smallFundUniverse";
+import { champOf } from "@/lib/fund/champs";
 import { postDiscordPayload, type DiscordPayload } from "@/lib/discord/sendWebhook";
 
 // 读一个小 JSON 加一次 Discord 投递，不该超过这个量级
 export const maxDuration = 15;
 
 /**
- * 只有这两档有离线 RPS 面板。别的周期照样转发，但闸门会标成「无面板」——
- * 周期限制是从 Pine 那边去掉的，接口跟着放开，不然 1H 的信号会直接 400 掉。
+ * 有离线 RPS 面板的周期。别的照样转发，但闸门会标成「无面板」。
  */
 const RPS_PANELS: Record<string, { tf: Timeframe; rpsMin: number }> = {
   D: { tf: "1d", rpsMin: SMALL_FUND_DEFAULT_CONFIG.rpsMin },
   "240": { tf: "4h", rpsMin: SMALL_FUND_4H_DEFAULT_CONFIG.rpsMin },
+  "120": { tf: "2h", rpsMin: champOf("2h").config.rpsMin },
 };
 
 /** TV 的 timeframe.period 是 "D"/"W"/"M" 或纯分钟数，转成人看的写法。 */

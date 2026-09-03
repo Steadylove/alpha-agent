@@ -24,13 +24,51 @@ const BUY1 = "#ff4976";
 const BUY2 = "#fbbf24";
 const VEGAS_FAST = "#0ea5e9";
 const VEGAS_SLOW = "#6366f1";
-const RSI_LINE = "#f59e0b";
 const FILTERED = "#71717a";
+
+function dayOf(date: string) {
+  return date.slice(0, 10);
+}
+
+function barMs(date: string): number {
+  if (!date.includes("T")) return Date.parse(`${date}T00:00:00Z`);
+  const iso = date.length === 16 ? `${date}:00Z` : date;
+  return Date.parse(iso);
+}
+
+function formatBarTime(date: string): string {
+  if (!date.includes("T")) return date;
+  const ms = barMs(date);
+  if (!Number.isFinite(ms)) return date.replace("T", " ");
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(ms));
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}`;
+}
+
+function sameBar(a: string, b: string) {
+  return a === b || (a.includes("T") && b.includes("T") ? a === b : dayOf(a) === dayOf(b));
+}
+
+function barIndexOf(times: string[], date: string): number {
+  if (!date) return -1;
+  const exact = times.indexOf(date);
+  if (exact >= 0) return exact;
+  const day = dayOf(date);
+  return times.findIndex((t) => dayOf(t) === day);
+}
 
 function toChartTime(date: string): Time {
   if (date.includes("T")) {
-    const iso = date.length === 16 ? `${date}:00Z` : date;
-    return Math.floor(Date.parse(iso) / 1000) as Time;
+    const ms = barMs(date);
+    return (Number.isFinite(ms) ? Math.floor(ms / 1000) : 0) as Time;
   }
   return date as Time;
 }
@@ -95,6 +133,7 @@ const EXIT_TEXT: Record<string, string> = {
   target: "止盈",
   rsWeak: "转弱",
   veto: "否决",
+  rotate: "置换",
 };
 
 /**
@@ -131,6 +170,12 @@ export function LabSymbolChart({
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
+  const [hover, setHover] = useState<{
+    x: number;
+    y: number;
+    title: string;
+    lines: string[];
+  } | null>(null);
 
   const symbol = target?.symbol ?? null;
 
@@ -174,11 +219,17 @@ export function LabSymbolChart({
    * 打开时一律给全期：先看清这只票二十年的位置，要看细节再点。
    * 从逐笔表点进来的那一笔只做高亮（见 anchorIdx），不自动放大。
    */
-  const focus = picked?.symbol === symbol ? picked.entryDate : "";
+  const focus = picked?.symbol === symbol ? picked.entryDate : target?.entryDate ?? "";
 
   const idxOf = (entryDate: string) =>
-    data && entryDate ? data.trades.findIndex((t) => t.entryDate === entryDate) : -1;
-  const focusIdx = idxOf(focus);
+    data && entryDate
+      ? data.trades.findIndex((t) => sameBar(t.entryDate, entryDate))
+      : -1;
+  const fillOfFocus =
+    data && focus
+      ? (data.signals ?? []).find((s) => sameBar(s.date, focus) && s.fillDate)?.fillDate
+      : null;
+  const focusIdx = idxOf(fillOfFocus ?? focus);
   /** 从逐笔表点进来的那一笔，全期视野下也要让它在表里可辨。 */
   const anchorIdx = idxOf(target?.entryDate ?? "");
   const currentIdx = focusIdx >= 0 ? focusIdx : anchorIdx;
@@ -189,10 +240,16 @@ export function LabSymbolChart({
     const chart = createChart(containerRef.current, {
       layout: { background: { color: "transparent" }, textColor: "#a1a1aa", fontSize: 11 },
       grid: { vertLines: { color: "#27272a" }, horzLines: { color: "#27272a" } },
-      rightPriceScale: { borderColor: "#3f3f46", scaleMargins: { top: 0.08, bottom: 0.22 } },
+      rightPriceScale: { borderColor: "#3f3f46", scaleMargins: { top: 0.06, bottom: 0.06 } },
       // minBarSpacing 默认 0.5px，二十年 5000 根要 0.17px/根，不放开的话
       // fitContent 会被静默夹住，只显示最近十年——看着像全期，其实不是。
       timeScale: { borderColor: "#3f3f46", rightOffset: 4, minBarSpacing: 0.05 },
+      localization: {
+        timeFormatter: (t: Time) => {
+          if (typeof t === "string") return t;
+          return formatBarTime(new Date(Number(t) * 1000).toISOString().slice(0, 16));
+        },
+      },
       crosshair: { mode: 0 },
       autoSize: true,
     });
@@ -206,7 +263,7 @@ export function LabSymbolChart({
       { values: data.vegas?.slowA ?? [], color: VEGAS_SLOW },
       { values: data.vegas?.slowB ?? [], color: VEGAS_SLOW },
     ]) {
-      const points = time.map((t, i) => ({ time: t, value: line.values[i] }));
+      const points = time.map((t, i) => ({ time: toChartTime(t), value: line.values[i] }));
       for (const seg of segments(points)) {
         chart
           .addSeries(LineSeries, {
@@ -243,7 +300,7 @@ export function LabSymbolChart({
       { values: data.levels.trail, color: TRAIL, dashed: false },
       { values: data.levels.target, color: TARGET, dashed: true },
     ]) {
-      const points = time.map((t, i) => ({ time: t, value: line.values[i] }));
+      const points = time.map((t, i) => ({ time: toChartTime(t), value: line.values[i] }));
       for (const seg of segments(points)) {
         chart
           .addSeries(LineSeries, {
@@ -258,67 +315,79 @@ export function LabSymbolChart({
       }
     }
 
-    const rsiSeries = chart.addSeries(LineSeries, {
-      color: RSI_LINE,
-      lineWidth: 1,
-      priceScaleId: "rsi",
-      priceLineVisible: false,
-      lastValueVisible: true,
-      crosshairMarkerVisible: false,
-    });
-    chart.priceScale("rsi").applyOptions({
-      borderColor: "#3f3f46",
-      scaleMargins: { top: 0.82, bottom: 0 },
-    });
-    const rsiPoints = time.map((t, i) => ({ time: t, value: data.rsi?.[i] ?? null }));
-    for (const seg of segments(rsiPoints)) rsiSeries.setData(seg);
+    markersRef.current = createSeriesMarkers(candles, []);
 
-    if (data.filters.requireRsi) {
-      const threshold = time
-        .map((t, i) => (data.rsi[i] == null ? null : { time: t, value: data.filters.minRsi }))
-        .filter((p): p is { time: string; value: number } => p != null);
-      if (threshold.length > 0) {
-        chart
-          .addSeries(LineSeries, {
-            color: "#a1a1aa",
-            lineWidth: 1,
-            lineStyle: LineStyle.Dashed,
-            priceScaleId: "rsi",
-            priceLineVisible: false,
-            lastValueVisible: false,
-            crosshairMarkerVisible: false,
-          })
-          .setData(threshold.map((p) => ({ time: p.time as Time, value: p.value })));
+    const tips = new Map<string, { title: string; lines: string[] }>();
+    const put = (date: string, title: string, lines: string[]) => {
+      const key = String(toChartTime(date));
+      const prev = tips.get(key);
+      if (!prev) {
+        tips.set(key, { title, lines });
+        return;
       }
+      tips.set(key, {
+        title: `${prev.title} · ${title}`,
+        lines: [...prev.lines, ...lines],
+      });
+    };
+    for (const s of data.signals ?? []) {
+      if (s.reject === "窗口外") continue;
+      const kind = s.sigType === 1 ? "一买" : "二买";
+      const rsi = s.rsi == null ? "RSI —" : `RSI ${s.rsi.toFixed(0)}`;
+      const vegas = s.vegasOk ? "Vegas 站上" : "Vegas 未站上";
+      put(
+        s.date,
+        s.accepted ? `${kind} · 已开仓` : `${kind} · 未开仓`,
+        [
+          formatBarTime(s.date),
+          s.accepted ? "次日开盘成交" : `原因 ${s.reject ?? "过滤"}`,
+          `${rsi} · ${vegas}`,
+        ],
+      );
+    }
+    for (const t of data.trades) {
+      put(t.exitDate, `平仓 · ${EXIT_TEXT[t.exitReason] ?? t.exitReason}`, [
+        formatBarTime(t.exitDate),
+        pct(t.pnlPct),
+      ]);
     }
 
-    markersRef.current = createSeriesMarkers(candles, []);
+    chart.subscribeCrosshairMove((param) => {
+      if (!param.point || param.time == null) {
+        setHover(null);
+        return;
+      }
+      const hit = tips.get(String(param.time));
+      if (!hit) {
+        setHover(null);
+        return;
+      }
+      setHover({ x: param.point.x, y: param.point.y, ...hit });
+    });
 
     return () => {
       chart.remove();
       chartRef.current = null;
       markersRef.current = null;
+      setHover(null);
     };
   }, [data]);
 
-  // 标记单独一个 effect：只有当前那一笔带文字，二十年全期下十几个标签会糊成一片
+  // 回测窗口内的一买/二买都画点；平仓箭头一律带原因。当前聚焦那一笔多一行「开仓价」。
   useEffect(() => {
     const plugin = markersRef.current;
     if (!plugin || !data) return;
     const markers: SeriesMarker<Time>[] = [];
-    const focusTrade = currentIdx >= 0 ? data.trades[currentIdx] : null;
     const signals = data.signals ?? [];
 
     signals.forEach((s) => {
-      const rsiText = s.rsi == null ? "RSI—" : `RSI ${s.rsi.toFixed(0)}`;
-      const tagged = focusTrade != null && (s.fillDate === focusTrade.entryDate || s.date === focusTrade.entryDate);
-      const reason = s.accepted ? "" : s.reject ? ` · ${s.reject}` : "";
+      if (s.reject === "窗口外") return;
       markers.push({
         time: toChartTime(s.date),
         position: "belowBar",
         shape: s.accepted ? "arrowUp" : "circle",
         color: s.accepted ? (s.sigType === 1 ? BUY1 : BUY2) : FILTERED,
-        text: tagged || !s.accepted ? `${s.sigType === 1 ? "一买" : "二买"} ${rsiText}${reason}` : rsiText,
+        text: s.accepted ? (s.sigType === 1 ? "一买" : "二买") : "",
       });
     });
 
@@ -336,7 +405,7 @@ export function LabSymbolChart({
         position: "aboveBar",
         shape: "arrowDown",
         color: t.pnlPct >= 0 ? UP : DOWN,
-        text: labelled ? `${EXIT_TEXT[t.exitReason] ?? t.exitReason} ${pct(t.pnlPct)}` : "",
+        text: `${EXIT_TEXT[t.exitReason] ?? t.exitReason} ${pct(t.pnlPct)}`,
       });
     });
     // 时间必须升序，否则 lightweight-charts 会静默丢点
@@ -344,26 +413,37 @@ export function LabSymbolChart({
     plugin.setMarkers(markers);
   }, [data, currentIdx]);
 
-  // 视野单独一个 effect：切换看哪一笔时不该重建整张图
+  // 视野单独一个 effect：点表格或翻笔时缩到那一带，不重建整张图
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart || !data) return;
     const { time } = data.bars;
+    if (!focus) {
+      chart.timeScale().fitContent();
+      return;
+    }
     const trade = focusIdx >= 0 ? data.trades[focusIdx] : null;
-    const signal = (data.signals ?? []).find((s) => s.date === focus || s.fillDate === focus);
+    const signal = (data.signals ?? []).find(
+      (s) => sameBar(s.date, focus) || (s.fillDate != null && sameBar(s.fillDate, focus)),
+    );
     if (!trade && !signal) {
       chart.timeScale().fitContent();
       return;
     }
-    const from = trade?.entryDate ?? signal!.date;
-    const to = trade?.exitDate ?? signal!.date;
-    const lo = Math.max(0, time.indexOf(from) - PAD_BEFORE);
-    const hi = Math.min(time.length - 1, time.indexOf(to) + PAD_AFTER);
+    const from = signal?.date ?? trade?.entryDate ?? focus;
+    const to = trade?.exitDate ?? signal?.date ?? focus;
+    const fromIdx = Math.max(0, barIndexOf(time, from));
+    const toIdx = barIndexOf(time, to);
+    const padB = trade ? PAD_BEFORE : 36;
+    const padA = trade ? PAD_AFTER : 24;
+    const lo = Math.max(0, fromIdx - padB);
+    const hi = Math.min(time.length - 1, (toIdx >= 0 ? toIdx : fromIdx) + padA);
     chart.timeScale().setVisibleRange({
       from: toChartTime(time[lo]),
       to: toChartTime(time[hi]),
     });
-  }, [data, focusIdx]);
+    containerRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [data, focus, focusIdx]);
 
   const step = (delta: number) => {
     if (!data || !symbol) return;
@@ -382,7 +462,7 @@ export function LabSymbolChart({
           <Text fw={700}>{symbol}</Text>
           {data ? (
             <Text size="xs" c="dimmed" ff="monospace">
-              本次回测成交 {data.trades.length} 笔 · 全期 {data.bars.time.length} 根日线
+              本次回测成交 {data.trades.length} 笔 · 全期 {data.bars.time.length} 根
             </Text>
           ) : null}
         </Group>
@@ -446,21 +526,39 @@ export function LabSymbolChart({
             </Text>
           </Group>
 
-          <div ref={containerRef} style={{ height: 520 }} />
+          <div className="relative">
+            <div ref={containerRef} style={{ height: 520 }} />
+            {hover ? (
+              <div
+                className="pointer-events-none absolute z-10 max-w-[260px] rounded border border-[var(--border-strong)] bg-[var(--surface-hover)]/95 px-2.5 py-1.5 text-xs"
+                style={{
+                  left: hover.x,
+                  top: Math.max(8, hover.y - 12),
+                  transform: hover.x > 420 ? "translate(-100%, -100%)" : "translate(12px, -100%)",
+                }}
+              >
+                <div className="font-medium text-zinc-100">{hover.title}</div>
+                {hover.lines.map((line, i) => (
+                  <div key={`${i}-${line}`} className="mt-0.5 font-mono text-zinc-400">
+                    {line}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
 
           <Group gap="lg" wrap="wrap">
+            <Legend color={BUY1} text="一买（开仓）" />
+            <Legend color={BUY2} text="二买（开仓）" />
+            <Legend color={FILTERED} text="未开仓，悬停看原因" />
             <Legend color={VEGAS_FAST} text={`Vegas 短 EMA${data.filters.vegas.fastA}/${data.filters.vegas.fastB}`} />
             <Legend color={VEGAS_SLOW} text={`Vegas 长 EMA${data.filters.vegas.slowA}/${data.filters.vegas.slowB}`} />
-            <Legend color={RSI_LINE} text="RSI14（底部副图）" />
             <Legend color={STOP} text="初始止损" />
             <Legend color={TRAIL} text="吊灯止损" />
             <Legend color={TARGET} text="R 倍数止盈（未开启时不画）" dashed />
-            <Legend color={FILTERED} text="灰圈 = 买点被过滤（图上标 RSI 与原因）" />
           </Group>
           <Text size="xs" c="dimmed">
-            买点标在<b>信号根</b>（收盘确认），开仓箭头在<b>次日开盘</b>。
-            过滤看灰圈：RSI 低于门槛、Vegas 短线未站上长线、或当时已持仓。
-            出场看向下箭头，对应吊灯 / 止盈 / 转弱。
+            灰圈是点火但没开仓，把十字线移上去看原因。向下箭头上的字是平仓原因。点表格可放大单笔。
           </Text>
 
           {(data.signals ?? []).length > 0 ? (
@@ -476,16 +574,21 @@ export function LabSymbolChart({
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
-                {(data.signals ?? []).map((s) => (
+                {(data.signals ?? [])
+                  .filter((s) => s.accepted || s.reject !== "窗口外")
+                  .map((s) => (
                   <Table.Tr
                     key={`${s.date}-${s.sigType}`}
-                    onClick={() =>
-                      symbol &&
-                      setPicked({ symbol, entryDate: s.fillDate ?? s.date })
-                    }
-                    style={{ cursor: "pointer" }}
+                    onClick={() => symbol && setPicked({ symbol, entryDate: s.date })}
+                    style={{
+                      cursor: "pointer",
+                      background:
+                        sameBar(s.date, focus) || (s.fillDate != null && sameBar(s.fillDate, focus))
+                          ? "rgba(255,255,255,0.06)"
+                          : undefined,
+                    }}
                   >
-                    <Table.Td ff="monospace">{s.date}</Table.Td>
+                    <Table.Td ff="monospace">{formatBarTime(s.date)}</Table.Td>
                     <Table.Td>{s.sigType === 1 ? "一买" : "二买"}</Table.Td>
                     <Table.Td
                       ta="right"
@@ -551,11 +654,11 @@ export function LabSymbolChart({
                       background: i === currentIdx ? "rgba(255,255,255,0.06)" : undefined,
                     }}
                   >
-                    <Table.Td ff="monospace">{t.entryDate}</Table.Td>
+                    <Table.Td ff="monospace">{formatBarTime(t.entryDate)}</Table.Td>
                     <Table.Td ta="right" ff="monospace">
                       {t.entryPrice.toFixed(2)}
                     </Table.Td>
-                    <Table.Td ff="monospace">{t.exitDate}</Table.Td>
+                    <Table.Td ff="monospace">{formatBarTime(t.exitDate)}</Table.Td>
                     <Table.Td ta="right" ff="monospace">
                       {t.exitPrice.toFixed(2)}
                     </Table.Td>

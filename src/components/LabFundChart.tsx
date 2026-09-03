@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Badge, Group, SegmentedControl, Stack, Table, Text } from "@mantine/core";
+import { useEffect, useMemo, useState } from "react";
+import { Badge, Group, SegmentedControl, Stack, Table, Text, TextInput } from "@mantine/core";
 import {
   CartesianGrid,
   Line,
@@ -54,9 +54,15 @@ export function LabFundChart({
   onPick: (symbol: string, entryDate: string) => void;
 }) {
   const ytdVisible = Boolean(ytd && (!maskAfterSplit || ytd.from < splitDate));
-  const [range, setRange] = useState<"all" | "ytd">(ytdVisible ? "ytd" : "all");
+  const [range, setRange] = useState<"all" | "ytd">("all");
   const [picked, setPicked] = useState<string | null>(null);
+  const [dateDraft, setDateDraft] = useState("");
   const view = range === "ytd" && ytdVisible ? "ytd" : "all";
+
+  useEffect(() => {
+    setPicked(null);
+    setDateDraft("");
+  }, [book]);
 
   const holdMap = useMemo(() => {
     const m = new Map<string, HoldingDay["rows"]>();
@@ -82,6 +88,22 @@ export function LabFundChart({
 
   const last = shown[shown.length - 1];
   const selectedDate = picked && shown.some((p) => p.date === picked) ? picked : (last?.date ?? null);
+
+  const pickDate = (date: string) => {
+    setPicked(date);
+    setDateDraft(date);
+  };
+
+  const applyDraft = () => {
+    const raw = dateDraft.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(raw) || shown.length === 0) return;
+    let hit = shown[0].date;
+    for (const p of shown) {
+      if (p.date <= raw) hit = p.date;
+      else break;
+    }
+    pickDate(hit);
+  };
   const selected = shown.find((p) => p.date === selectedDate) ?? null;
   const selectedRows = selectedDate ? (holdMap.get(selectedDate) ?? []) : [];
   const hasSpy = shown.some((p) => p.spy != null);
@@ -133,7 +155,7 @@ export function LabFundChart({
               margin={{ top: 8, right: 8, bottom: 0, left: -8 }}
               onClick={(state) => {
                 const d = (state as { activeLabel?: string } | null)?.activeLabel;
-                if (d) setPicked(d);
+                if (d) pickDate(d);
               }}
             >
               <CartesianGrid stroke="#27272a" vertical={false} />
@@ -175,16 +197,29 @@ export function LabFundChart({
 
       <Card
         title={
-          <Group justify="space-between">
-            <Text size="sm" fw={700} c="gray.1">
-              {selectedDate ?? "—"}
-            </Text>
-            {selected ? (
-              <Text size="xs" c="dimmed" ff="monospace">
-                {selected.nHold} 只 · 策略 {selected.strategy.toFixed(2)}x
-                {selected.spy != null ? ` · ${externalLabel} ${selected.spy.toFixed(2)}x` : ""}
+          <Group justify="space-between" align="flex-end" wrap="wrap">
+            <Stack gap={4}>
+              <Text size="sm" fw={700} c="gray.1">
+                {selectedDate ?? "—"} 持仓
               </Text>
-            ) : null}
+              {selected ? (
+                <Text size="xs" c="dimmed" ff="monospace">
+                  {selected.nHold} 只 · 策略 {selected.strategy.toFixed(2)}x
+                  {selected.spy != null ? ` · ${externalLabel} ${selected.spy.toFixed(2)}x` : ""}
+                </Text>
+              ) : null}
+            </Stack>
+            <TextInput
+              size="xs"
+              w={140}
+              value={dateDraft}
+              placeholder={selectedDate ?? "YYYY-MM-DD"}
+              onChange={(e) => setDateDraft(e.currentTarget.value)}
+              onBlur={applyDraft}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") applyDraft();
+              }}
+            />
           </Group>
         }
       >
@@ -224,7 +259,9 @@ export function LabFundChart({
                   className="cursor-pointer"
                   onClick={() => onPick(row.symbol, row.entryDate ?? selectedDate ?? "")}
                 >
-                  <Table.Td ff="monospace">{row.symbol}</Table.Td>
+                  <Table.Td ff="monospace" className="underline decoration-zinc-600 underline-offset-2">
+                    {row.symbol}
+                  </Table.Td>
                   <Table.Td ta="right" ff="monospace">
                     {row.weightPct.toFixed(0)}%
                   </Table.Td>

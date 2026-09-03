@@ -10,6 +10,8 @@ import {
 import type { TradeDay } from "@/lib/scoring/rotationTrade";
 import { getPreparedUniverse } from "@/lib/backtest/load";
 import { parseConfig, parseIndex, parsePoolId, tradeRows } from "@/lib/backtest/labRequest";
+import { champOf } from "@/lib/fund/champs";
+import { runChampSymbol } from "@/lib/fund/frozenLab";
 import { emaSeries } from "@/lib/scoring/series";
 
 /**
@@ -37,19 +39,25 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "缺少 symbol" }, { status: 400 });
   }
 
-  const config = parseConfig(body);
-  const index = parseIndex(body);
+  const champ = typeof body.champ === "string" ? champOf(body.champ) : null;
+  const config = champ?.config ?? parseConfig(body);
+  const index = champ ? "SMALLFUND" : parseIndex(body);
   const poolId = parsePoolId(body);
 
   try {
     const universe = await getPreparedUniverse(index, config.timeframe, poolId);
-    const sym = universe.symbols.find((s) => s.ticker === symbol);
-    if (!sym) {
+    const ran = champ
+      ? runChampSymbol(universe, champ, symbol)
+      : null;
+    const sym = ran?.sym ?? universe.symbols.find((s) => s.ticker === symbol);
+    if (!sym || (champ && !ran)) {
       return NextResponse.json({ error: `${symbol} 不在当前标的池内` }, { status: 404 });
     }
 
-    const { lo, hi } = windowBounds(universe.axis, config);
-    const { bars, days, closed } = runSymbol(universe.axis, sym, config, lo, hi);
+    const { lo, hi } = ran
+      ? { lo: ran.lo, hi: ran.hi }
+      : windowBounds(universe.axis, config);
+    const { bars, days, closed } = ran ?? runSymbol(universe.axis, sym, config, lo, hi);
 
     const closes = Array.from(sym.close);
     const lens = vegasLensOf(config);
@@ -94,7 +102,9 @@ export async function POST(request: Request) {
       vegas.slowB.push(emaSlowB[i]);
     }
 
-    const signals = collectSignals(sym, config, lo, hi, days, time);
+    const signals = collectSignals(sym, config, lo, hi, days, time, {
+      dayCloseOnly: champ?.opts.entryWindow === "dayClose",
+    });
 
     return NextResponse.json({
       symbol,
@@ -136,6 +146,7 @@ function collectSignals(
   hi: number,
   days: TradeDay[],
   time: string[],
+  opts?: { dayCloseOnly?: boolean },
 ) {
   const lens = vegasLensOf(config);
   const closes = Array.from(sym.close);
@@ -183,6 +194,13 @@ function collectSignals(
       reject = rsi == null ? "RSI未齐" : `RSI ${rsi.toFixed(0)}`;
     }     else if (config.requireVegas && !vegasOk) reject = vegasReady ? "Vegas" : "Vegas未齐";
     else if (days[i]?.sigType !== 0) reject = "持仓中";
+    else if (
+      opts?.dayCloseOnly &&
+      i + 1 < time.length &&
+      time[i + 1].slice(0, 10) === time[i].slice(0, 10)
+    ) {
+      reject = "非收盘根";
+    }
 
     const fillDate = time[i + 1] ?? null;
     const filled = reject == null && days[i + 1]?.entered === true;

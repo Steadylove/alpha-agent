@@ -41,7 +41,18 @@ describe("lab timeframe", () => {
     expect(barsPerYearOf("1h")).toBe(1512);
   });
 
-  it("非 Small Fund 不能开 4H", () => {
+  it("非 Small Fund 不能开日内", () => {
     expect(() => parseConfig({ index: "SP500", timeframe: "4h" })).toThrow(/Small Fund/);
+    expect(() => parseConfig({ index: "SP500", timeframe: "2h" })).toThrow(/Small Fund/);
+  });
+
+  it("2H 未传旋钮用定档", () => {
+    expect(parseTimeframe({ timeframe: "2h" })).toBe("2h");
+    const c = parseConfig({ index: "SMALLFUND", timeframe: "2h" });
+    expect(c.timeframe).toBe("2h");
+    expect(c.stopMult).toBe(8);
+    expect(c.trailMult).toBe(10);
+    expect(c.requireRsi).toBe(false);
+    expect(c.rpsMin).toBe(30);
   });
 });

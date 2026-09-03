@@ -13,7 +13,7 @@ import type { Timeframe } from "./engine";
  * 而这一步的输入是随仓库部署的静态 CSV，最后一根的分位在构建时就定了。
  * 所以构建时算一次，运行时只读文件。
  *
- * 只覆盖默认池（`sf-2026-08`）与有面板的两个周期，与 `/api/tv/alert` 的口径一致。
+ * 只覆盖默认池（`sf-2026-08`）与有面板的周期（日线 / 4H / 2H），与 `/api/tv/alert` 口径一致。
  */
 
 export const RPS_SNAPSHOT_PATH = path.join(process.cwd(), "data", "rps-latest.json");

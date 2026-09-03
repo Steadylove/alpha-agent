@@ -20,6 +20,7 @@ import {
   SMALL_FUND_4H_DEFAULT_CONFIG,
   SMALL_FUND_DEFAULT_CONFIG,
 } from "@/lib/backtest/smallFundUniverse";
+import { champOf } from "@/lib/fund/champs";
 import type { ClosedTrade } from "@/lib/scoring/rotationTrade";
 
 const clamp = (v: unknown, lo: number, hi: number, fallback: number) => {
@@ -28,23 +29,27 @@ const clamp = (v: unknown, lo: number, hi: number, fallback: number) => {
 };
 
 export function parseTimeframe(body: Record<string, unknown>): Timeframe {
-  return body.timeframe === "4h" ? "4h" : "1d";
+  const t = body.timeframe;
+  if (t === "4h" || t === "2h" || t === "1h" || t === "1d") return t;
+  return "1d";
 }
 
 export function parseConfig(body: Record<string, unknown>): BacktestConfig {
   const index = parseIndex(body);
   const timeframe = parseTimeframe(body);
-  if (timeframe === "4h" && index !== "SMALLFUND") {
-    throw new Error("4H 回测目前只支持 Small Fund 池（Alpaca 1H 合成）");
+  if ((timeframe === "4h" || timeframe === "2h" || timeframe === "1h") && index !== "SMALLFUND") {
+    throw new Error("日内回测目前只支持 Small Fund 池");
   }
   // Small Fund 没传的旋钮落在日线/4H 当前纪律上；传了就按请求改。
   const d: BacktestConfig =
     index === "SMALLFUND"
-      ? {
-          ...DEFAULT_BACKTEST_CONFIG,
-          ...(timeframe === "4h" ? SMALL_FUND_4H_DEFAULT_CONFIG : SMALL_FUND_DEFAULT_CONFIG),
-          timeframe,
-        }
+      ? timeframe === "2h" || timeframe === "1h"
+        ? champOf(timeframe).config
+        : {
+            ...DEFAULT_BACKTEST_CONFIG,
+            ...(timeframe === "4h" ? SMALL_FUND_4H_DEFAULT_CONFIG : SMALL_FUND_DEFAULT_CONFIG),
+            timeframe,
+          }
       : { ...DEFAULT_BACKTEST_CONFIG, timeframe };
   return {
     from: typeof body.from === "string" ? body.from : d.from,
