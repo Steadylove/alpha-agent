@@ -320,6 +320,31 @@ model BacktestPanel {
   updatedAt DateTime @updatedAt
 }
 
+/// 盘中回测面板。BacktestPanel.days 是日序号，同一天多根会塌掉，不能复用。
+/// times 存自 1970-01-01 起的分钟数（Int32LE），解包为 `YYYY-MM-DDTHH:mm`。
+model BacktestTfPanel {
+  id        String @id @default(cuid())
+  ticker    String
+  timeframe String
+
+  firstDate DateTime
+  lastDate  DateTime
+  barCount  Int
+
+  times  Bytes
+  high   Bytes
+  low    Bytes
+  close  Bytes
+  volume Bytes
+  open   Bytes
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([ticker, timeframe])
+  @@index([timeframe])
+}
+
 /// 12M 估值引擎的每日快照。
 ///
 /// 与面板其余字段不同，这张表只有最新一天：基本面是当期值，

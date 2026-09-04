@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { MembershipSpan } from "@/lib/backtest/engine";
+import { coversPool } from "@/lib/backtest/load";
 import { parseConfig, parsePoolId } from "@/lib/backtest/labRequest";
 import {
   DEFAULT_SMALL_FUND_POOL,
@@ -87,5 +88,13 @@ describe("small fund pools", () => {
     expect(tuned.useBuy1).toBe(false);
     expect(tuned.requireVegas).toBe(false);
     expect(tuned.takeProfitR).toBe(1);
+  });
+
+  it("部分 CSV 不能冒充扩池", () => {
+    const wanted = Array.from({ length: 20 }, (_, i) => `T${i}`);
+    expect(coversPool(wanted.slice(0, 19).map((ticker) => ({ ticker })), wanted)).toBe(true);
+    expect(coversPool(wanted.slice(0, 10).map((ticker) => ({ ticker })), wanted)).toBe(false);
+    expect(coversPool([], wanted)).toBe(false);
+    expect(coversPool([{ ticker: "AAPL" }], ["AAPL", "SKHY", "SPCX"])).toBe(true);
   });
 });

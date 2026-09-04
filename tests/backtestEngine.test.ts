@@ -7,7 +7,7 @@ import {
   prepareUniverse,
   runBacktest,
 } from "@/lib/backtest/engine";
-import { packPanel, unpackPanel, type PanelBars } from "@/lib/backtest/panel";
+import { packPanel, packTimedPanel, unpackPanel, unpackTimedPanel, type PanelBars } from "@/lib/backtest/panel";
 import { deriveIntervals } from "@/lib/data-sources/sp500Historical";
 import { PERCENTILE_RS_TERMS, percentileRank } from "@/lib/scoring/percentileRs";
 
@@ -229,6 +229,18 @@ describe("面板打包", () => {
     expect(back.volume).toBeNull();
     expect(back.open).toBeNull();
     expect(back.close[0]).toBeCloseTo(9.5, 4);
+  });
+
+  it("盘中往返保住时刻，不会塌成同一天", () => {
+    const bars = [
+      { date: "2016-01-04T14:30", open: 23.07, high: 23.61, low: 22.94, close: 23.54, volume: 146128772 },
+      { date: "2016-01-04T18:30", open: 23.53, high: 23.69, low: 23.35, close: 23.68, volume: 101305748 },
+    ];
+    const packed = packTimedPanel(bars);
+    const back = unpackTimedPanel({ ticker: "AAPL", ...packed });
+    expect(back.dates).toEqual(["2016-01-04T14:30", "2016-01-04T18:30"]);
+    expect(back.close[0]).toBeCloseTo(23.54, 2);
+    expect(packed.barCount).toBe(2);
   });
 });
 

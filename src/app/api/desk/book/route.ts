@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 
 import { CSV_4H_DIR, CSV_PANEL_DIR, hasCsvPanel } from "@/lib/backtest/csvPanel";
-import { invalidateSmallFundCache } from "@/lib/backtest/load";
+import { invalidateSmallFundCache, smallFundSource } from "@/lib/backtest/load";
 import { appendLiveBookChange, readLiveBook } from "@/lib/backtest/liveBook";
 import { membersOn } from "@/lib/backtest/smallFundPools";
 
 export const dynamic = "force-dynamic";
 
 function csvMissing(ticker: string): string[] {
+  if (smallFundSource() === "db") return [];
   const missing: string[] = [];
   if (!hasCsvPanel(CSV_PANEL_DIR, ticker)) missing.push("1d");
   if (!hasCsvPanel(CSV_4H_DIR, ticker)) missing.push("4h");

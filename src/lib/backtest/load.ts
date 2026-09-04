@@ -9,7 +9,7 @@ import {
   type Timeframe,
 } from "./engine";
 import { requireRpsScale, type RpsScale } from "./rpsScale";
-import { unpackPanel, type PanelBars } from "./panel";
+import { unpackPanel, unpackTimedPanel, type PanelBars } from "./panel";
 import {
   PANEL_CACHE_PATH,
   readSnapshot,
@@ -131,15 +131,31 @@ async function getSnapshot(): Promise<PanelSnapshot> {
 /**
  * Small Fund 数据源。
  *
- * - `csv`（默认）：读 `data/smallfund/*.csv`，不碰数据库。额度耗尽时的兜底。
- * - `db`：从 BacktestPanel 按 ticker 过滤。额度恢复后切这条。
- * - `auto`：CSV 有文件用 CSV，否则回落数据库。
+ * - `db`：日线 BacktestPanel，盘中 BacktestTfPanel。生产默认。
+ * - `csv`：只读本地 CSV。
+ * - `auto`：CSV 覆盖当前池才用 CSV，否则回落数据库。本地默认。
+ *   只有 195 只 CSV 时不会冒充 sf-broad。
  */
 export type SmallFundSource = "csv" | "db" | "auto";
 
 export function smallFundSource(): SmallFundSource {
-  const raw = (process.env.SMALLFUND_SOURCE ?? "csv").toLowerCase();
-  return raw === "db" || raw === "auto" ? raw : "csv";
+  const raw = (process.env.SMALLFUND_SOURCE ?? "").toLowerCase();
+  if (raw === "db" || raw === "auto" || raw === "csv") return raw;
+  return process.env.NODE_ENV === "production" ? "db" : "auto";
+}
+
+const CSV_GAP = new Set(["SKHY", "SPCX"]);
+
+/** 允许缺几只脏票，但不接受「只有 195、缺一整批扩池」。 */
+export function coversPool(panels: readonly { ticker: string }[], wanted: readonly string[]): boolean {
+  if (panels.length === 0) return false;
+  const have = new Set(panels.map((p) => p.ticker));
+  let missing = 0;
+  for (const ticker of wanted) {
+    if (CSV_GAP.has(ticker)) continue;
+    if (!have.has(ticker)) missing += 1;
+  }
+  return missing <= 8;
 }
 
 function prepareSmallFund(
@@ -209,10 +225,64 @@ async function loadSmallFundFromDb(poolId: SmallFundPoolId = DEFAULT_SMALL_FUND_
   return panels;
 }
 
+const tfSnapshots = new Map<string, Promise<PanelBars[]>>();
+
+async function loadTfFromDb(timeframe: Exclude<Timeframe, "1d">): Promise<PanelBars[]> {
+  const hit = tfSnapshots.get(timeframe);
+  if (hit) return hit;
+
+  const task = (async () => {
+    const { getPrisma } = await import("@/lib/db/prisma");
+    const prisma = getPrisma();
+    const t0 = Date.now();
+    const rows = await prisma.backtestTfPanel.findMany({
+      where: { timeframe },
+      select: {
+        ticker: true,
+        times: true,
+        high: true,
+        low: true,
+        close: true,
+        volume: true,
+        open: true,
+      },
+    });
+    const panels = rows.map((row) => unpackTimedPanel(row));
+    console.log(`[smallfund] ${timeframe.toUpperCase()} 数据库 ${panels.length} 只  ${Date.now() - t0}ms`);
+    return panels;
+  })();
+
+  tfSnapshots.set(timeframe, task);
+  task.catch(() => tfSnapshots.delete(timeframe));
+  return task;
+}
+
+async function loadSmallFundTfFromDb(
+  timeframe: Exclude<Timeframe, "1d">,
+  poolId: SmallFundPoolId,
+): Promise<PanelBars[]> {
+  const wanted = new Set(poolTickers(poolId));
+  return (await loadTfFromDb(timeframe)).filter((p) => wanted.has(p.ticker));
+}
+
 const smallFundPanels = new Map<string, Promise<PanelBars[]>>();
 
 function poolTickers(poolId: SmallFundPoolId): readonly string[] {
   return tickersForPool(poolId, poolId === "sf-live" ? readLiveBook() : []);
+}
+
+function readCsvForTimeframe(timeframe: Timeframe, wanted: readonly string[]): PanelBars[] {
+  if (timeframe === "1d") return readCsvPanels(CSV_PANEL_DIR, wanted);
+  const dir = { "4h": CSV_4H_DIR, "2h": CSV_2H_DIR, "1h": CSV_1H_DIR }[timeframe];
+  return readCsvPanels(dir, wanted).filter((panel) => panel.ticker !== "SPCX");
+}
+
+async function loadSmallFundFromSource(
+  timeframe: Timeframe,
+  poolId: SmallFundPoolId,
+): Promise<PanelBars[]> {
+  if (timeframe === "1d") return loadSmallFundFromDb(poolId);
+  return loadSmallFundTfFromDb(timeframe, poolId);
 }
 
 async function loadSmallFundPanels(
@@ -225,39 +295,31 @@ async function loadSmallFundPanels(
 
   const task = (async () => {
     const wanted = poolTickers(poolId);
-    if (timeframe === "4h" || timeframe === "2h" || timeframe === "1h") {
-      const dir = { "4h": CSV_4H_DIR, "2h": CSV_2H_DIR, "1h": CSV_1H_DIR }[timeframe];
-      const label = timeframe.toUpperCase();
-      const cmd = `smallfund:fetch-${timeframe}`;
-      const csv = readCsvPanels(dir, wanted).filter((panel) => panel.ticker !== "SPCX");
-      if (csv.length === 0) {
-        throw new Error(`Small Fund ${label} CSV 为空：${dir}。先跑 npm run ${cmd}。`);
-      }
-      console.log(`[smallfund] ${label} CSV ${csv.length} 只  ${dir}  pool=${poolId}`);
-      return csv;
-    }
-
     const source = smallFundSource();
-    if (source === "csv" || source === "auto") {
-      const csv = readCsvPanels(CSV_PANEL_DIR, wanted);
-      if (csv.length > 0) {
-        console.log(`[smallfund] CSV ${csv.length} 只  ${CSV_PANEL_DIR}  pool=${poolId}`);
+    const label = timeframe === "1d" ? "CSV" : timeframe.toUpperCase();
+
+    if (source !== "db") {
+      const csv = readCsvForTimeframe(timeframe, wanted);
+      if (coversPool(csv, wanted)) {
+        console.log(`[smallfund] ${label} ${csv.length} 只  pool=${poolId}`);
         return csv;
       }
       if (source === "csv") {
         throw new Error(
-          `Small Fund CSV 为空：${CSV_PANEL_DIR}。先跑 npm run smallfund:fetch，或设 SMALLFUND_SOURCE=db。`,
+          `Small Fund ${label} CSV 未覆盖当前池（${csv.length}/${wanted.length}）。` +
+            `先抓齐 CSV，或设 SMALLFUND_SOURCE=db 并跑 npm run smallfund:import。`,
         );
       }
     }
 
-    const db = await loadSmallFundFromDb(poolId);
-    if (db.length === 0) {
+    const db = await loadSmallFundFromSource(timeframe, poolId);
+    if (!coversPool(db, wanted)) {
       throw new Error(
-        "Small Fund 数据库面板为空。额度恢复后跑 npm run smallfund:import，或先用 CSV：npm run smallfund:fetch。",
+        `Small Fund ${timeframe} 数据库未覆盖当前池（${db.length}/${wanted.length}）。` +
+          `跑 npm run smallfund:import。`,
       );
     }
-    console.log(`[smallfund] 数据库 ${db.length} 只  pool=${poolId}`);
+    console.log(`[smallfund] ${timeframe} 数据库 ${db.length} 只  pool=${poolId}`);
     return db;
   })();
 
@@ -355,4 +417,5 @@ export function invalidateSmallFundCache(): void {
     if (key.startsWith("SMALLFUND:")) cached.delete(key);
   }
   smallFundPanels.clear();
+  tfSnapshots.clear();
 }
