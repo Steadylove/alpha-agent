@@ -1,3 +1,4 @@
+import { hasDatabase } from "@/lib/db/remote";
 import { ROTATION_UNIVERSE } from "@/lib/scoring/rotationUniverse";
 import { computeLogMacdSeries } from "@/lib/scoring/logMacd";
 import { emaSeries } from "@/lib/scoring/series";
@@ -85,7 +86,7 @@ const VEGAS_LENGTHS = [12, 144, 169, 576, 676] as const;
  * 因此这里先全量计算，最后才切出展示窗口。
  */
 export async function getStockSignalChart(symbol: string): Promise<StockSignalChartData | null> {
-  if (!process.env.DATABASE_URL) return null;
+  if (!hasDatabase()) return null;
 
   const upper = symbol.toUpperCase();
   const target = ROTATION_UNIVERSE.find((t) => t.symbol === upper);

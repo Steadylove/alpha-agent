@@ -47,6 +47,26 @@ export type PanelSnapshot = {
 
 export const PANEL_CACHE_PATH = path.join(process.cwd(), ".cache", "backtest-panel.v8");
 
+export type PanelHydrateMode = "reuse" | "url" | "database" | "skip";
+
+/**
+ * 构建时如何把面板落到 `.cache`。
+ *
+ * 顺序：本地文件 → `PANEL_SNAPSHOT_URL` → `DATABASE_URL`。
+ * 部署环境没有前两样时必须走数据库，不能再警告完跳过——后面的 `rps:scale`
+ * 会在 `VERCEL` 下拒绝回落数据库，构建必挂。
+ */
+export function resolvePanelHydrate(opts: {
+  hasCache: boolean;
+  snapshotUrl: string | undefined;
+  hasDatabaseUrl: boolean;
+}): PanelHydrateMode {
+  if (opts.hasCache) return "reuse";
+  if (opts.snapshotUrl) return "url";
+  if (opts.hasDatabaseUrl) return "database";
+  return "skip";
+}
+
 /** 命中返回快照，文件不存在、版本不符或解析失败一律返回 null。 */
 export function readSnapshot(file: string): PanelSnapshot | null {
   if (!existsSync(file)) return null;

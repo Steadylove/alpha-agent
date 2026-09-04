@@ -20,10 +20,10 @@ if (funds === 0 || spy === 0) {
   const hint =
     "本地先跑 npm run smallfund:fetch，并保证 data/benchmarks/SPY.csv 存在（跑一次 /lab 会自动拉）。";
   if (process.env.VERCEL) {
-    console.error(
-      `[lab-csv] 缺失：smallfund=${funds}  spy=${spy}。${hint} 这些文件要进 git，构建才会打进函数包。`,
+    console.log(
+      `[lab-csv] 仓库 CSV 缺失：smallfund=${funds} spy=${spy}。生产走数据库，继续构建。`,
     );
-    process.exit(1);
+    process.exit(0);
   }
   console.log(`[lab-csv] smallfund=${funds} spy=${spy}，跳过（${hint}）`);
   process.exit(0);

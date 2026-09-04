@@ -1,3 +1,4 @@
+import { hasDatabase } from "@/lib/db/remote";
 import { ROTATION_UNIVERSE } from "@/lib/scoring/rotationUniverse";
 import { SECTOR_UNIVERSE } from "@/lib/scoring/sectorUniverse";
 
@@ -164,7 +165,7 @@ export async function getStockPanelData(): Promise<StockPanelData> {
     universeSize,
   };
 
-  if (!process.env.DATABASE_URL) return empty;
+  if (!hasDatabase()) return empty;
 
   const { getPrisma } = await import("@/lib/db/prisma");
   const prisma = getPrisma();

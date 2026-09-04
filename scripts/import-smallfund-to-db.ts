@@ -1,5 +1,7 @@
 import "dotenv/config";
 
+process.env.ALLOW_DB = "1";
+
 import {
   CSV_1H_DIR,
   CSV_2H_DIR,
@@ -21,6 +23,7 @@ import { getPrisma } from "@/lib/db/prisma";
  *
  * 用法: npm run smallfund:import
  *       npm run smallfund:import -- --tf 4h
+ *       npm run smallfund:import -- --tf 1d --skip-existing --until 2026-08-21
  */
 
 const ALL_TF = ["1d", "4h", "2h", "1h"] as const;
@@ -41,9 +44,21 @@ function parseTfs(): ImportTf[] {
   throw new Error(`--tf 只能是 ${ALL_TF.join("/")}`);
 }
 
+function parseUntil(): string | null {
+  const i = process.argv.indexOf("--until");
+  if (i < 0) return null;
+  const raw = process.argv[i + 1];
+  if (!raw || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    throw new Error("--until 必须是 YYYY-MM-DD");
+  }
+  return raw;
+}
+
 async function main() {
   const prisma = getPrisma();
   const tfs = parseTfs();
+  const skipExisting = process.argv.includes("--skip-existing");
+  const until = parseUntil();
 
   for (const tf of tfs) {
     const dir = DIR[tf];
@@ -52,22 +67,54 @@ async function main() {
       console.log(`跳过 ${tf}：${dir} 没有 CSV`);
       continue;
     }
-    console.log(`导入 ${tf}  ${tickers.length} 只  ${dir}`);
+
+    const already = new Set<string>();
+    if (skipExisting) {
+      if (tf === "1d") {
+        for (const row of await prisma.backtestPanel.findMany({ select: { ticker: true } })) {
+          already.add(row.ticker);
+        }
+      } else {
+        for (const row of await prisma.backtestTfPanel.findMany({
+          where: { timeframe: tf },
+          select: { ticker: true },
+        })) {
+          already.add(row.ticker);
+        }
+      }
+    }
+
+    console.log(
+      `导入 ${tf}  ${tickers.length} 只  ${dir}` +
+        (skipExisting ? `  已有 ${already.size} 只跳过` : "") +
+        (until ? `  截到 ${until}` : ""),
+    );
     let ok = 0;
+    let skipped = 0;
     for (const ticker of tickers) {
+      if (already.has(ticker)) {
+        skipped += 1;
+        continue;
+      }
       const panel = readCsvPanel(dir, ticker);
       if (!panel || panel.dates.length === 0) {
         console.log(`  跳过 ${ticker}（空文件）`);
         continue;
       }
-      const bars = panel.dates.map((date, i) => ({
-        date,
-        open: panel.open?.[i] ?? panel.close[i],
-        high: panel.high[i],
-        low: panel.low[i],
-        close: panel.close[i],
-        volume: panel.volume?.[i] ?? 0,
-      }));
+      const bars = panel.dates
+        .map((date, i) => ({
+          date,
+          open: panel.open?.[i] ?? panel.close[i],
+          high: panel.high[i],
+          low: panel.low[i],
+          close: panel.close[i],
+          volume: panel.volume?.[i] ?? 0,
+        }))
+        .filter((bar) => !until || bar.date.slice(0, 10) <= until);
+      if (bars.length === 0) {
+        console.log(`  跳过 ${ticker}（截断后为空）`);
+        continue;
+      }
 
       if (tf === "1d") {
         const packed = packPanel(bars);
@@ -109,7 +156,7 @@ async function main() {
       ok += 1;
       process.stdout.write(`\r  已写 ${ok}/${tickers.length}  ${ticker.padEnd(8)}`);
     }
-    console.log(`\n  ${tf} 完成 ${ok} 只`);
+    console.log(`\n  ${tf} 完成 ${ok} 只` + (skipped > 0 ? `  跳过已有 ${skipped}` : ""));
   }
 
   console.log("之后线上设 SMALLFUND_SOURCE=db（生产默认就是 db）。");

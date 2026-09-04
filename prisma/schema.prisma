@@ -345,6 +345,16 @@ model BacktestTfPanel {
   @@index([timeframe])
 }
 
+/// 外生 RPS 标尺。约 1MB，构建和运行时读它，不必拉 72MB 标普面板。
+model RpsScale {
+  id          String   @id @default("spx")
+  generatedAt DateTime
+  index       String
+  buckets     Int
+  payload     Json
+  updatedAt   DateTime @updatedAt
+}
+
 /// 12M 估值引擎的每日快照。
 ///
 /// 与面板其余字段不同，这张表只有最新一天：基本面是当期值，

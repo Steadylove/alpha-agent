@@ -1,6 +1,7 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@/generated/prisma/client";
 import { readOrEmpty } from "@/lib/db/degrade";
+import { remoteDbEnabled } from "@/lib/db/remote";
 
 const globalForPrisma = globalThis as unknown as {
   prisma?: ExtendedPrismaClient;
@@ -26,6 +27,12 @@ function extend(client: PrismaClient) {
 export function getPrisma() {
   if (globalForPrisma.prisma) {
     return globalForPrisma.prisma;
+  }
+
+  if (!remoteDbEnabled()) {
+    throw new Error(
+      "本地默认不连 Neon，把额度留给线上。需要访问远程库时在命令前加 ALLOW_DB=1。",
+    );
   }
 
   if (!process.env.DATABASE_URL) {

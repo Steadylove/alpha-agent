@@ -5,6 +5,7 @@ import {
   type IntradayBar,
 } from "@/lib/data-sources/yahooIntraday";
 import { getPrisma } from "@/lib/db/prisma";
+import { hasDatabase } from "@/lib/db/remote";
 import { simpleMovingAverage } from "@/lib/scoring/indicators";
 import { computeExecutionPlan } from "@/lib/scoring/execution";
 import type { Playbook } from "@/lib/scoring/rpsPlaybooks";
@@ -114,6 +115,7 @@ export async function getStockChartData(
   symbol: string,
   stockScore: StockScore | null,
 ): Promise<StockChartData | null> {
+  if (!hasDatabase()) return null;
   const prisma = getPrisma();
   const instrument = await prisma.instrument.findUnique({ where: { symbol } });
   if (!instrument) return null;

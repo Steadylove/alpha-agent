@@ -1,3 +1,4 @@
+import { hasDatabase } from "@/lib/db/remote";
 import { MPR_SYMBOLS } from "@/lib/scoring/mpr";
 
 /** MacroPhaseState 落库的字段子集，页面只需要这些。 */
@@ -52,7 +53,7 @@ const HISTORY_DAYS = 120;
  * 而读快照表只是一次索引扫描。表为空时返回空数据由前端提示去跑任务。
  */
 export async function getMprData(): Promise<MprData> {
-  if (!process.env.DATABASE_URL) {
+  if (!hasDatabase()) {
     return { latest: null, history: [], missingSymbols: [...MPR_SYMBOLS] };
   }
 

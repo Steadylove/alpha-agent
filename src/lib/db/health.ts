@@ -1,5 +1,6 @@
 import { isDbUnavailable } from "@/lib/db/degrade";
 import { getPrisma } from "@/lib/db/prisma";
+import { hasDatabase } from "@/lib/db/remote";
 
 /**
  * 数据库可达性探测，供页面顶部的降级提示条使用。
@@ -8,7 +9,7 @@ import { getPrisma } from "@/lib/db/prisma";
  * 拿不到降级状态。所以这里自己发一条最小查询，结果按进程内缓存复用。
  */
 
-const TTL_MS = 15_000;
+const TTL_MS = 60_000;
 
 let checkedAt = 0;
 let reachable = true;
@@ -27,6 +28,7 @@ async function probe(): Promise<boolean> {
 }
 
 export async function isDbReachable(): Promise<boolean> {
+  if (!hasDatabase()) return true;
   if (Date.now() - checkedAt < TTL_MS) return reachable;
   // 同一时刻的并发请求共用一次探测
   inflight ??= probe().then((ok) => {

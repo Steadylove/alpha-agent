@@ -53,7 +53,7 @@ const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)}MB`;
  * 面板查询本来就没有 where 条件（要哪些标的是靠成分区间在本地筛的），成分表也小，
  * 所以整个快照与选哪个池无关——一份缓存服务三个池子。
  */
-async function fetchSnapshot(): Promise<PanelSnapshot> {
+export async function fetchSnapshot(): Promise<PanelSnapshot> {
   const { getPrisma } = await import("@/lib/db/prisma");
   const prisma = getPrisma();
 
@@ -110,6 +110,14 @@ async function getSnapshot(): Promise<PanelSnapshot> {
     );
   }
 
+  const { remoteDbEnabled } = await import("@/lib/db/remote");
+  if (!remoteDbEnabled()) {
+    throw new Error(
+      `本地面板缓存缺失：${PANEL_CACHE_PATH}。` +
+        "默认不连 Neon。跑 npm run panel:cache 重建，或 ALLOW_DB=1 才从库拉。",
+    );
+  }
+
   const t0 = Date.now();
   const fresh = await fetchSnapshot();
 
@@ -133,15 +141,17 @@ async function getSnapshot(): Promise<PanelSnapshot> {
  *
  * - `db`：日线 BacktestPanel，盘中 BacktestTfPanel。生产默认。
  * - `csv`：只读本地 CSV。
- * - `auto`：CSV 覆盖当前池才用 CSV，否则回落数据库。本地默认。
+ * - `auto`：CSV 覆盖当前池才用 CSV，否则回落数据库。
  *   只有 195 只 CSV 时不会冒充 sf-broad。
+ *
+ * 本地默认 `csv`：.env 里的 DATABASE_URL 就是线上 Neon，调试回落会打额度。
  */
 export type SmallFundSource = "csv" | "db" | "auto";
 
 export function smallFundSource(): SmallFundSource {
   const raw = (process.env.SMALLFUND_SOURCE ?? "").toLowerCase();
   if (raw === "db" || raw === "auto" || raw === "csv") return raw;
-  return process.env.NODE_ENV === "production" ? "db" : "auto";
+  return process.env.NODE_ENV === "production" ? "db" : "csv";
 }
 
 const CSV_GAP = new Set(["SKHY", "SPCX"]);
@@ -215,14 +225,24 @@ function dailyRpsTable(daily: PreparedUniverse): DailyRpsTable {
 }
 
 async function loadSmallFundFromDb(poolId: SmallFundPoolId = DEFAULT_SMALL_FUND_POOL): Promise<PanelBars[]> {
-  const snapshot = await getSnapshot();
-  const wanted = new Set(poolTickers(poolId));
-  const panels: PanelBars[] = [];
-  for (const row of snapshot.panels) {
-    if (!wanted.has(row.ticker)) continue;
-    panels.push(unpackPanel(row));
-  }
-  return panels;
+  const { getPrisma } = await import("@/lib/db/prisma");
+  const prisma = getPrisma();
+  const wanted = [...poolTickers(poolId)];
+  const t0 = Date.now();
+  const rows = await prisma.backtestPanel.findMany({
+    where: { ticker: { in: wanted } },
+    select: {
+      ticker: true,
+      days: true,
+      high: true,
+      low: true,
+      close: true,
+      volume: true,
+      open: true,
+    },
+  });
+  console.log(`[smallfund] 1d 数据库 ${rows.length}/${wanted.length} 只  ${Date.now() - t0}ms`);
+  return rows.map((row) => unpackPanel(row));
 }
 
 const tfSnapshots = new Map<string, Promise<PanelBars[]>>();
@@ -313,14 +333,21 @@ async function loadSmallFundPanels(
     }
 
     const db = await loadSmallFundFromSource(timeframe, poolId);
-    if (!coversPool(db, wanted)) {
-      throw new Error(
-        `Small Fund ${timeframe} 数据库未覆盖当前池（${db.length}/${wanted.length}）。` +
-          `跑 npm run smallfund:import。`,
-      );
+    if (coversPool(db, wanted)) {
+      console.log(`[smallfund] ${timeframe} 数据库 ${db.length} 只  pool=${poolId}`);
+      return db;
     }
-    console.log(`[smallfund] ${timeframe} 数据库 ${db.length} 只  pool=${poolId}`);
-    return db;
+    const csv = readCsvForTimeframe(timeframe, wanted);
+    if (coversPool(csv, wanted)) {
+      console.warn(
+        `[smallfund] ${timeframe} 数据库未覆盖（${db.length}/${wanted.length}），回落 CSV ${csv.length} 只`,
+      );
+      return csv;
+    }
+    throw new Error(
+      `Small Fund ${timeframe} 数据库未覆盖当前池（${db.length}/${wanted.length}）。` +
+        `跑 npm run smallfund:import。`,
+    );
   })();
 
   smallFundPanels.set(key, task);
@@ -332,7 +359,7 @@ async function loadSmallFundUniverse(
   timeframe: Timeframe = "1d",
   poolId: SmallFundPoolId = DEFAULT_SMALL_FUND_POOL,
 ): Promise<PreparedUniverse> {
-  const scale = requireRpsScale();
+  const scale = await requireRpsScale();
   const panels = await loadSmallFundPanels(timeframe, poolId);
   if (timeframe === "1d") {
     const prepared = prepareSmallFund(panels, poolId, { kind: "scale", scale });

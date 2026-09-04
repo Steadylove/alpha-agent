@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
@@ -68,11 +69,35 @@ async function main() {
   mkdirSync(path.dirname(RPS_SCALE_PATH), { recursive: true });
   writeFileSync(RPS_SCALE_PATH, JSON.stringify(file));
 
+  const { remoteDbEnabled } = await import("@/lib/db/remote");
+  if (remoteDbEnabled() && process.env.DATABASE_URL) {
+    const { getPrisma } = await import("@/lib/db/prisma");
+    const prisma = getPrisma();
+    await prisma.rpsScale.upsert({
+      where: { id: "spx" },
+      create: {
+        id: "spx",
+        generatedAt: new Date(file.generatedAt),
+        index: file.index,
+        buckets: file.buckets,
+        payload: file,
+      },
+      update: {
+        generatedAt: new Date(file.generatedAt),
+        index: file.index,
+        buckets: file.buckets,
+        payload: file,
+      },
+    });
+    await prisma.$disconnect();
+  }
+
   const median = [...counts].sort((a, b) => a - b)[counts.length >> 1];
   console.log(
     `[rps-scale] ${dates.length} 个交易日 ${dates[0]} → ${dates[dates.length - 1]}  ` +
       `每日样本中位 ${median} 只  ${SCALE_BUCKETS} 个切点  ` +
-      `写入 ${RPS_SCALE_PATH}`,
+      `写入 ${RPS_SCALE_PATH}` +
+        (remoteDbEnabled() && process.env.DATABASE_URL ? " 并已写入数据库" : ""),
   );
 }
 

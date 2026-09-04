@@ -1,3 +1,4 @@
+import { hasDatabase } from "@/lib/db/remote";
 import type { ScreenerResult, ScreenerRow } from "@/lib/jobs/alphaScreener";
 import { BASE_RPS_THRESHOLD } from "@/lib/scoring/rpsPlaybooks";
 
@@ -37,7 +38,7 @@ function parseBuckets(raw: unknown): {
 }
 
 export async function getLatestScreenerData(): Promise<ScreenerPageData | null> {
-  if (!process.env.DATABASE_URL) return null;
+  if (!hasDatabase()) return null;
 
   const { getPrisma } = await import("@/lib/db/prisma");
   const prisma = getPrisma();

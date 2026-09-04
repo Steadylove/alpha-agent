@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && npx --yes tsx scripts/fetch-panel-cache.ts && npx --yes tsx scripts/ensure-lab-csv.ts && npm run rps:scale && npm run rps:snapshot && next build",
+    "build": "prisma generate && npx --yes tsx scripts/ensure-lab-csv.ts && npm run rps:snapshot && next build",
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",

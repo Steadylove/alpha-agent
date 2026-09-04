@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { packPanel, unpackPanel } from "@/lib/backtest/panel";
 import {
   readSnapshot,
+  resolvePanelHydrate,
   snapshotSize,
   writeSnapshot,
   type PanelSnapshot,
@@ -110,6 +111,21 @@ describe("面板落盘缓存", () => {
     const stale = path.join(dir, "stale.v8");
     writeFileSync(stale, serialize({ version: 999, ...snapshot() }));
     expect(readSnapshot(stale)).toBeNull();
+  });
+
+  it("构建时按 本地缓存 → URL → 数据库 取面板", () => {
+    expect(
+      resolvePanelHydrate({ hasCache: true, snapshotUrl: "https://x", hasDatabaseUrl: true }),
+    ).toBe("reuse");
+    expect(
+      resolvePanelHydrate({ hasCache: false, snapshotUrl: "https://x", hasDatabaseUrl: true }),
+    ).toBe("url");
+    expect(
+      resolvePanelHydrate({ hasCache: false, snapshotUrl: undefined, hasDatabaseUrl: true }),
+    ).toBe("database");
+    expect(
+      resolvePanelHydrate({ hasCache: false, snapshotUrl: "", hasDatabaseUrl: false }),
+    ).toBe("skip");
   });
 
   it("写入失败时返回 false 而不抛错", () => {

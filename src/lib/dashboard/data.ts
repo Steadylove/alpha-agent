@@ -1,4 +1,5 @@
 import { demoReport, demoReportInput } from "@/lib/fixtures/demo";
+import { hasDatabase } from "@/lib/db/remote";
 import type {
   DailyReport,
   KillSwitchStatus,
@@ -27,7 +28,7 @@ export type DashboardData = {
 };
 
 export async function getDashboardData(): Promise<DashboardData> {
-  if (!process.env.DATABASE_URL) {
+  if (!hasDatabase()) {
     return {
       report: demoReport,
       marketMetric: demoReportInput.marketMetric,

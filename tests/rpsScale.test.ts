@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { quantileCuts, scalePercentile } from "@/lib/backtest/rpsScale";
+import { parseScaleFile, quantileCuts, scalePercentile } from "@/lib/backtest/rpsScale";
 import { percentileRank } from "@/lib/scoring/percentileRs";
 
 describe("RPS 外生标尺", () => {
@@ -45,5 +45,21 @@ describe("RPS 外生标尺", () => {
       worst = Math.max(worst, Math.abs(exact - scalePercentile(cuts, probe)));
     }
     expect(worst).toBeLessThan(1);
+  });
+
+  it("parseScaleFile 按日期取切点", () => {
+    const scale = parseScaleFile({
+      generatedAt: "2026-08-21T00:00:00.000Z",
+      index: "SP500",
+      buckets: 2,
+      dates: ["2026-08-20", "2026-08-21"],
+      cuts: [
+        [1, 2],
+        [3, 4],
+      ],
+      counts: [10, 11],
+    });
+    expect(scale.dates).toEqual(["2026-08-20", "2026-08-21"]);
+    expect([...scale.at.get("2026-08-21")!]).toEqual([3, 4]);
   });
 });

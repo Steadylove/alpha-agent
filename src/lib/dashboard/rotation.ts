@@ -1,4 +1,5 @@
 import { COMMERCIAL_SPEC } from "@/lib/config/commercialSpec";
+import { hasDatabase } from "@/lib/db/remote";
 import { PATH_EXPOSURE, type PathExposure, macroExposurePct } from "@/lib/scoring/macroExposure";
 import { ROTATION_UNIVERSE } from "@/lib/scoring/rotationUniverse";
 
@@ -168,7 +169,7 @@ export async function getRotationData(): Promise<RotationData> {
     macroExposure: null,
   };
 
-  if (!process.env.DATABASE_URL) return empty;
+  if (!hasDatabase()) return empty;
 
   const { getPrisma } = await import("@/lib/db/prisma");
   const prisma = getPrisma();
