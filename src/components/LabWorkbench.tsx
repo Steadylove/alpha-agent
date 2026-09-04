@@ -85,12 +85,20 @@ export function LabWorkbench() {
         <Stack gap={8}>
           <SegmentedControl
             size="sm"
+            fullWidth
             value={tf}
             onChange={(v) => setTf(v as ChampId)}
             data={CHAMP_TABS.map((c) => ({ value: c.id, label: c.name }))}
           />
           <Text size="xs" c="dimmed" lh={1.55} style={{ minHeight: 40 }}>
             {tab.label}
+            {tab.note ? (
+              <>
+                <br />
+                {tab.note}
+                {result ? ` · ${result.universeSize} 只有价` : ""}
+              </>
+            ) : null}
           </Text>
         </Stack>
       </Card>

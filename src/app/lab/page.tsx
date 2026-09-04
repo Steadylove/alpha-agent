@@ -9,7 +9,7 @@ export default function LabPage() {
       <div className="rise-in">
         <h1 className="text-3xl font-semibold tracking-tight text-zinc-50">调参实验室</h1>
         <p className="mt-2 max-w-3xl text-sm leading-relaxed text-zinc-400">
-          四个周期各用一组最佳参数。点曲线或输入日期看当日收盘持仓。绿线策略，灰线同池等权，琥珀 QQQ。
+          195 池四个周期各一档。4H/2H 扩池绑 sf-broad 560，不覆盖原冻结档。点曲线或输入日期看当日收盘持仓。绿线策略，灰线同池等权，琥珀 QQQ。
         </p>
       </div>
 

@@ -56,6 +56,17 @@ describe("small fund pools", () => {
     expect(tickersForPool("sf-2026-08")).toBe(SMALL_FUND_UNIVERSE);
   });
 
+  it("标普∪纳指扩池含原池和新票，全程都在", () => {
+    const broad = tickersForPool("sf-broad");
+    expect(broad).toHaveLength(SMALL_FUND_UNIVERSE.length + 365);
+    expect(broad).toContain("NVDA");
+    expect(broad).toContain("A");
+    expect(broad).toContain("BRK-B");
+    const spans = membershipForPool("sf-broad", ["A", "NVDA"]);
+    expect(inSpan("2021-08-24", spans.get("A")!)).toBe(true);
+    expect(inSpan("2021-08-24", spans.get("NVDA")!)).toBe(true);
+  });
+
   it("Small Fund 未传旋钮用当前纪律，传入则覆盖", () => {
     const frozen = parseConfig({ index: "SMALLFUND" });
     expect(frozen.rpsMin).toBe(40);

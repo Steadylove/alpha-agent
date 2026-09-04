@@ -198,9 +198,9 @@ function dailyRpsTable(daily: PreparedUniverse): DailyRpsTable {
   return { dates: daily.axis, byTicker };
 }
 
-async function loadSmallFundFromDb(): Promise<PanelBars[]> {
+async function loadSmallFundFromDb(poolId: SmallFundPoolId = DEFAULT_SMALL_FUND_POOL): Promise<PanelBars[]> {
   const snapshot = await getSnapshot();
-  const wanted = new Set(tickersForPool("sf-live", readLiveBook()));
+  const wanted = new Set(poolTickers(poolId));
   const panels: PanelBars[] = [];
   for (const row of snapshot.panels) {
     if (!wanted.has(row.ticker)) continue;
@@ -209,30 +209,39 @@ async function loadSmallFundFromDb(): Promise<PanelBars[]> {
   return panels;
 }
 
-const smallFundPanels = new Map<Timeframe, Promise<PanelBars[]>>();
+const smallFundPanels = new Map<string, Promise<PanelBars[]>>();
 
-async function loadSmallFundPanels(timeframe: Timeframe): Promise<PanelBars[]> {
-  const hit = smallFundPanels.get(timeframe);
+function poolTickers(poolId: SmallFundPoolId): readonly string[] {
+  return tickersForPool(poolId, poolId === "sf-live" ? readLiveBook() : []);
+}
+
+async function loadSmallFundPanels(
+  timeframe: Timeframe,
+  poolId: SmallFundPoolId = DEFAULT_SMALL_FUND_POOL,
+): Promise<PanelBars[]> {
+  const key = `${timeframe}:${poolId}`;
+  const hit = smallFundPanels.get(key);
   if (hit) return hit;
 
   const task = (async () => {
+    const wanted = poolTickers(poolId);
     if (timeframe === "4h" || timeframe === "2h" || timeframe === "1h") {
       const dir = { "4h": CSV_4H_DIR, "2h": CSV_2H_DIR, "1h": CSV_1H_DIR }[timeframe];
       const label = timeframe.toUpperCase();
       const cmd = `smallfund:fetch-${timeframe}`;
-      const csv = readCsvPanels(dir, tickersForPool("sf-live", readLiveBook())).filter((panel) => panel.ticker !== "SPCX");
+      const csv = readCsvPanels(dir, wanted).filter((panel) => panel.ticker !== "SPCX");
       if (csv.length === 0) {
         throw new Error(`Small Fund ${label} CSV 为空：${dir}。先跑 npm run ${cmd}。`);
       }
-      console.log(`[smallfund] ${label} CSV ${csv.length} 只  ${dir}`);
+      console.log(`[smallfund] ${label} CSV ${csv.length} 只  ${dir}  pool=${poolId}`);
       return csv;
     }
 
     const source = smallFundSource();
     if (source === "csv" || source === "auto") {
-      const csv = readCsvPanels(CSV_PANEL_DIR, tickersForPool("sf-live", readLiveBook()));
+      const csv = readCsvPanels(CSV_PANEL_DIR, wanted);
       if (csv.length > 0) {
-        console.log(`[smallfund] CSV ${csv.length} 只  ${CSV_PANEL_DIR}`);
+        console.log(`[smallfund] CSV ${csv.length} 只  ${CSV_PANEL_DIR}  pool=${poolId}`);
         return csv;
       }
       if (source === "csv") {
@@ -242,18 +251,18 @@ async function loadSmallFundPanels(timeframe: Timeframe): Promise<PanelBars[]> {
       }
     }
 
-    const db = await loadSmallFundFromDb();
+    const db = await loadSmallFundFromDb(poolId);
     if (db.length === 0) {
       throw new Error(
         "Small Fund 数据库面板为空。额度恢复后跑 npm run smallfund:import，或先用 CSV：npm run smallfund:fetch。",
       );
     }
-    console.log(`[smallfund] 数据库 ${db.length} 只`);
+    console.log(`[smallfund] 数据库 ${db.length} 只  pool=${poolId}`);
     return db;
   })();
 
-  smallFundPanels.set(timeframe, task);
-  task.catch(() => smallFundPanels.delete(timeframe));
+  smallFundPanels.set(key, task);
+  task.catch(() => smallFundPanels.delete(key));
   return task;
 }
 
@@ -262,7 +271,7 @@ async function loadSmallFundUniverse(
   poolId: SmallFundPoolId = DEFAULT_SMALL_FUND_POOL,
 ): Promise<PreparedUniverse> {
   const scale = requireRpsScale();
-  const panels = await loadSmallFundPanels(timeframe);
+  const panels = await loadSmallFundPanels(timeframe, poolId);
   if (timeframe === "1d") {
     const prepared = prepareSmallFund(panels, poolId, { kind: "scale", scale });
     assertScaleFresh(prepared.axis, scale);
@@ -270,7 +279,7 @@ async function loadSmallFundUniverse(
   }
 
   // 盘中周期的强度一律取日线值，理由见 DailyRpsTable
-  const dailyPrepared = prepareSmallFund(await loadSmallFundPanels("1d"), poolId, {
+  const dailyPrepared = prepareSmallFund(await loadSmallFundPanels("1d", poolId), poolId, {
     kind: "scale",
     scale,
   });

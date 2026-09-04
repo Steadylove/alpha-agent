@@ -17,10 +17,43 @@ const day = (date: string, extras: Partial<DayBook> = {}): DayBook => ({
 });
 
 describe("四周期定档", () => {
-  it("默认 4H，四组都在", () => {
+  it("默认 4H，195 四档仍在，扩池 4H/2H 另挂", () => {
     expect(champOf(null).id).toBe("4h");
     expect(champOf("nope").id).toBe("4h");
-    expect(CHAMPS.map((c) => c.id)).toEqual(["4h", "2h", "1d", "1h"]);
+    expect(CHAMPS.map((c) => c.id)).toEqual(["4h", "4h-broad", "2h", "2h-broad", "1d", "1h"]);
+    expect(champOf("4h").poolId).toBe("sf-2026-08");
+    expect(champOf("4h-broad").poolId).toBe("sf-broad");
+    expect(champOf("4h-broad").config).toMatchObject({
+      timeframe: "4h",
+      stopMult: 8,
+      trailMult: 6,
+      takeProfitR: 3,
+      rpsMin: 30,
+      requireRsi: true,
+      minRsi: 30,
+      rpsExit: null,
+    });
+    expect(champOf("4h-broad").opts).toMatchObject({
+      slotPct: 0.125,
+      entryWindow: "dayClose",
+      exitWindow: "all",
+    });
+    expect(champOf("2h-broad").poolId).toBe("sf-broad");
+    expect(champOf("2h-broad").config).toMatchObject({
+      timeframe: "2h",
+      stopMult: 6,
+      trailMult: 8,
+      takeProfitR: null,
+      rpsMin: 0,
+      requireRsi: true,
+      minRsi: 30,
+      rpsExit: 10,
+    });
+    expect(champOf("2h-broad").opts).toMatchObject({
+      slotPct: 0.125,
+      entryWindow: "all",
+      exitWindow: "all",
+    });
   });
 
   it("盘中多根收成日终，买卖合并", () => {

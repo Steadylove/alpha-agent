@@ -42,7 +42,7 @@ export async function POST(request: Request) {
   const champ = typeof body.champ === "string" ? champOf(body.champ) : null;
   const config = champ?.config ?? parseConfig(body);
   const index = champ ? "SMALLFUND" : parseIndex(body);
-  const poolId = parsePoolId(body);
+  const poolId = champ?.poolId ?? parsePoolId(body);
 
   try {
     const universe = await getPreparedUniverse(index, config.timeframe, poolId);

@@ -30,6 +30,8 @@ export type RotateOpts = {
   slotScale?: (ticker: string, date: string) => number;
   dailyEntry?: Map<string, Set<string>>;
   exitWindow?: "all" | "dayClose";
+  /** 搜参用：只留年化/回撤/开仓，不建账本和持仓明细。 */
+  statsOnly?: boolean;
 };
 
 export type RotateResult = {
@@ -81,6 +83,7 @@ type Slot = {
 export function runRotate(uni: PreparedUniverse, config: BacktestConfig, opts: RotateOpts): RotateResult {
   const { lo, hi } = windowBounds(uni.axis, config);
   const cost = opts.costBps / 10_000;
+  const statsOnly = opts.statsOnly === true;
   const isDayClose = uni.axis.map(
     (a, i) => i + 1 >= uni.axis.length || uni.axis[i + 1].slice(0, 10) !== a.slice(0, 10),
   );
@@ -172,14 +175,14 @@ export function runRotate(uni: PreparedUniverse, config: BacktestConfig, opts: R
       const proceeds = slot.shares * price * (1 - cost);
       cash += proceeds;
       exits += 1;
-      if (slot.eqAtEntry > 0) {
+      if (!statsOnly && slot.eqAtEntry > 0) {
         lotPnl.push({
           symbol: legs[idx].sym.ticker,
           pct: ((proceeds - slot.cost) / slot.eqAtEntry) * 100,
         });
       }
-      if (trade) trades.push(trade);
-      sells.push(legs[idx].sym.ticker);
+      if (!statsOnly && trade) trades.push(trade);
+      if (!statsOnly) sells.push(legs[idx].sym.ticker);
       slots.delete(idx);
     };
 
@@ -215,7 +218,7 @@ export function runRotate(uni: PreparedUniverse, config: BacktestConfig, opts: R
       });
       cash -= amount;
       entries += 1;
-      buys.push(leg.sym.ticker);
+      if (!statsOnly) buys.push(leg.sym.ticker);
     }
     orders = [];
 
@@ -227,36 +230,38 @@ export function runRotate(uni: PreparedUniverse, config: BacktestConfig, opts: R
     const date = uni.axis[d];
     curve.push({ date, v: eq });
     holdingSum += slots.size;
-    holdCounts.push(slots.size);
+    if (!statsOnly) holdCounts.push(slots.size);
     const exposurePct = eq > 0 ? (held / eq) * 100 : 0;
     exposureSum += exposurePct;
 
-    const rows: HoldingRow[] = [];
-    for (const [idx, slot] of slots) {
-      const close = legs[idx].lastClose;
-      const value = slot.shares * close;
-      rows.push({
-        symbol: legs[idx].sym.ticker,
-        weightPct: eq > 0 ? (value / eq) * 100 : 0,
-        sigType: slot.sigType,
-        entryDate: slot.entryDate,
-        entryPrice: slot.entryPrice,
-        floatPnlPct: slot.entryPrice > 0 ? ((close - slot.entryPrice) / slot.entryPrice) * 100 : 0,
-        entryRps: slot.entryRps >= 1 ? slot.entryRps : null,
+    if (!statsOnly) {
+      const rows: HoldingRow[] = [];
+      for (const [idx, slot] of slots) {
+        const close = legs[idx].lastClose;
+        const value = slot.shares * close;
+        rows.push({
+          symbol: legs[idx].sym.ticker,
+          weightPct: eq > 0 ? (value / eq) * 100 : 0,
+          sigType: slot.sigType,
+          entryDate: slot.entryDate,
+          entryPrice: slot.entryPrice,
+          floatPnlPct: slot.entryPrice > 0 ? ((close - slot.entryPrice) / slot.entryPrice) * 100 : 0,
+          entryRps: slot.entryRps >= 1 ? slot.entryRps : null,
+        });
+      }
+      rows.sort((a, b) => b.weightPct - a.weightPct);
+      holdings.push({ date, rows });
+      book.push({
+        date,
+        strategy: eq,
+        benchmark: 1,
+        spy: null,
+        nHold: slots.size,
+        exposurePct,
+        buys,
+        sells,
       });
     }
-    rows.sort((a, b) => b.weightPct - a.weightPct);
-    holdings.push({ date, rows });
-    book.push({
-      date,
-      strategy: eq,
-      benchmark: 1,
-      spy: null,
-      nHold: slots.size,
-      exposurePct,
-      buys,
-      sells,
-    });
 
     const fresh = legs
       .filter((leg) => leg.view != null && leg.view.pendingEntry !== 0)

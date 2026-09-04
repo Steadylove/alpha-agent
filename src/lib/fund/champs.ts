@@ -1,5 +1,6 @@
 import type { BacktestConfig, Timeframe } from "@/lib/backtest/engine";
 import { DEFAULT_BACKTEST_CONFIG } from "@/lib/backtest/engine";
+import { DEFAULT_SMALL_FUND_POOL, type SmallFundPoolId } from "@/lib/backtest/smallFundPools";
 import { SMALL_FUND_FROM, SMALL_FUND_TO } from "@/lib/backtest/smallFundUniverse";
 
 import { CHAMP_TABS, type ChampId } from "./champsMeta";
@@ -15,6 +16,7 @@ export type Champ = {
   label: string;
   config: BacktestConfig;
   opts: RotateOpts;
+  poolId: SmallFundPoolId;
 };
 
 const WINDOW = { from: SMALL_FUND_FROM, to: SMALL_FUND_TO, splitDate: "2099-01-01" } as const;
@@ -35,12 +37,13 @@ function cfg(over: Partial<BacktestConfig>, timeframe: Timeframe): BacktestConfi
 
 const COST_BPS = 10;
 
-/** 四周期现金账本定档。数字只从 `scripts/fund-rotate.ts` / 本配置复现。 */
+/** 现金账本定档。数字只从 `scripts/fund-rotate.ts` / 本配置复现。扩池档绑 sf-broad，不覆盖 195。 */
 const meta = (id: ChampId) => CHAMP_TABS.find((t) => t.id === id)!;
 
 export const CHAMPS: readonly Champ[] = [
   {
     ...meta("4h"),
+    poolId: DEFAULT_SMALL_FUND_POOL,
     config: cfg(
       { stopMult: 8, trailMult: 10, takeProfitR: null, rpsMin: 0, requireRsi: true, minRsi: 30, rpsExit: null },
       "4h",
@@ -48,7 +51,17 @@ export const CHAMPS: readonly Champ[] = [
     opts: { slotPct: 0.08, mode: "none", edge: 0, costBps: COST_BPS, entryWindow: "dayClose", exitWindow: "all" },
   },
   {
+    ...meta("4h-broad"),
+    poolId: "sf-broad",
+    config: cfg(
+      { stopMult: 8, trailMult: 6, takeProfitR: 3, rpsMin: 30, requireRsi: true, minRsi: 30, rpsExit: null },
+      "4h",
+    ),
+    opts: { slotPct: 0.125, mode: "none", edge: 0, costBps: COST_BPS, entryWindow: "dayClose", exitWindow: "all" },
+  },
+  {
     ...meta("2h"),
+    poolId: DEFAULT_SMALL_FUND_POOL,
     config: cfg(
       { stopMult: 8, trailMult: 10, takeProfitR: null, rpsMin: 30, requireRsi: false, minRsi: 30, rpsExit: 10 },
       "2h",
@@ -56,7 +69,17 @@ export const CHAMPS: readonly Champ[] = [
     opts: { slotPct: 0.125, mode: "none", edge: 0, costBps: COST_BPS, entryWindow: "dayClose", exitWindow: "all" },
   },
   {
+    ...meta("2h-broad"),
+    poolId: "sf-broad",
+    config: cfg(
+      { stopMult: 6, trailMult: 8, takeProfitR: null, rpsMin: 0, requireRsi: true, minRsi: 30, rpsExit: 10 },
+      "2h",
+    ),
+    opts: { slotPct: 0.125, mode: "none", edge: 0, costBps: COST_BPS, entryWindow: "all", exitWindow: "all" },
+  },
+  {
     ...meta("1d"),
+    poolId: DEFAULT_SMALL_FUND_POOL,
     config: cfg(
       { stopMult: 4, trailMult: 8, takeProfitR: 3, rpsMin: 10, requireRsi: false, minRsi: 30, rpsExit: 10 },
       "1d",
@@ -65,6 +88,7 @@ export const CHAMPS: readonly Champ[] = [
   },
   {
     ...meta("1h"),
+    poolId: DEFAULT_SMALL_FUND_POOL,
     config: cfg(
       { stopMult: 6, trailMult: 8, takeProfitR: 3, rpsMin: 30, requireRsi: true, minRsi: 50, rpsExit: 30 },
       "1h",

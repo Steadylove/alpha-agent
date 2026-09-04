@@ -24,11 +24,7 @@ import { NextResponse } from "next/server";
 
 import type { Timeframe } from "@/lib/backtest/engine";
 import { latestRps, type RpsEntry } from "@/lib/backtest/rpsSnapshot";
-import {
-  SMALL_FUND_4H_DEFAULT_CONFIG,
-  SMALL_FUND_DEFAULT_CONFIG,
-} from "@/lib/backtest/smallFundUniverse";
-import { champOf } from "@/lib/fund/champs";
+import { SMALL_FUND_DEFAULT_CONFIG } from "@/lib/backtest/smallFundUniverse";
 import { postDiscordPayload, type DiscordPayload } from "@/lib/discord/sendWebhook";
 
 // 读一个小 JSON 加一次 Discord 投递，不该超过这个量级
@@ -39,8 +35,8 @@ export const maxDuration = 15;
  */
 const RPS_PANELS: Record<string, { tf: Timeframe; rpsMin: number }> = {
   D: { tf: "1d", rpsMin: SMALL_FUND_DEFAULT_CONFIG.rpsMin },
-  "240": { tf: "4h", rpsMin: SMALL_FUND_4H_DEFAULT_CONFIG.rpsMin },
-  "120": { tf: "2h", rpsMin: champOf("2h").config.rpsMin },
+  "240": { tf: "4h", rpsMin: 30 },
+  "120": { tf: "2h", rpsMin: 0 },
 };
 
 /** TV 的 timeframe.period 是 "D"/"W"/"M" 或纯分钟数，转成人看的写法。 */

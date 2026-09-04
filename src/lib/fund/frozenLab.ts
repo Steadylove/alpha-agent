@@ -192,7 +192,7 @@ function asTrades(raw: ClosedTrade[]): FrozenTrade[] {
 export async function runFrozenLab(id: string | null): Promise<FrozenLabResult> {
   const champ = champOf(id);
   const [uni, qqq] = await Promise.all([
-    getPreparedUniverse("SMALLFUND", champ.id),
+    getPreparedUniverse("SMALLFUND", champ.config.timeframe, champ.poolId),
     getQqqCloses(),
   ]);
   const started = Date.now();

@@ -3,10 +3,12 @@
  *
  * - `sf-v1` / `sf-2026-08`：静态快照，回测全程都用当时那份名单。
  * - `sf-live`：活账本。原池一直在，2026-08 新加的从生效日起算。
+ * - `sf-broad`：Small Fund ∪ 现任标普 500 ∪ 现任纳指 100，全程静态。默认池仍是 sf-2026-08。
  *
  * 引擎已有时点成分（`isMember` / `inSpan`），这里只负责生成区间。
  */
 
+import { BROAD_EXTRA_TICKERS } from "./broadUniverse";
 import type { MembershipSpan } from "./engine";
 import { applyLiveBookChanges, extraLiveTickers, type LiveBookChange } from "./liveBookLogic";
 import { SMALL_FUND_MEMBERSHIP_START, SMALL_FUND_UNIVERSE } from "./smallFundUniverse";
@@ -19,7 +21,7 @@ export const SMALL_FUND_ADDED_2026_08 = SMALL_FUND_UNIVERSE.slice(SMALL_FUND_V1_
 /** 2026-08 扩入 100 只的生效日。此前活账本里它们不进截面。 */
 export const SMALL_FUND_ADDED_ON = "2026-08-01";
 
-export const SMALL_FUND_POOL_IDS = ["sf-v1", "sf-2026-08", "sf-live"] as const;
+export const SMALL_FUND_POOL_IDS = ["sf-v1", "sf-2026-08", "sf-live", "sf-broad"] as const;
 export type SmallFundPoolId = (typeof SMALL_FUND_POOL_IDS)[number];
 
 export const DEFAULT_SMALL_FUND_POOL: SmallFundPoolId = "sf-2026-08";
@@ -43,6 +45,11 @@ export const SMALL_FUND_POOLS: Record<
     label: "活账本",
     note: "原池一直在，2026-08 新加的从当天起算；之后加减写在 live-book。",
   },
+  "sf-broad": {
+    id: "sf-broad",
+    label: "标普∪纳指扩池",
+    note: "Small Fund 197 ∪ 现任标普/纳指，合计 562，全程都在。不改冻结档。",
+  },
 };
 
 export function isSmallFundPoolId(value: unknown): value is SmallFundPoolId {
@@ -63,6 +70,9 @@ export function tickersForPool(
     const extra = extraLiveTickers(liveChanges);
     return extra.length === 0 ? SMALL_FUND_UNIVERSE : [...SMALL_FUND_UNIVERSE, ...extra];
   }
+  if (id === "sf-broad") {
+    return [...new Set([...SMALL_FUND_UNIVERSE, ...BROAD_EXTRA_TICKERS])].sort();
+  }
   return SMALL_FUND_UNIVERSE;
 }
 
@@ -80,7 +90,7 @@ export function membershipForPool(
   for (const ticker of tickers) {
     if (id === "sf-v1") {
       out.set(ticker, v1.has(ticker) ? always : []);
-    } else if (id === "sf-2026-08") {
+    } else if (id === "sf-2026-08" || id === "sf-broad") {
       out.set(ticker, always);
     } else if (v1.has(ticker)) {
       out.set(ticker, always);
