@@ -13,7 +13,7 @@ import type { Timeframe } from "./engine";
  * 而这一步的输入是随仓库部署的静态 CSV，最后一根的分位在构建时就定了。
  * 所以构建时算一次，运行时只读文件。
  *
- * 只覆盖默认池（`sf-2026-08`）与有面板的周期（日线 / 4H / 2H），与 `/api/tv/alert` 口径一致。
+ * 快照按 `sf-broad` 排名。盘中 RPS 本就是日线分位贴上去的，缺档时回落日线。
  */
 
 export const RPS_SNAPSHOT_PATH = path.join(process.cwd(), "data", "rps-latest.json");
@@ -66,4 +66,40 @@ export function readRpsSnapshot(): RpsSnapshot | null {
 
 export function latestRps(symbol: string, timeframe: Timeframe): RpsEntry | null {
   return pickRps(readRpsSnapshot(), symbol, timeframe);
+}
+
+/** TV 的 `timeframe.period`：分钟数或 `2H`/`D`/`W` 都认。 */
+export function resolveAlertTimeframe(period: string): Timeframe {
+  const p = period.trim().toUpperCase();
+  if (p === "D" || p === "1D" || p === "W" || p === "M") return "1d";
+  if (p === "240" || p === "4H") return "4h";
+  if (p === "120" || p === "2H") return "2h";
+  if (p === "60" || p === "1H") return "1h";
+  const mins = Number(period);
+  if (Number.isFinite(mins) && mins > 0) {
+    if (mins >= 240) return "4h";
+    if (mins >= 120) return "2h";
+    if (mins >= 60) return "1h";
+  }
+  return "1d";
+}
+
+/**
+ * 告警查分位：先看对应周期，没有那一档就用日线。
+ * 票不在快照里返回 null，不抛「不在 Small Fund 池」。
+ */
+export function lookupAlertRps(symbol: string, timeframe: Timeframe): RpsEntry | null {
+  const snapshot = readRpsSnapshot();
+  if (!snapshot) {
+    throw new Error(
+      `RPS 快照缺失：${RPS_SNAPSHOT_PATH}。跑 npm run rps:snapshot 生成（构建时会自动跑）。`,
+    );
+  }
+  const ticker = symbol.includes(":") ? symbol.slice(symbol.lastIndexOf(":") + 1) : symbol;
+  const key = ticker.trim().toUpperCase();
+  const table = snapshot.timeframes[timeframe] ?? snapshot.timeframes["1d"];
+  if (!table) {
+    throw new Error(`RPS 快照里没有 ${timeframe} 也没有日线。跑 npm run rps:snapshot。`);
+  }
+  return table[key] ?? null;
 }

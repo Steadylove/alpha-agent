@@ -2,8 +2,8 @@
  * TradingView 告警中转：补上截面 RPS 闸门，再转发 Discord。
  *
  * Pine 只算得出单标的自足的信号（一买/二买 + RSI + Vegas），
- * `rps >= rpsMin` 要把当日全池 197 只一起排名，单脚本 40 个 request.*() 的
- * 上限决定了它在 TradingView 上无解。这里补的就是那一刀。
+ * `rps >= rpsMin` 要把当日全池一起排名，单脚本 40 个 request.*() 的
+ * 上限决定了它在 TradingView 上无解。这里补的就是那一刀。快照是 sf-broad。
  *
  * 分位读的是构建时算好的 `data/rps-latest.json`，不在请求里现算：那要载入
  * 全池 13 年行情重跑一遍准备段，冷启动十几秒，TV 的 webhook 等不了。
@@ -23,21 +23,19 @@
 import { NextResponse } from "next/server";
 
 import type { Timeframe } from "@/lib/backtest/engine";
-import { latestRps, type RpsEntry } from "@/lib/backtest/rpsSnapshot";
+import { lookupAlertRps, resolveAlertTimeframe, type RpsEntry } from "@/lib/backtest/rpsSnapshot";
 import { SMALL_FUND_DEFAULT_CONFIG } from "@/lib/backtest/smallFundUniverse";
 import { postDiscordPayload, type DiscordPayload } from "@/lib/discord/sendWebhook";
 
 // 读一个小 JSON 加一次 Discord 投递，不该超过这个量级
 export const maxDuration = 15;
 
-/**
- * 有离线 RPS 面板的周期。别的照样转发，但闸门会标成「无面板」。
- */
-const RPS_PANELS: Record<string, { tf: Timeframe; rpsMin: number }> = {
-  D: { tf: "1d", rpsMin: SMALL_FUND_DEFAULT_CONFIG.rpsMin },
-  "240": { tf: "4h", rpsMin: 30 },
-  "120": { tf: "2h", rpsMin: 0 },
-};
+function rpsMinOf(tf: Timeframe): number {
+  if (tf === "4h") return 30;
+  if (tf === "2h") return 0;
+  if (tf === "1h") return 30;
+  return SMALL_FUND_DEFAULT_CONFIG.rpsMin;
+}
 
 /** TV 的 timeframe.period 是 "D"/"W"/"M" 或纯分钟数，转成人看的写法。 */
 function tfLabel(period: string): string {
@@ -167,7 +165,8 @@ export async function POST(request: Request) {
   }
 
   const label = tfLabel(payload.tf);
-  const panel = RPS_PANELS[payload.tf] ?? null;
+  const tf = resolveAlertTimeframe(payload.tf);
+  const rpsMin = rpsMinOf(tf);
 
   if (payload.event === "sell") {
     await postDiscordPayload(webhookUrl, renderSell(payload, label));
@@ -176,31 +175,27 @@ export async function POST(request: Request) {
 
   let found: RpsEntry | null = null;
   let lookupError: string | null = null;
-  if (panel) {
-    try {
-      found = latestRps(payload.symbol, panel.tf);
-    } catch (error) {
-      lookupError = error instanceof Error ? error.message : String(error);
-    }
+  try {
+    found = lookupAlertRps(payload.symbol, tf);
+  } catch (error) {
+    lookupError = error instanceof Error ? error.message : String(error);
   }
 
   let gate: Gate;
-  if (!panel) {
-    gate = { state: "unknown", field: `\`—\`\n${label} 无 RPS 面板`, note: null };
-  } else if (!found) {
-    const why = lookupError ? "面板读取失败" : "不在 Small Fund 池";
+  if (!found) {
+    const why = lookupError ? "面板读取失败" : "快照无此票";
     gate = { state: "unknown", field: `\`—\`\n${why}`, note: null };
-  } else if (found.rps < panel.rpsMin) {
+  } else if (found.rps < rpsMin) {
     // 带一位小数：39.8 取整成 40 会让「RPS 40 < 40」看着像 bug
     gate = {
       state: "reject",
-      field: `\`${found.rps.toFixed(1)}\`\n< ${panel.rpsMin} 未达标`,
+      field: `\`${found.rps.toFixed(1)}\`\n< ${rpsMin} 未达标`,
       note: `RPS 面板截至 ${found.asOf}`,
     };
   } else {
     gate = {
       state: "pass",
-      field: `\`${found.rps.toFixed(0)}\`\n≥ ${panel.rpsMin} 通过`,
+      field: `\`${found.rps.toFixed(0)}\`\n≥ ${rpsMin} 通过`,
       note: `RPS 面板截至 ${found.asOf}`,
     };
   }

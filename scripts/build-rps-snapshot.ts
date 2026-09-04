@@ -7,18 +7,16 @@ import {
   type RpsEntry,
   type RpsSnapshot,
 } from "@/lib/backtest/rpsSnapshot";
-import { DEFAULT_SMALL_FUND_POOL } from "@/lib/backtest/smallFundPools";
-
 /**
  * 把每只标的最后一根的截面 RPS 落成 data/rps-latest.json，供 /api/tv/alert 读。
  * 见 rpsSnapshot.ts 头部：这一步在请求里做要十几秒，TV 的 webhook 等不了。
  */
 
-/** 与 /api/tv/alert 的 RPS_PANELS 一致。 */
-const TIMEFRAMES: readonly Timeframe[] = ["1d", "4h", "2h"];
+const SNAPSHOT_POOL = "sf-broad" as const;
+const TIMEFRAMES: readonly Timeframe[] = ["1d", "4h", "2h", "1h"];
 
 async function tableFor(tf: Timeframe): Promise<Record<string, RpsEntry>> {
-  const universe = await getPreparedUniverse("SMALLFUND", tf, DEFAULT_SMALL_FUND_POOL);
+  const universe = await getPreparedUniverse("SMALLFUND", tf, SNAPSHOT_POOL);
   const table: Record<string, RpsEntry> = {};
 
   for (const sym of universe.symbols) {
@@ -66,7 +64,7 @@ async function main() {
 
   const snapshot: RpsSnapshot = {
     generatedAt: new Date().toISOString(),
-    poolId: DEFAULT_SMALL_FUND_POOL,
+    poolId: SNAPSHOT_POOL,
     timeframes,
   };
 

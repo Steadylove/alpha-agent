@@ -385,7 +385,7 @@ if barstate.islast
 // ───────────────────────── 告警 ─────────────────────────
 //
 // 正文是给 /api/tv/alert 吃的结构化 JSON，不是 Discord 的 {"content": ...}。
-// tf 会是 "120"，服务端按 2H 面板、门槛 30 标注 RPS。
+// tf 会是 "120" 或 "2H"，服务端都会查 RPS（扩池快照，缺档回落日线）。
 
 n4(float v) => str.tostring(v, "#.####")
 n2(float v) => str.tostring(v, "#.##")
