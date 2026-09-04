@@ -38,6 +38,17 @@ jobs:
       - name: Generate Prisma client
         run: npm run prisma:generate
 
+      # 回测面板：按 lastDate 增量补日线 / 4H / 2H，日线有更新才重算 RPS 标尺。
+      # 有 Alpaca secret 走 30 分钟棒，否则 Yahoo 1H 再聚合。1H 不入库。
+      - name: Refresh backtest panels
+        env:
+          ALLOW_DB: "1"
+          BACKTEST_PANEL_REFRESH: "1"
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+          ALPACA_FEED: sip
+        run: npm run panel:refresh
+
       # 三个 backfill 都是幂等增量（DailyBar 在 (instrumentId, date) 上唯一），
       # 重跑只补当日新增。计算任务全部依赖这一步的结果。
       - name: Refresh rotation universe bars

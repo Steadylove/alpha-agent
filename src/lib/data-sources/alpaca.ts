@@ -35,6 +35,12 @@ function isPermanentFeedError(error: unknown): boolean {
   return /HTTP 403/.test(msg) || /subscription/i.test(msg) || /invalid feed/i.test(msg);
 }
 
+export function hasAlpacaCredentials(): boolean {
+  const key = process.env.ALPACA_API_KEY ?? process.env.APCA_API_KEY_ID ?? "";
+  const secret = process.env.ALPACA_API_SECRET ?? process.env.APCA_API_SECRET_KEY ?? "";
+  return Boolean(key && secret);
+}
+
 export function alpacaCredentials(): { key: string; secret: string } {
   const key = process.env.ALPACA_API_KEY ?? process.env.APCA_API_KEY_ID ?? "";
   const secret = process.env.ALPACA_API_SECRET ?? process.env.APCA_API_SECRET_KEY ?? "";

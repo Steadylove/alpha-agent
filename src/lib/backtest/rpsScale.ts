@@ -84,6 +84,10 @@ export function quantileCuts(sorted: ArrayLike<number>, buckets = SCALE_BUCKETS)
 
 let cached: RpsScale | null = null;
 
+export function clearRpsScaleCache() {
+  cached = null;
+}
+
 export function parseScaleFile(file: RpsScaleFile): RpsScale {
   const at = new Map<string, Float64Array>();
   file.dates.forEach((date, i) => {
