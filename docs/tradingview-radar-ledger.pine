@@ -1,0 +1,402 @@
+// =============================================================================
+// 美股动能雷达 · 现金账本
+// =============================================================================
+//
+// 买卖、止损仍是原雷达（一买/二买，止 4 ATR，吊灯 5.5/4.2/3.5，赚 10% 抬到成本+1%）。
+// 改的是仓位和 YTD：
+//   · 每笔按当时净值的 12.5% 开
+//   · 最多 8 只，现金不够一整槽就不开
+//   · 不置换
+//   · 买卖各扣 10bps
+//   · YTD 是这份净值从统计年起涨了多少，不是 40 只收益率加总再除以 8
+//
+// 图表周期必须等于「监控计算周期」。4H 看板就把两者都设成 240。
+// 对不齐的话，账本会漏掉盘中那根 4H。
+// 对照本地时只用下面这 40 只，不要另加 IBM / NEE。
+//
+// =============================================================================
+
+//@version=5
+indicator("美股动能雷达·现金账本", overlay = true, max_bars_back = 2000)
+
+group_dashboard = "看板"
+show_radar      = input.bool(true, "显示看板", group=group_dashboard)
+only_active     = input.bool(true, "只显示账本持仓", group=group_dashboard)
+radar_tf        = input.timeframe("240", "监控计算周期", group=group_dashboard)
+stat_year       = input.int(2026, "净值 YTD 起始年", group=group_dashboard)
+table_pos       = input.string("Top Right", "位置", options=["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group=group_dashboard)
+
+group_book      = "账本"
+slot_pct        = input.float(12.5, "单票仓位 %", minval=1, maxval=50, step=0.5, group=group_book) / 100.0
+max_slots       = input.int(8, "最多持股", minval=1, maxval=16, group=group_book)
+cost_bps        = input.float(10, "单边成本 bps", minval=0, maxval=50, step=1, group=group_book)
+cost            = cost_bps / 10000.0
+
+group_filters   = "开仓过滤"
+use_rsi_filter  = input.bool(false, "RSI 过滤", group=group_filters)
+rsi_threshold   = input.int(30, "RSI 门槛", minval=10, maxval=50, group=group_filters)
+
+group_t1 = "标的 01-10"
+t01 = input.symbol("NASDAQ:QQQ",  "01", group=group_t1)
+t02 = input.symbol("NASDAQ:AAPL", "02", group=group_t1)
+t03 = input.symbol("NASDAQ:NVDA", "03", group=group_t1)
+t04 = input.symbol("NASDAQ:MSFT", "04", group=group_t1)
+t05 = input.symbol("NASDAQ:META", "05", group=group_t1)
+t06 = input.symbol("NASDAQ:AMZN", "06", group=group_t1)
+t07 = input.symbol("NASDAQ:GOOG", "07", group=group_t1)
+t08 = input.symbol("NASDAQ:AVGO", "08", group=group_t1)
+t09 = input.symbol("NASDAQ:RKLB", "09", group=group_t1)
+t10 = input.symbol("NYSE:IONQ",   "10", group=group_t1)
+
+group_t2 = "标的 11-20"
+t11 = input.symbol("NYSE:ORCL",   "11", group=group_t2)
+t12 = input.symbol("NASDAQ:TSLA", "12", group=group_t2)
+t13 = input.symbol("NASDAQ:NBIS", "13", group=group_t2)
+t14 = input.symbol("NASDAQ:MU",   "14", group=group_t2)
+t15 = input.symbol("NASDAQ:IREN", "15", group=group_t2)
+t16 = input.symbol("NASDAQ:INTC", "16", group=group_t2)
+t17 = input.symbol("NYSE:CAT",    "17", group=group_t2)
+t18 = input.symbol("NYSE:BE",     "18", group=group_t2)
+t19 = input.symbol("NASDAQ:AMD",  "19", group=group_t2)
+t20 = input.symbol("NASDAQ:LITE", "20", group=group_t2)
+
+group_t3 = "标的 21-30"
+t21 = input.symbol("NYSE:TSM",    "21", group=group_t3)
+t22 = input.symbol("NYSE:GEV",    "22", group=group_t3)
+t23 = input.symbol("NASDAQ:CRWD", "23", group=group_t3)
+t24 = input.symbol("NASDAQ:CRWV", "24", group=group_t3)
+t25 = input.symbol("NASDAQ:DDOG", "25", group=group_t3)
+t26 = input.symbol("NYSE:KO",     "26", group=group_t3)
+t27 = input.symbol("NYSE:MRK",    "27", group=group_t3)
+t28 = input.symbol("NASDAQ:IBIT", "28", group=group_t3)
+t29 = input.symbol("NASDAQ:ASTS", "29", group=group_t3)
+t30 = input.symbol("NASDAQ:PLTR", "30", group=group_t3)
+
+group_t4 = "标的 31-40"
+t31 = input.symbol("NASDAQ:QCOM", "31", group=group_t4)
+t32 = input.symbol("NYSE:VRT",    "32", group=group_t4)
+t33 = input.symbol("NASDAQ:WMT",  "33", group=group_t4)
+t34 = input.symbol("AMEX:GLD",    "34", group=group_t4)
+t35 = input.symbol("NYSE:XOM",    "35", group=group_t4)
+t36 = input.symbol("NASDAQ:HOOD", "36", group=group_t4)
+t37 = input.symbol("NASDAQ:MRVL", "37", group=group_t4)
+t38 = input.symbol("NYSE:GLW",    "38", group=group_t4)
+t39 = input.symbol("NASDAQ:ALAB", "39", group=group_t4)
+t40 = input.symbol("NYSE:NEM",    "40", group=group_t4)
+
+// 单票形态。just_in / just_out 只在点火根 / 平仓根为真，账本只在这时开仓。
+f_eval_stock(bool filter_rsi, int rsi_th) =>
+    dif = (ta.ema(close, 12) - ta.ema(close, 26)) * 100.0
+    dea = ta.ema(dif, 9)
+    macd = (dif - dea) * 2.0
+    dc = ta.cross(dea, dif) and dea[1] < dif[1]
+    dc_d1 = ta.barssince(dc)
+    cond_macd_n = macd < 0 and macd[1] < 0
+    lv_c1 = ta.lowest(close, nz(dc_d1) + 1)
+    lv_c2 = lv_c1[dc_d1 + 1]
+    lv_c3 = lv_c2[dc_d1 + 1]
+    lv_d1 = ta.lowest(dif, nz(dc_d1) + 1)
+    lv_d2 = lv_d1[dc_d1 + 1]
+    lv_d3 = lv_d2[dc_d1 + 1]
+    log_ld2 = math.floor(math.log10(math.abs(lv_d2))) - 1
+    log_ld3 = math.floor(math.log10(math.abs(lv_d3))) - 1
+    diff_dif_ld2 = math.floor(dif / math.pow(10, log_ld2))
+    diff_dif_ld3 = math.floor(dif / math.pow(10, log_ld3))
+    diff_llv_ld2 = math.floor(lv_d2 / math.pow(10, log_ld2))
+    diff_llv_ld3 = math.floor(lv_d3 / math.pow(10, log_ld3))
+    btm_d_direct = cond_macd_n and diff_dif_ld2 > diff_llv_ld2 and diff_dif_ld2 <= diff_dif_ld2[1] and lv_c1 < lv_c2
+    btm_d_indirect = cond_macd_n and diff_dif_ld3 > diff_llv_ld3 and diff_dif_ld3 <= diff_dif_ld3[1] and lv_c1 < lv_c3 and lv_c3 < lv_c2
+    cond_buy = (diff_dif_ld2 > diff_dif_ld2[1] and btm_d_direct[1]) or (diff_dif_ld3 > diff_dif_ld3[1] and btm_d_indirect[1])
+    cond_btm_psvn = btm_d_direct or btm_d_indirect
+    btm_d_dis = (btm_d_direct[1] and lv_d1 <= lv_d2) or (btm_d_indirect[1] and lv_d1 <= lv_d3)
+    cond_psvn_dis = (ta.cross(dif, dea) and dif[1] < dea[1]) and ta.barssince(btm_d_dis) < ta.barssince(cond_btm_psvn) and ta.barssince(cond_btm_psvn) < dc_d1
+    cond_buy1 = cond_psvn_dis and (ta.ema(high, 24) < ta.ema(low, 90) or ta.ema(high, 24)[1] < ta.ema(low, 90)[1])
+    buy1_sig = ta.barssince(cond_buy[1]) > 10 and cond_buy
+    buy2_sig = ta.barssince(cond_buy1[1]) > 10 and cond_buy1
+    p21  = (not na(close[21])  and close[21]  != 0) ? (close - close[21])  / close[21]  : 0.0
+    p63  = (not na(close[63])  and close[63]  != 0) ? (close - close[63])  / close[63]  : 0.0
+    p126 = (not na(close[126]) and close[126] != 0) ? (close - close[126]) / close[126] : 0.0
+    p252 = (not na(close[252]) and close[252] != 0) ? (close - close[252]) / close[252] : 0.0
+    weighted_perf = (0.20 * p21 + 0.40 * p63 + 0.20 * p126 + 0.20 * p252) * 100.0
+    float rs_rating = math.min(99.0, math.max(1.0, 50.0 + 48.0 * (weighted_perf / (math.abs(weighted_perf) + 28.0))))
+    atr_risk = ta.sma(ta.atr(14), 14)
+    rsi_val  = ta.sma(ta.rsi(close, 14), 14)
+    bool pass_rsi = filter_rsi ? (rsi_val > rsi_th) : true
+    var float entry_p  = na
+    var int   sig_type = 0
+    var float sl_level = na
+    var float tp_level = na
+    var float hi_p     = na
+    var float max_pnl  = 0.0
+    bool just_in  = false
+    bool just_out = false
+    if buy1_sig and sig_type == 0 and pass_rsi
+        entry_p  := close
+        sig_type := 1
+        sl_level := close - 4.0 * atr_risk
+        tp_level := close - 5.5 * atr_risk
+        hi_p     := high
+        max_pnl  := 0.0
+        just_in  := true
+    else if buy2_sig and sig_type == 0 and pass_rsi
+        entry_p  := close
+        sig_type := 2
+        sl_level := close - 4.0 * atr_risk
+        tp_level := close - 5.5 * atr_risk
+        hi_p     := high
+        max_pnl  := 0.0
+        just_in  := true
+    if sig_type > 0
+        hi_p    := math.max(hi_p, high)
+        max_pnl := math.max(max_pnl, (close - entry_p) / entry_p * 100.0)
+        float cur_mult = max_pnl >= 50.0 ? 3.5 : (max_pnl >= 25.0 ? 4.2 : 5.5)
+        tp_level := math.max(tp_level, hi_p - (cur_mult * atr_risk))
+        if max_pnl >= 10.0
+            sl_level := math.max(sl_level, entry_p * 1.01)
+        if close < sl_level or close < tp_level
+            just_out := true
+            sig_type := 0
+            entry_p  := na
+            sl_level := na
+            tp_level := na
+            hi_p     := na
+            max_pnl  := 0.0
+    float cur_float_pnl = sig_type > 0 ? (close - entry_p) / entry_p * 100.0 : 0.0
+    [sig_type, entry_p, close, cur_float_pnl, sl_level, rs_rating, just_in, just_out]
+
+[s01, ent01, c01, pnl01, sl01, rs01, in01, out01] = request.security(t01, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s02, ent02, c02, pnl02, sl02, rs02, in02, out02] = request.security(t02, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s03, ent03, c03, pnl03, sl03, rs03, in03, out03] = request.security(t03, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s04, ent04, c04, pnl04, sl04, rs04, in04, out04] = request.security(t04, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s05, ent05, c05, pnl05, sl05, rs05, in05, out05] = request.security(t05, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s06, ent06, c06, pnl06, sl06, rs06, in06, out06] = request.security(t06, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s07, ent07, c07, pnl07, sl07, rs07, in07, out07] = request.security(t07, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s08, ent08, c08, pnl08, sl08, rs08, in08, out08] = request.security(t08, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s09, ent09, c09, pnl09, sl09, rs09, in09, out09] = request.security(t09, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s10, ent10, c10, pnl10, sl10, rs10, in10, out10] = request.security(t10, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s11, ent11, c11, pnl11, sl11, rs11, in11, out11] = request.security(t11, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s12, ent12, c12, pnl12, sl12, rs12, in12, out12] = request.security(t12, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s13, ent13, c13, pnl13, sl13, rs13, in13, out13] = request.security(t13, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s14, ent14, c14, pnl14, sl14, rs14, in14, out14] = request.security(t14, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s15, ent15, c15, pnl15, sl15, rs15, in15, out15] = request.security(t15, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s16, ent16, c16, pnl16, sl16, rs16, in16, out16] = request.security(t16, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s17, ent17, c17, pnl17, sl17, rs17, in17, out17] = request.security(t17, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s18, ent18, c18, pnl18, sl18, rs18, in18, out18] = request.security(t18, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s19, ent19, c19, pnl19, sl19, rs19, in19, out19] = request.security(t19, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s20, ent20, c20, pnl20, sl20, rs20, in20, out20] = request.security(t20, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s21, ent21, c21, pnl21, sl21, rs21, in21, out21] = request.security(t21, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s22, ent22, c22, pnl22, sl22, rs22, in22, out22] = request.security(t22, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s23, ent23, c23, pnl23, sl23, rs23, in23, out23] = request.security(t23, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s24, ent24, c24, pnl24, sl24, rs24, in24, out24] = request.security(t24, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s25, ent25, c25, pnl25, sl25, rs25, in25, out25] = request.security(t25, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s26, ent26, c26, pnl26, sl26, rs26, in26, out26] = request.security(t26, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s27, ent27, c27, pnl27, sl27, rs27, in27, out27] = request.security(t27, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s28, ent28, c28, pnl28, sl28, rs28, in28, out28] = request.security(t28, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s29, ent29, c29, pnl29, sl29, rs29, in29, out29] = request.security(t29, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s30, ent30, c30, pnl30, sl30, rs30, in30, out30] = request.security(t30, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s31, ent31, c31, pnl31, sl31, rs31, in31, out31] = request.security(t31, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s32, ent32, c32, pnl32, sl32, rs32, in32, out32] = request.security(t32, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s33, ent33, c33, pnl33, sl33, rs33, in33, out33] = request.security(t33, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s34, ent34, c34, pnl34, sl34, rs34, in34, out34] = request.security(t34, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s35, ent35, c35, pnl35, sl35, rs35, in35, out35] = request.security(t35, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s36, ent36, c36, pnl36, sl36, rs36, in36, out36] = request.security(t36, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s37, ent37, c37, pnl37, sl37, rs37, in37, out37] = request.security(t37, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s38, ent38, c38, pnl38, sl38, rs38, in38, out38] = request.security(t38, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s39, ent39, c39, pnl39, sl39, rs39, in39, out39] = request.security(t39, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+[s40, ent40, c40, pnl40, sl40, rs40, in40, out40] = request.security(t40, radar_tf, f_eval_stock(use_rsi_filter, rsi_threshold), ignore_invalid_symbol=true)
+
+f_clean(string raw) =>
+    parts = str.split(raw, ":")
+    array.size(parts) > 1 ? array.get(parts, array.size(parts) - 1) : raw
+
+get_pos(string p) =>
+    p == "Top Right" ? position.top_right : p == "Top Left" ? position.top_left : p == "Bottom Right" ? position.bottom_right : position.bottom_left
+
+find_held(string id, string[] ids) =>
+    int idx = -1
+    if array.size(ids) > 0
+        for i = 0 to array.size(ids) - 1
+            if array.get(ids, i) == id
+                idx := i
+                break
+    idx
+
+var float cash = 1.0
+var float equity = 1.0
+var float ytd_start = na
+var int   ytd_trades = 0
+var int   ytd_wins = 0
+var string[] held_id = array.new_string()
+var float[]  held_sh = array.new_float()
+var float[]  held_cost = array.new_float()
+var float[]  held_ent = array.new_float()
+var int[]    held_sig = array.new_int()
+
+string[] syms = array.from(t01, t02, t03, t04, t05, t06, t07, t08, t09, t10, t11, t12, t13, t14, t15, t16, t17, t18, t19, t20, t21, t22, t23, t24, t25, t26, t27, t28, t29, t30, t31, t32, t33, t34, t35, t36, t37, t38, t39, t40)
+int[]    sigs = array.from(s01, s02, s03, s04, s05, s06, s07, s08, s09, s10, s11, s12, s13, s14, s15, s16, s17, s18, s19, s20, s21, s22, s23, s24, s25, s26, s27, s28, s29, s30, s31, s32, s33, s34, s35, s36, s37, s38, s39, s40)
+float[]  ents = array.from(ent01, ent02, ent03, ent04, ent05, ent06, ent07, ent08, ent09, ent10, ent11, ent12, ent13, ent14, ent15, ent16, ent17, ent18, ent19, ent20, ent21, ent22, ent23, ent24, ent25, ent26, ent27, ent28, ent29, ent30, ent31, ent32, ent33, ent34, ent35, ent36, ent37, ent38, ent39, ent40)
+float[]  cxs  = array.from(c01, c02, c03, c04, c05, c06, c07, c08, c09, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30, c31, c32, c33, c34, c35, c36, c37, c38, c39, c40)
+float[]  pnls = array.from(pnl01, pnl02, pnl03, pnl04, pnl05, pnl06, pnl07, pnl08, pnl09, pnl10, pnl11, pnl12, pnl13, pnl14, pnl15, pnl16, pnl17, pnl18, pnl19, pnl20, pnl21, pnl22, pnl23, pnl24, pnl25, pnl26, pnl27, pnl28, pnl29, pnl30, pnl31, pnl32, pnl33, pnl34, pnl35, pnl36, pnl37, pnl38, pnl39, pnl40)
+float[]  sls  = array.from(sl01, sl02, sl03, sl04, sl05, sl06, sl07, sl08, sl09, sl10, sl11, sl12, sl13, sl14, sl15, sl16, sl17, sl18, sl19, sl20, sl21, sl22, sl23, sl24, sl25, sl26, sl27, sl28, sl29, sl30, sl31, sl32, sl33, sl34, sl35, sl36, sl37, sl38, sl39, sl40)
+float[]  rss  = array.from(rs01, rs02, rs03, rs04, rs05, rs06, rs07, rs08, rs09, rs10, rs11, rs12, rs13, rs14, rs15, rs16, rs17, rs18, rs19, rs20, rs21, rs22, rs23, rs24, rs25, rs26, rs27, rs28, rs29, rs30, rs31, rs32, rs33, rs34, rs35, rs36, rs37, rs38, rs39, rs40)
+bool[]   jin  = array.from(in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33, in34, in35, in36, in37, in38, in39, in40)
+bool[]   jout = array.from(out01, out02, out03, out04, out05, out06, out07, out08, out09, out10, out11, out12, out13, out14, out15, out16, out17, out18, out19, out20, out21, out22, out23, out24, out25, out26, out27, out28, out29, out30, out31, out32, out33, out34, out35, out36, out37, out38, out39, out40)
+
+f_held_value() =>
+    float v = 0.0
+    if array.size(held_id) > 0
+        for i = 0 to array.size(held_id) - 1
+            string id = array.get(held_id, i)
+            for k = 0 to 39
+                if array.get(syms, k) == id and not na(array.get(cxs, k))
+                    v += array.get(held_sh, i) * array.get(cxs, k)
+                    break
+    v
+
+// 先平后买。平仓必须写在主流程里：Pine 函数不能改 cash / ytd_* 全局变量
+if array.size(held_id) > 0
+    for i = array.size(held_id) - 1 to 0
+        string id = array.get(held_id, i)
+        int k = -1
+        for j = 0 to 39
+            if array.get(syms, j) == id
+                k := j
+                break
+        if k >= 0
+            bool dead = array.get(jout, k) or array.get(sigs, k) == 0
+            float px = array.get(cxs, k)
+            if dead and not na(px) and px > 0
+                float proceeds = array.get(held_sh, i) * px * (1.0 - cost)
+                float basis = array.get(held_cost, i)
+                cash := cash + proceeds
+                if year >= stat_year
+                    ytd_trades := ytd_trades + 1
+                    if proceeds > basis
+                        ytd_wins := ytd_wins + 1
+                array.remove(held_id, i)
+                array.remove(held_sh, i)
+                array.remove(held_cost, i)
+                array.remove(held_ent, i)
+                array.remove(held_sig, i)
+
+equity := cash + f_held_value()
+
+int[] cand = array.new_int()
+float[] cand_rs = array.new_float()
+for k = 0 to 39
+    if array.get(jin, k) and not array.get(jout, k) and array.get(cxs, k) > 0
+        if find_held(array.get(syms, k), held_id) < 0
+            array.push(cand, k)
+            array.push(cand_rs, nz(array.get(rss, k), 1.0))
+
+if array.size(cand) > 1
+    for a = 0 to array.size(cand) - 2
+        for b = a + 1 to array.size(cand) - 1
+            if array.get(cand_rs, b) > array.get(cand_rs, a)
+                int ti = array.get(cand, a)
+                float tr = array.get(cand_rs, a)
+                array.set(cand, a, array.get(cand, b))
+                array.set(cand_rs, a, array.get(cand_rs, b))
+                array.set(cand, b, ti)
+                array.set(cand_rs, b, tr)
+
+if array.size(cand) > 0
+    for n = 0 to array.size(cand) - 1
+        if array.size(held_id) >= max_slots
+            break
+        float want = equity * slot_pct
+        if cash < want or want <= 0
+            break
+        int k = array.get(cand, n)
+        float px = array.get(cxs, k)
+        cash := cash - want
+        array.push(held_id, array.get(syms, k))
+        array.push(held_sh, want * (1.0 - cost) / px)
+        array.push(held_cost, want)
+        array.push(held_ent, px)
+        array.push(held_sig, array.get(sigs, k))
+        equity := cash + f_held_value()
+
+equity := cash + f_held_value()
+
+if na(ytd_start)
+    ytd_start := year(time) >= stat_year ? equity : na
+if not na(year[1]) and year != year[1] and year >= stat_year
+    ytd_start := equity[1]
+    ytd_trades := 0
+    ytd_wins := 0
+
+float open_unreal = 0.0
+if array.size(held_id) > 0
+    for i = 0 to array.size(held_id) - 1
+        string id = array.get(held_id, i)
+        for k = 0 to 39
+            if array.get(syms, k) == id and not na(array.get(cxs, k))
+                open_unreal += array.get(held_sh, i) * array.get(cxs, k) - array.get(held_cost, i)
+                break
+
+float ytd_pct = not na(ytd_start) and ytd_start > 0 ? (equity / ytd_start - 1.0) * 100.0 : 0.0
+float float_pct = equity > 0 ? open_unreal / equity * 100.0 : 0.0
+float expos_pct = equity > 0 ? (equity - cash) / equity * 100.0 : 0.0
+float cash_pct = 100.0 - expos_pct
+int n_hold = array.size(held_id)
+float win_rate = ytd_trades > 0 ? float(ytd_wins) / float(ytd_trades) * 100.0 : 0.0
+bool tf_ok = timeframe.period == radar_tf or (timeframe.period == "D" and radar_tf == "1D")
+
+color c_tbl_bg    = color.new(#131722, 10)
+color c_tbl_frame = color.new(#2a2e39, 0)
+color c_head_bg   = color.new(#1e222d, 0)
+color c_head_text = #94a3b8
+color c_row_even  = color.new(#171b26, 20)
+color c_row_odd   = color.new(#131722, 20)
+color c_val_text  = #f1f5f9
+color c_pos_green = #089981
+color c_neg_red   = #f23645
+color c_sl_warn   = #fbbf24
+
+var table radarTable = na
+if show_radar and barstate.islast
+    if not na(radarTable)
+        table.delete(radarTable)
+    int rows = (only_active ? math.max(n_hold, 0) : 40) + 3
+    radarTable := table.new(get_pos(table_pos), 7, math.max(4, rows), bgcolor=c_tbl_bg, frame_color=c_tbl_frame, frame_width=1, border_width=1, border_color=color.new(#2a2e39, 40))
+    string warn = tf_ok ? "" : "  |  图表周期必须改成 " + radar_tf
+    string kpi1 = "现金账本  持仓 " + str.tostring(n_hold) + "/" + str.tostring(max_slots) + "  敞口 " + str.tostring(expos_pct, "#.#") + "%  现金 " + str.tostring(cash_pct, "#.#") + "%" + warn
+    string kpi2 = "净值YTD " + (ytd_pct >= 0 ? "+" : "") + str.tostring(ytd_pct, "#.##") + "%  浮动占净值 " + (float_pct >= 0 ? "+" : "") + str.tostring(float_pct, "#.##") + "%  今年平仓 " + str.tostring(ytd_trades) + "战" + str.tostring(ytd_wins) + "胜 (" + str.tostring(win_rate, "#0") + "%)"
+    table.cell(radarTable, 0, 0, kpi1, text_color=tf_ok ? #fbbf24 : #f23645, text_size=size.small, bgcolor=c_head_bg)
+    table.merge_cells(radarTable, 0, 0, 6, 0)
+    table.cell(radarTable, 0, 1, kpi2, text_color=#38bdf8, text_size=size.small, bgcolor=c_head_bg)
+    table.merge_cells(radarTable, 0, 1, 6, 1)
+    table.cell(radarTable, 0, 2, "代码", text_color=c_head_text, text_size=size.small, bgcolor=c_head_bg)
+    table.cell(radarTable, 1, 2, "账本仓位", text_color=c_head_text, text_size=size.small, bgcolor=c_head_bg)
+    table.cell(radarTable, 2, 2, "开仓成本", text_color=c_head_text, text_size=size.small, bgcolor=c_head_bg)
+    table.cell(radarTable, 3, 2, "个股浮盈", text_color=c_head_text, text_size=size.small, bgcolor=c_head_bg)
+    table.cell(radarTable, 4, 2, "净值拉动", text_color=c_head_text, text_size=size.small, bgcolor=c_head_bg)
+    table.cell(radarTable, 5, 2, "RS", text_color=c_head_text, text_size=size.small, bgcolor=c_head_bg)
+    table.cell(radarTable, 6, 2, "止损", text_color=c_head_text, text_size=size.small, bgcolor=c_head_bg)
+
+    int row_idx = 3
+    for i = 0 to 39
+        string id = array.get(syms, i)
+        int h = find_held(id, held_id)
+        bool show = only_active ? h >= 0 : true
+        if show
+            color row_bg = row_idx % 2 == 1 ? c_row_even : c_row_odd
+            float px = array.get(cxs, i)
+            float w = 0.0
+            float contrib = 0.0
+            float lot = 0.0
+            float ent = h >= 0 ? array.get(held_ent, h) : array.get(ents, i)
+            if h >= 0 and not na(px) and equity > 0
+                float val = array.get(held_sh, h) * px
+                w := val / equity * 100.0
+                contrib := (val - array.get(held_cost, h)) / equity * 100.0
+                lot := ent > 0 ? (px - ent) / ent * 100.0 : 0.0
+            table.cell(radarTable, 0, row_idx, f_clean(id), text_color=c_val_text, text_size=size.small, bgcolor=row_bg)
+            table.cell(radarTable, 1, row_idx, h >= 0 ? str.tostring(w, "#.#") + "%" : "--", text_color=#93c5fd, text_size=size.small, bgcolor=row_bg)
+            table.cell(radarTable, 2, row_idx, h >= 0 and not na(ent) ? "$" + str.tostring(ent, "#.##") : "--", text_color=c_val_text, text_size=size.small, bgcolor=row_bg)
+            table.cell(radarTable, 3, row_idx, h >= 0 ? ((lot >= 0 ? "+" : "") + str.tostring(lot, "#.##") + "%") : "--", text_color=lot >= 0 ? c_pos_green : c_neg_red, text_size=size.small, bgcolor=row_bg)
+            table.cell(radarTable, 4, row_idx, h >= 0 ? ((contrib >= 0 ? "+" : "") + str.tostring(contrib, "#.##") + "%") : "--", text_color=contrib >= 0 ? c_pos_green : c_neg_red, text_size=size.small, bgcolor=row_bg)
+            table.cell(radarTable, 5, row_idx, str.tostring(array.get(rss, i), "#0"), text_color=c_head_text, text_size=size.small, bgcolor=row_bg)
+            table.cell(radarTable, 6, row_idx, h >= 0 and not na(array.get(sls, i)) ? "$" + str.tostring(array.get(sls, i), "#.##") : "--", text_color=c_sl_warn, text_size=size.small, bgcolor=row_bg)
+            row_idx += 1
