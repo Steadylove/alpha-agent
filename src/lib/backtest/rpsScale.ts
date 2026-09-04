@@ -20,7 +20,7 @@ import path from "node:path";
  * 分布本身只需要分位切点，压到 99 个数一天，全窗口约 1MB。
  */
 
-export const RPS_SCALE_PATH = path.join(process.cwd(), "data", "rps-scale-spx.json");
+export const RPS_SCALE_PATH = path.join(/*turbopackIgnore: true*/ process.cwd(), "data", "rps-scale-spx.json");
 
 /** 切点数量。99 个点即每 1 个分位一个，查询用线性插值，误差不到 1 分位。 */
 export const SCALE_BUCKETS = 99;

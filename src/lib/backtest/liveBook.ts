@@ -15,7 +15,8 @@ export type { LiveBookAction, LiveBookChange };
 export { applyLiveBookChanges, extraLiveTickers, inLiveSpan } from "./liveBookLogic";
 
 export function liveBookPath(): string {
-  return process.env.LIVE_BOOK_PATH ?? path.join(process.cwd(), "data", "desk", "live-book.json");
+  if (process.env.LIVE_BOOK_PATH) return process.env.LIVE_BOOK_PATH;
+  return path.join(/*turbopackIgnore: true*/ process.cwd(), "data", "desk", "live-book.json");
 }
 
 export function readLiveBook(): LiveBookChange[] {

@@ -45,7 +45,7 @@ export type PanelSnapshot = {
   membership: MemberRow[];
 };
 
-export const PANEL_CACHE_PATH = path.join(process.cwd(), ".cache", "backtest-panel.v8");
+export const PANEL_CACHE_PATH = path.join(/*turbopackIgnore: true*/ process.cwd(), ".cache", "backtest-panel.v8");
 
 export type PanelHydrateMode = "reuse" | "url" | "database" | "skip";
 

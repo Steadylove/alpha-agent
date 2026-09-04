@@ -2,8 +2,6 @@ import { NextResponse } from "next/server";
 import { runAlphaScreenerJob } from "@/lib/jobs/alphaScreener";
 import { sendAlphaScreenerToDiscord } from "@/lib/discord/screenerWebhook";
 
-export const maxDuration = 300;
-
 function parseSkipAi(request: Request): boolean {
   const url = new URL(request.url);
   const queryValue = url.searchParams.get("skipAi");

@@ -32,7 +32,8 @@ export function deskDecisionId(input: {
 }
 
 export function ledgerPath(): string {
-  return process.env.DESK_LEDGER_PATH ?? path.join(process.cwd(), ".cache", "desk-ledger.json");
+  if (process.env.DESK_LEDGER_PATH) return process.env.DESK_LEDGER_PATH;
+  return path.join(/*turbopackIgnore: true*/ process.cwd(), ".cache", "desk-ledger.json");
 }
 
 export function readLedger(): DeskDecision[] {

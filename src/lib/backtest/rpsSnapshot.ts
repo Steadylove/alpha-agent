@@ -16,7 +16,7 @@ import type { Timeframe } from "./engine";
  * 快照按 `sf-broad` 排名。盘中 RPS 本就是日线分位贴上去的，缺档时回落日线。
  */
 
-export const RPS_SNAPSHOT_PATH = path.join(process.cwd(), "data", "rps-latest.json");
+export const RPS_SNAPSHOT_PATH = path.join(/*turbopackIgnore: true*/ process.cwd(), "data", "rps-latest.json");
 
 export type RpsEntry = {
   rps: number;

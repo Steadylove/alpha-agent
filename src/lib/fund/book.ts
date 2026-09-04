@@ -25,7 +25,8 @@ import {
 export * from "./bookLogic";
 
 export function fundBookPath(): string {
-  return process.env.FUND_BOOK_PATH ?? path.join(process.cwd(), "data", "desk", "fund-book.json");
+  if (process.env.FUND_BOOK_PATH) return process.env.FUND_BOOK_PATH;
+  return path.join(/*turbopackIgnore: true*/ process.cwd(), "data", "desk", "fund-book.json");
 }
 
 export function readFundBook(): FundBook {

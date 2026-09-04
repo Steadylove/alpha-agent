@@ -20,7 +20,6 @@ import { scanSignals, trackPositions } from "@/lib/fund/track";
  */
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
 
 export async function GET(request: Request) {
   const url = new URL(request.url);

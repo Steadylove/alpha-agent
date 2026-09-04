@@ -7,7 +7,7 @@ import { aggregateTo4H, barTimeISO } from "@/lib/data-sources/yahooIntraday";
 import { CSV_4H_DIR, CSV_PANEL_DIR, readCsvPanel, writeCsvPanel } from "./csvPanel";
 import type { DayBook, YearRow, YearToDate } from "./engine";
 
-export const SPY_CSV_DIR = path.join(process.cwd(), "data", "benchmarks");
+export const SPY_CSV_DIR = path.join(/*turbopackIgnore: true*/ process.cwd(), "data", "benchmarks");
 
 function closesFromPanel(dates: string[], close: Float32Array): Map<string, number> {
   const m = new Map<string, number>();

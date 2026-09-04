@@ -3,31 +3,24 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   /*
-   * 面板快照要随函数一起部署。
-   *
-   * 它是运行时用 `path.join(process.cwd(), ".cache", ...)` 拼出来读的，
-   * 这种动态路径打包器分析不出来，不显式列出就不会进函数包。
+   * 线上读库，不要把 CSV / 72MB 面板按路由打进函数包。
+   * 不同 outputFileTracingIncludes 会拆成多个 Serverless Function，
+   * Hobby 上限 12 个；再叠 data/ 体积还会超 250MB。
    */
   outputFileTracingIncludes: {
-    "/api/lab/backtest": [
-      ".cache/backtest-panel.v8",
+    "*": ["data/rps-latest.json", "data/desk/**"],
+  },
+  outputFileTracingExcludes: {
+    "*": [
       "data/smallfund/**",
       "data/smallfund4h/**",
+      "data/smallfund2h/**",
+      "data/smallfund1h/**",
       "data/benchmarks/**",
-    ],
-    "/api/lab/chart": [
-      ".cache/backtest-panel.v8",
-      "data/smallfund/**",
-      "data/smallfund4h/**",
-      "data/benchmarks/**",
-    ],
-    "/api/desk/signals": [
-      "data/smallfund/**",
-      "data/smallfund4h/**",
-    ],
-    // 只读构建时算好的分位快照，不需要整套 CSV，见 lib/backtest/rpsSnapshot.ts
-    "/api/tv/alert": [
-      "data/rps-latest.json",
+      ".cache/**",
+      "scripts/**",
+      "tests/**",
+      "docs/**",
     ],
   },
 };

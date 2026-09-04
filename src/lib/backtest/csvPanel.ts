@@ -19,10 +19,10 @@ import path from "node:path";
 
 import type { PanelBars } from "./panel";
 
-export const CSV_PANEL_DIR = path.join(process.cwd(), "data", "smallfund");
-export const CSV_4H_DIR = path.join(process.cwd(), "data", "smallfund4h");
-export const CSV_2H_DIR = path.join(process.cwd(), "data", "smallfund2h");
-export const CSV_1H_DIR = path.join(process.cwd(), "data", "smallfund1h");
+export const CSV_PANEL_DIR = path.join(/*turbopackIgnore: true*/ process.cwd(), "data", "smallfund");
+export const CSV_4H_DIR = path.join(/*turbopackIgnore: true*/ process.cwd(), "data", "smallfund4h");
+export const CSV_2H_DIR = path.join(/*turbopackIgnore: true*/ process.cwd(), "data", "smallfund2h");
+export const CSV_1H_DIR = path.join(/*turbopackIgnore: true*/ process.cwd(), "data", "smallfund1h");
 
 const HEADER = "date,open,high,low,close,volume";
 

@@ -27,9 +27,6 @@ import { lookupAlertRps, resolveAlertTimeframe, type RpsEntry } from "@/lib/back
 import { SMALL_FUND_DEFAULT_CONFIG } from "@/lib/backtest/smallFundUniverse";
 import { postDiscordPayload, type DiscordPayload } from "@/lib/discord/sendWebhook";
 
-// 读一个小 JSON 加一次 Discord 投递，不该超过这个量级
-export const maxDuration = 15;
-
 function rpsMinOf(tf: Timeframe): number {
   if (tf === "4h") return 30;
   if (tf === "2h") return 0;

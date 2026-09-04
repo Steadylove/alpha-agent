@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { runStockPanelJob } from "@/lib/jobs/stockPanel";
 
-export const maxDuration = 300;
-
 export async function POST(request: Request) {
   const secret = request.headers.get("x-cron-secret");
   if (!process.env.CRON_SECRET) {

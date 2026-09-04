@@ -3,7 +3,6 @@ import { NextResponse } from "next/server";
 import { champOf } from "@/lib/fund/champs";
 import { runFrozenLab } from "@/lib/fund/frozenLab";
 
-export const maxDuration = 180;
 export const dynamic = "force-dynamic";
 
 const memo = new Map<string, Promise<Awaited<ReturnType<typeof runFrozenLab>>>>();
