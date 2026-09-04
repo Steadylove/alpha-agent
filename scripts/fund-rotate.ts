@@ -1915,7 +1915,7 @@ async function main() {
         add(
           `置换edge${edge} ${(slotPct * 100).toFixed(1)}%`,
           BASE,
-          { slotPct, mode: "rotate" as Mode, edge, costBps, entryWindow: "dayClose" as const, exitWindow: "all" as const },
+          { slotPct, mode: "weakest" as Mode, edge, costBps, entryWindow: "dayClose" as const, exitWindow: "all" as const },
         );
 
     const head =
@@ -2085,13 +2085,13 @@ async function main() {
       { label: "全期5年", from: SEGMENTS[2].from, to: SEGMENTS[2].to },
     ];
     const CANDS: { name: string; over: Record<string, unknown>; slot: number; mode: Mode; edge: number }[] = [
-      { name: "◎日线冻结档 止4吊5.5无盈门40 12.5%+置换20", over: { stopMult: 4, trailMult: 5.5, takeProfitR: null, rpsMin: 40 }, slot: 0.125, mode: "rotate", edge: 20 },
-      { name: "  同上但单笔8%", over: { stopMult: 4, trailMult: 5.5, takeProfitR: null, rpsMin: 40 }, slot: 0.08, mode: "rotate", edge: 20 },
-      { name: "  止6吊8无盈门40 8%+置换20", over: { stopMult: 6, trailMult: 8, takeProfitR: null, rpsMin: 40 }, slot: 0.08, mode: "rotate", edge: 20 },
-      { name: "★止6吊8盈4R门40 8%+置换20", over: { stopMult: 6, trailMult: 8, takeProfitR: 4, rpsMin: 40 }, slot: 0.08, mode: "rotate", edge: 20 },
+      { name: "◎日线冻结档 止4吊5.5无盈门40 12.5%+置换20", over: { stopMult: 4, trailMult: 5.5, takeProfitR: null, rpsMin: 40 }, slot: 0.125, mode: "weakest", edge: 20 },
+      { name: "  同上但单笔8%", over: { stopMult: 4, trailMult: 5.5, takeProfitR: null, rpsMin: 40 }, slot: 0.08, mode: "weakest", edge: 20 },
+      { name: "  止6吊8无盈门40 8%+置换20", over: { stopMult: 6, trailMult: 8, takeProfitR: null, rpsMin: 40 }, slot: 0.08, mode: "weakest", edge: 20 },
+      { name: "★止6吊8盈4R门40 8%+置换20", over: { stopMult: 6, trailMult: 8, takeProfitR: 4, rpsMin: 40 }, slot: 0.08, mode: "weakest", edge: 20 },
       { name: "  止6吊8盈4R门40 8% 不置换", over: { stopMult: 6, trailMult: 8, takeProfitR: 4, rpsMin: 40 }, slot: 0.08, mode: "none", edge: 0 },
-      { name: "  止8吊10盈4R门40 8%+置换20", over: { stopMult: 8, trailMult: 10, takeProfitR: 4, rpsMin: 40 }, slot: 0.08, mode: "rotate", edge: 20 },
-      { name: "  止6吊8盈4R门30 8%+置换20", over: { stopMult: 6, trailMult: 8, takeProfitR: 4, rpsMin: 30 }, slot: 0.08, mode: "rotate", edge: 20 },
+      { name: "  止8吊10盈4R门40 8%+置换20", over: { stopMult: 8, trailMult: 10, takeProfitR: 4, rpsMin: 40 }, slot: 0.08, mode: "weakest", edge: 20 },
+      { name: "  止6吊8盈4R门30 8%+置换20", over: { stopMult: 6, trailMult: 8, takeProfitR: 4, rpsMin: 30 }, slot: 0.08, mode: "weakest", edge: 20 },
     ];
     console.log(`\n=== 日线候选 vs 冻结档：CAGR / 回撤 / MAR ===`);
     console.log("配置".padEnd(42) + WIN.map((w) => w.label.padStart(19)).join("") + "开仓".padStart(7));

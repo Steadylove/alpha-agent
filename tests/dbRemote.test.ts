@@ -23,7 +23,7 @@ describe("远程库开关", () => {
   it("本地默认不连", () => {
     delete process.env.ALLOW_DB;
     delete process.env.VERCEL;
-    process.env.NODE_ENV = "development";
+    setEnv("NODE_ENV", "development");
     process.env.DATABASE_URL = "postgresql://neon.example/db";
     expect(remoteDbEnabled()).toBe(false);
     expect(hasDatabase()).toBe(false);
@@ -31,7 +31,7 @@ describe("远程库开关", () => {
 
   it("ALLOW_DB=1 才放开本地", () => {
     process.env.ALLOW_DB = "1";
-    process.env.NODE_ENV = "development";
+    setEnv("NODE_ENV", "development");
     delete process.env.VERCEL;
     process.env.DATABASE_URL = "postgresql://neon.example/db";
     expect(remoteDbEnabled()).toBe(true);
@@ -40,12 +40,12 @@ describe("远程库开关", () => {
 
   it("生产或 Vercel 默认连", () => {
     delete process.env.ALLOW_DB;
-    process.env.NODE_ENV = "production";
+    setEnv("NODE_ENV", "production");
     delete process.env.VERCEL;
     process.env.DATABASE_URL = "postgresql://neon.example/db";
     expect(remoteDbEnabled()).toBe(true);
 
-    process.env.NODE_ENV = "development";
+    setEnv("NODE_ENV", "development");
     process.env.VERCEL = "1";
     expect(remoteDbEnabled()).toBe(true);
   });
@@ -54,16 +54,20 @@ describe("远程库开关", () => {
     delete process.env.SMALLFUND_SOURCE;
     delete process.env.ALLOW_DB;
     delete process.env.VERCEL;
-    process.env.NODE_ENV = "development";
+    setEnv("NODE_ENV", "development");
     expect(smallFundSource()).toBe("csv");
   });
 
   it("生产 Small Fund 默认读库", () => {
     delete process.env.SMALLFUND_SOURCE;
-    process.env.NODE_ENV = "production";
+    setEnv("NODE_ENV", "production");
     expect(smallFundSource()).toBe("db");
   });
 });
+
+function setEnv(key: string, value: string) {
+  process.env[key] = value;
+}
 
 function restore(key: string, value: string | undefined) {
   if (value === undefined) delete process.env[key];
