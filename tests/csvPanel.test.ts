@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { readCsvPanel, writeCsvPanel } from "@/lib/backtest/csvPanel";
+import { parseCsvText, readCsvPanel, writeCsvPanel } from "@/lib/backtest/csvPanel";
 import { describe, expect, it } from "vitest";
 
 describe("csvPanel", () => {
@@ -23,6 +23,15 @@ describe("csvPanel", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("parseCsvText 丢掉坏行", () => {
+    const panel = parseCsvText(
+      "X",
+      "date,open,high,low,close,volume\n2020-01-02,1,1,1,1,1\nbad,row\n2020-01-03,2,2,2,2,2\n",
+    );
+    expect(panel?.dates).toEqual(["2020-01-02", "2020-01-03"]);
+    expect(panel?.close[1]).toBeCloseTo(2, 4);
   });
 
   it("缺文件返回 null，坏行丢弃", () => {

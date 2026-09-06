@@ -56,8 +56,8 @@ async function main() {
   if (!timeframes["1d"]) {
     const msg = "[rps] 日线快照生成失败，先跑 npm run smallfund:fetch。";
     if (process.env.VERCEL) {
-      console.error(msg);
-      process.exit(1);
+      console.log(`${msg} 运行时从 MARKET_DATA_BASE_URL 拉 rps-latest.json。`);
+      process.exit(0);
     }
     console.log(msg);
   }

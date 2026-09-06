@@ -17,12 +17,13 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
+import { csvDir } from "./marketStore";
 import type { PanelBars } from "./panel";
 
-export const CSV_PANEL_DIR = path.join(/*turbopackIgnore: true*/ process.cwd(), "data", "smallfund");
-export const CSV_4H_DIR = path.join(/*turbopackIgnore: true*/ process.cwd(), "data", "smallfund4h");
-export const CSV_2H_DIR = path.join(/*turbopackIgnore: true*/ process.cwd(), "data", "smallfund2h");
-export const CSV_1H_DIR = path.join(/*turbopackIgnore: true*/ process.cwd(), "data", "smallfund1h");
+export const CSV_PANEL_DIR = csvDir("1d");
+export const CSV_4H_DIR = csvDir("4h");
+export const CSV_2H_DIR = csvDir("2h");
+export const CSV_1H_DIR = csvDir("1h");
 
 const HEADER = "date,open,high,low,close,volume";
 
@@ -53,11 +54,8 @@ export function writeCsvPanel(dir: string, ticker: string, bars: readonly CsvBar
  * null 价格，抓取层已经过滤过一遍，这里是第二道防线，避免 NaN 渗进 Float32Array
  * 之后在 ATR、EMA 里扩散成整条序列不可用。
  */
-export function readCsvPanel(dir: string, ticker: string): PanelBars | null {
-  const file = filePathOf(dir, ticker);
-  if (!existsSync(file)) return null;
-
-  const rows = readFileSync(file, "utf8").split("\n");
+export function parseCsvText(ticker: string, text: string): PanelBars | null {
+  const rows = text.split("\n");
   const dates: string[] = [];
   const open: number[] = [];
   const high: number[] = [];
@@ -93,6 +91,12 @@ export function readCsvPanel(dir: string, ticker: string): PanelBars | null {
     volume: Float32Array.from(volume),
     open: Float32Array.from(open),
   };
+}
+
+export function readCsvPanel(dir: string, ticker: string): PanelBars | null {
+  const file = filePathOf(dir, ticker);
+  if (!existsSync(file)) return null;
+  return parseCsvText(ticker, readFileSync(file, "utf8"));
 }
 
 /** 按给定清单读取，缺文件的标的静默跳过（抓取阶段已经报告过失败原因）。 */

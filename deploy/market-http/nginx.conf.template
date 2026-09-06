@@ -1,0 +1,18 @@
+server {
+    listen 80;
+    server_tokens off;
+    gzip on;
+    gzip_types text/plain text/csv application/json;
+    gzip_min_length 256;
+
+    if ($arg_t != __MARKET_TOKEN__) {
+        return 403;
+    }
+
+    root /usr/share/nginx/html;
+    location / {
+        autoindex off;
+        add_header Cache-Control "public, max-age=300";
+        try_files $uri =404;
+    }
+}

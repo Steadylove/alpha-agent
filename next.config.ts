@@ -3,7 +3,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   /*
-   * 线上读库，不要把 CSV / 72MB 面板按路由打进函数包。
+   * 线上读行情机 / 本地 CSV，不要把整池 CSV / 72MB 面板按路由打进函数包。
    * 不同 outputFileTracingIncludes 会拆成多个 Serverless Function，
    * Hobby 上限 12 个；再叠 data/ 体积还会超 250MB。
    */

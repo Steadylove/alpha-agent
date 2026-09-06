@@ -23,7 +23,12 @@
 import { NextResponse } from "next/server";
 
 import type { Timeframe } from "@/lib/backtest/engine";
-import { lookupAlertRps, resolveAlertTimeframe, type RpsEntry } from "@/lib/backtest/rpsSnapshot";
+import {
+  ensureRpsSnapshot,
+  lookupAlertRps,
+  resolveAlertTimeframe,
+  type RpsEntry,
+} from "@/lib/backtest/rpsSnapshot";
 import { SMALL_FUND_DEFAULT_CONFIG } from "@/lib/backtest/smallFundUniverse";
 import { postDiscordPayload, type DiscordPayload } from "@/lib/discord/sendWebhook";
 
@@ -173,6 +178,7 @@ export async function POST(request: Request) {
   let found: RpsEntry | null = null;
   let lookupError: string | null = null;
   try {
+    await ensureRpsSnapshot();
     found = lookupAlertRps(payload.symbol, tf);
   } catch (error) {
     lookupError = error instanceof Error ? error.message : String(error);

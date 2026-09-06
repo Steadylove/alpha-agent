@@ -19,6 +19,8 @@ jobs:
     timeout-minutes: 45
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      # Actions 不是 production，不设这个 getPrisma 会直接拒连，后面 backfill / jobs:daily 全空转。
+      ALLOW_DB: "1"
       FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
       # SEC 要求可联系到的标识，缺省会退回代码里的占位值
       SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}

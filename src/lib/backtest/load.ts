@@ -1,4 +1,6 @@
 import { CSV_1H_DIR, CSV_2H_DIR, CSV_4H_DIR, CSV_PANEL_DIR, readCsvPanels } from "./csvPanel";
+import { fetchRemoteCsvPanels } from "./marketRemote";
+import { marketBaseUrl } from "./marketStore";
 import {
   DEFAULT_VEGAS,
   prepareUniverse,
@@ -139,19 +141,17 @@ async function getSnapshot(): Promise<PanelSnapshot> {
 /**
  * Small Fund 数据源。
  *
- * - `db`：日线 BacktestPanel，盘中 BacktestTfPanel。生产默认。
- * - `csv`：只读本地 CSV。
+ * - `db`：日线 BacktestPanel，盘中 BacktestTfPanel。
+ * - `csv`：本地目录，或 `MARKET_DATA_BASE_URL` 指向的行情机。默认。
  * - `auto`：CSV 覆盖当前池才用 CSV，否则回落数据库。
- *   只有 195 只 CSV 时不会冒充 sf-broad。
- *
- * 本地默认 `csv`：.env 里的 DATABASE_URL 就是线上 Neon，调试回落会打额度。
  */
 export type SmallFundSource = "csv" | "db" | "auto";
 
 export function smallFundSource(): SmallFundSource {
   const raw = (process.env.SMALLFUND_SOURCE ?? "").toLowerCase();
   if (raw === "db" || raw === "auto" || raw === "csv") return raw;
-  return process.env.NODE_ENV === "production" ? "db" : "csv";
+  // 默认走 CSV（本地目录或 MARKET_DATA_BASE_URL），不再默认连 Neon。
+  return "csv";
 }
 
 const CSV_GAP = new Set(["SKHY", "SPCX"]);
@@ -291,7 +291,12 @@ function poolTickers(poolId: SmallFundPoolId): readonly string[] {
   return tickersForPool(poolId, poolId === "sf-live" ? readLiveBook() : []);
 }
 
-function readCsvForTimeframe(timeframe: Timeframe, wanted: readonly string[]): PanelBars[] {
+async function readCsvForTimeframe(timeframe: Timeframe, wanted: readonly string[]): Promise<PanelBars[]> {
+  const tf = timeframe === "1d" || timeframe === "4h" || timeframe === "2h" || timeframe === "1h" ? timeframe : "1d";
+  if (marketBaseUrl()) {
+    const remote = await fetchRemoteCsvPanels(tf, wanted);
+    return tf === "1d" ? remote : remote.filter((panel) => panel.ticker !== "SPCX");
+  }
   if (timeframe === "1d") return readCsvPanels(CSV_PANEL_DIR, wanted);
   const dir = { "4h": CSV_4H_DIR, "2h": CSV_2H_DIR, "1h": CSV_1H_DIR }[timeframe];
   return readCsvPanels(dir, wanted).filter((panel) => panel.ticker !== "SPCX");
@@ -319,7 +324,7 @@ async function loadSmallFundPanels(
     const label = timeframe === "1d" ? "CSV" : timeframe.toUpperCase();
 
     if (source !== "db") {
-      const csv = readCsvForTimeframe(timeframe, wanted);
+      const csv = await readCsvForTimeframe(timeframe, wanted);
       if (coversPool(csv, wanted)) {
         console.log(`[smallfund] ${label} ${csv.length} 只  pool=${poolId}`);
         return csv;
@@ -327,7 +332,7 @@ async function loadSmallFundPanels(
       if (source === "csv") {
         throw new Error(
           `Small Fund ${label} CSV 未覆盖当前池（${csv.length}/${wanted.length}）。` +
-            `先抓齐 CSV，或设 SMALLFUND_SOURCE=db 并跑 npm run smallfund:import。`,
+            `先抓齐 CSV，或给 Vercel 配 MARKET_DATA_BASE_URL 指向行情机。`,
         );
       }
     }
@@ -337,7 +342,7 @@ async function loadSmallFundPanels(
       console.log(`[smallfund] ${timeframe} 数据库 ${db.length} 只  pool=${poolId}`);
       return db;
     }
-    const csv = readCsvForTimeframe(timeframe, wanted);
+    const csv = await readCsvForTimeframe(timeframe, wanted);
     if (coversPool(csv, wanted)) {
       console.warn(
         `[smallfund] ${timeframe} 数据库未覆盖（${db.length}/${wanted.length}），回落 CSV ${csv.length} 只`,

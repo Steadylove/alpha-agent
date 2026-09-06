@@ -58,10 +58,10 @@ describe("远程库开关", () => {
     expect(smallFundSource()).toBe("csv");
   });
 
-  it("生产 Small Fund 默认读库", () => {
+  it("生产 Small Fund 也默认读 CSV，不回落 Neon", () => {
     delete process.env.SMALLFUND_SOURCE;
     setEnv("NODE_ENV", "production");
-    expect(smallFundSource()).toBe("db");
+    expect(smallFundSource()).toBe("csv");
   });
 });
 

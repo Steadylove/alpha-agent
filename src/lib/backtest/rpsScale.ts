@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
-import path from "node:path";
+
+import { rpsScaleFile } from "./marketStore";
 
 /**
  * 外生 RPS 标尺：拿标普 500 当日成分的动量分分布当尺子，别的池子把自己的分数
@@ -20,7 +21,7 @@ import path from "node:path";
  * 分布本身只需要分位切点，压到 99 个数一天，全窗口约 1MB。
  */
 
-export const RPS_SCALE_PATH = path.join(/*turbopackIgnore: true*/ process.cwd(), "data", "rps-scale-spx.json");
+export const RPS_SCALE_PATH = rpsScaleFile();
 
 /** 切点数量。99 个点即每 1 个分位一个，查询用线性插值，误差不到 1 分位。 */
 export const SCALE_BUCKETS = 99;
@@ -107,6 +108,16 @@ export function readRpsScale(): RpsScale | null {
 export async function requireRpsScale(): Promise<RpsScale> {
   const local = readRpsScale();
   if (local) return local;
+
+  const { marketBaseUrl } = await import("./marketStore");
+  if (marketBaseUrl()) {
+    const { fetchMarketText } = await import("./marketRemote");
+    const text = await fetchMarketText("rps/rps-scale-spx.json");
+    if (text) {
+      cached = parseScaleFile(JSON.parse(text) as RpsScaleFile);
+      return cached;
+    }
+  }
 
   const { remoteDbEnabled } = await import("@/lib/db/remote");
   if (remoteDbEnabled() && process.env.DATABASE_URL) {

@@ -34,6 +34,23 @@ export function lastSettledNyDate(now = new Date()): string {
   return prev.toISOString().slice(0, 10);
 }
 
+function shiftUtcDate(day: string, delta: number): string {
+  const dt = new Date(`${day}T12:00:00Z`);
+  dt.setUTCDate(dt.getUTCDate() + delta);
+  return dt.toISOString().slice(0, 10);
+}
+
+/** 最近一个已收盘的交易日。周末退到周五，避免周日任务把 until 停在周六。 */
+export function lastSettledSession(now = new Date()): string {
+  let day = lastSettledNyDate(now);
+  for (let i = 0; i < 3; i += 1) {
+    const wd = new Date(`${day}T12:00:00Z`).getUTCDay();
+    if (wd !== 0 && wd !== 6) return day;
+    day = shiftUtcDate(day, -1);
+  }
+  return day;
+}
+
 /** 已有序列后追加新日期。同日保留旧值，不回写未完成的当天。 */
 export function mergeNewBars(
   existing: readonly OhlcvBar[],

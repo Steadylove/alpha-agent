@@ -29,10 +29,10 @@ type YahooChartResponse = {
   };
 };
 
-export async function fetchYahoo1HBars(symbol: string): Promise<IntradayBar[]> {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=730d&interval=1h`;
+async function fetchYahoo1HWindow(symbol: string, period1: number, period2: number): Promise<IntradayBar[]> {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?period1=${period1}&period2=${period2}&interval=1h`;
   const response = await fetch(url, {
-    headers: { "user-agent": "Mozilla/5.0 (compatible; MarketCompass/1.0)" },
+    headers: { "user-agent": "Mozilla/5.0" },
     next: { revalidate: 60 * 30 },
   });
   if (!response.ok) throw new Error(`Yahoo 1H ${symbol}: HTTP ${response.status}`);
@@ -57,6 +57,18 @@ export async function fetchYahoo1HBars(symbol: string): Promise<IntradayBar[]> {
     });
   }
   return bars;
+}
+
+export async function fetchYahoo1HBars(symbol: string, fromUnix?: number): Promise<IntradayBar[]> {
+  const period2 = Math.floor(Date.now() / 1000);
+  const period1 = fromUnix && fromUnix > 0 ? fromUnix : period2 - 730 * 24 * 60 * 60;
+  try {
+    return await fetchYahoo1HWindow(symbol, period1, period2);
+  } catch (error) {
+    // 部分较新的票对超长 1H 窗回 422，缩到 90 天再试。
+    if (!String(error).includes("HTTP 422")) throw error;
+    return fetchYahoo1HWindow(symbol, period2 - 90 * 24 * 60 * 60, period2);
+  }
 }
 
 const NY_DATE_FMT = new Intl.DateTimeFormat("en-CA", {

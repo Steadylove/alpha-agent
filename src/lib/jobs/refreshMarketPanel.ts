@@ -1,5 +1,5 @@
 import { buildAndStoreRpsScale } from "@/lib/backtest/buildRpsScale";
-import { lastSettledNyDate, mergeNewBars, type OhlcvBar } from "@/lib/backtest/mergeBars";
+import { lastSettledSession, mergeNewBars, type OhlcvBar } from "@/lib/backtest/mergeBars";
 import { packPanel, packTimedPanel, unpackPanel, unpackTimedPanel } from "@/lib/backtest/panel";
 import { fetchAlpaca30MBars, hasAlpacaCredentials } from "@/lib/data-sources/alpaca";
 import { fetchStooqDailyBars } from "@/lib/data-sources/stooq";
@@ -138,6 +138,10 @@ async function refreshDaily(until: string): Promise<RefreshSlice> {
     orderBy: { ticker: "asc" },
   });
 
+  if (rows.length === 0) {
+    throw new Error("BacktestPanel 为空：库连不上或还没导入，拒绝把空刷新当成成功。");
+  }
+
   return summarize(
     await mapPool(rows, async (row) => {
       const last = row.lastDate.toISOString().slice(0, 10);
@@ -191,6 +195,10 @@ async function refreshHourly(until: string): Promise<Record<HourlyTf, RefreshSli
     },
     orderBy: { ticker: "asc" },
   });
+
+  if (rows.length === 0) {
+    throw new Error("BacktestTfPanel 为空：4H/2H 还没导入或库不可读，拒绝空刷新。");
+  }
 
   const byTicker = new Map<string, typeof rows>();
   for (const row of rows) {
@@ -289,9 +297,13 @@ async function refreshHourly(until: string): Promise<Record<HourlyTf, RefreshSli
  * 1H 不入库（Neon 放不下）。有 Alpaca 走 30 分钟棒，否则 Yahoo 1H 再聚合。
  */
 export async function runRefreshMarketPanelJob(): Promise<RefreshMarketPanelResult> {
-  const until = lastSettledNyDate();
+  const until = lastSettledSession();
   const daily = await refreshDaily(until);
   const tf = await refreshHourly(until);
+
+  if (daily.failed === daily.tickers) {
+    throw new Error(`日线刷新全部失败（${daily.failed} 只）。样例: ${daily.failures.slice(0, 3).join(" | ")}`);
+  }
 
   let scaleTo: string | null = null;
   if (daily.updated > 0) {

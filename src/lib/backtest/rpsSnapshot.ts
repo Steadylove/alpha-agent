@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
-import path from "node:path";
 
 import type { Timeframe } from "./engine";
+import { rpsSnapshotFile } from "./marketStore";
 
 /**
  * 每只标的「最后一根」的截面 RPS，构建时算好落成一个小 JSON。
@@ -16,7 +16,7 @@ import type { Timeframe } from "./engine";
  * 快照按 `sf-broad` 排名。盘中 RPS 本就是日线分位贴上去的，缺档时回落日线。
  */
 
-export const RPS_SNAPSHOT_PATH = path.join(/*turbopackIgnore: true*/ process.cwd(), "data", "rps-latest.json");
+export const RPS_SNAPSHOT_PATH = rpsSnapshotFile();
 
 export type RpsEntry = {
   rps: number;
@@ -61,6 +61,21 @@ export function readRpsSnapshot(): RpsSnapshot | null {
   if (!existsSync(RPS_SNAPSHOT_PATH)) return null;
 
   cached = JSON.parse(readFileSync(RPS_SNAPSHOT_PATH, "utf8")) as RpsSnapshot;
+  return cached;
+}
+
+/** 本地没有快照时，从行情机拉一份。告警路径必须先 await 这个再查分位。 */
+export async function ensureRpsSnapshot(): Promise<RpsSnapshot | null> {
+  const local = readRpsSnapshot();
+  if (local) return local;
+
+  const { marketBaseUrl } = await import("./marketStore");
+  if (!marketBaseUrl()) return null;
+
+  const { fetchMarketText } = await import("./marketRemote");
+  const text = await fetchMarketText("rps/rps-latest.json");
+  if (!text) return null;
+  cached = JSON.parse(text) as RpsSnapshot;
   return cached;
 }
 

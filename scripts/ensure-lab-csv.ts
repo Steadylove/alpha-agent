@@ -21,7 +21,7 @@ if (funds === 0 || spy === 0) {
     "本地先跑 npm run smallfund:fetch，并保证 data/benchmarks/SPY.csv 存在（跑一次 /lab 会自动拉）。";
   if (process.env.VERCEL) {
     console.log(
-      `[lab-csv] 仓库 CSV 缺失：smallfund=${funds} spy=${spy}。生产走数据库，继续构建。`,
+      `[lab-csv] 仓库 CSV 缺失：smallfund=${funds} spy=${spy}。运行时走 MARKET_DATA_BASE_URL，继续构建。`,
     );
     process.exit(0);
   }

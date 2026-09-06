@@ -1,4 +1,4 @@
-import { lastSettledNyDate, mergeNewBars } from "@/lib/backtest/mergeBars";
+import { lastSettledNyDate, lastSettledSession, mergeNewBars } from "@/lib/backtest/mergeBars";
 import { describe, expect, it } from "vitest";
 
 describe("mergeNewBars", () => {
@@ -47,5 +47,15 @@ describe("lastSettledNyDate", () => {
 
   it("16:15 之后算当天已收盘", () => {
     expect(lastSettledNyDate(new Date("2026-09-04T16:15:00-04:00"))).toBe("2026-09-04");
+  });
+});
+
+describe("lastSettledSession", () => {
+  it("周日退到周五", () => {
+    expect(lastSettledSession(new Date("2026-09-06T10:00:00-04:00"))).toBe("2026-09-04");
+  });
+
+  it("周五收盘后仍是周五", () => {
+    expect(lastSettledSession(new Date("2026-09-04T20:30:00-04:00"))).toBe("2026-09-04");
   });
 });

@@ -38,6 +38,10 @@
     "smallfund:diag": "npx --yes tsx scripts/diagnose-smallfund.ts",
     "fund:rotate": "NODE_OPTIONS=--max-old-space-size=6144 npx --yes tsx scripts/fund-rotate.ts",
     "rps:snapshot": "NODE_OPTIONS=--max-old-space-size=6144 npx --yes tsx scripts/build-rps-snapshot.ts",
+    "market:refresh": "npx --yes tsx scripts/refresh-market-csv.ts",
+    "market:pack": "npx --yes tsx scripts/market-archive.ts pack",
+    "market:unpack": "npx --yes tsx scripts/market-archive.ts unpack",
+    "market:manifest": "npx --yes tsx scripts/market-archive.ts manifest",
     "rps:scale": "NODE_OPTIONS=--max-old-space-size=8192 npx --yes tsx scripts/build-rps-scale.ts"
   },
   "keywords": [],
