@@ -79,8 +79,8 @@ export function LookbackCard({ members }: { members: string[] | null }) {
     <Card title="临时回看">
       <Text size="sm" c="dimmed" mb="md">
         只用上方临时回看池（{members ? `${members.length} 只` : "读取中"}
-        ），从选定日起空仓算到最近一根。改池后请再点回看。不写 Discord
-        信号池，也不改记账起点。
+        ）。2 小时用扩池档。从选定日起空仓算到最近一根。改池后请再点回看。不写
+        Discord 信号池。
       </Text>
       {error ? (
         <Alert color="red" variant="light" mb="sm">

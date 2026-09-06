@@ -9,6 +9,7 @@ import {
   Checkbox,
   Group,
   Modal,
+  NumberInput,
   ScrollArea,
   SegmentedControl,
   Text,
@@ -18,13 +19,16 @@ import {
 } from "@mantine/core";
 
 import { Card } from "@/components/Card";
+import { DayPicker } from "@/components/DayPicker";
 import { LabSymbolChart, type ChartTarget } from "@/components/LabSymbolChart";
+import type { LookbackPickTf } from "@/lib/fund/lookbackPickLogic";
 import {
   applySignalPool,
   baseOfPool,
   editSignalPoolMany,
   emptySignalPool,
   parseTickers,
+  replaceSignalPool,
   type SignalPoolPatch,
 } from "@/lib/fund/signalPoolLogic";
 
@@ -68,6 +72,11 @@ export function SignalPoolCard({
   const [listOpen, setListOpen] = useState(false);
   const [chartTarget, setChartTarget] = useState<ChartTarget | null>(null);
   const [chartChamp, setChartChamp] = useState<ChartChamp>("4h");
+  const [pickFrom, setPickFrom] = useState("2026-01-01");
+  const [pickTo, setPickTo] = useState("");
+  const [pickN, setPickN] = useState<number | string>(40);
+  const [pickTf, setPickTf] = useState<LookbackPickTf>("both");
+  const [picking, setPicking] = useState(false);
   const chartRequest = useMemo(() => ({ champ: chartChamp, index: "SMALLFUND" }), [chartChamp]);
 
   const load = useCallback(async () => {
@@ -142,6 +151,36 @@ export function SignalPoolCard({
     if (ok.length) setTicker("");
   };
 
+  const findBest = async () => {
+    if (!saved || !pickFrom) return;
+    setPicking(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/lookback", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "pick",
+          from: pickFrom,
+          to: pickTo || undefined,
+          n: pickN,
+          tf: pickTf,
+        }),
+      });
+      const json = (await res.json()) as { error?: string; members?: string[] };
+      if (!res.ok) throw new Error(json.error ?? "查找失败");
+      const picked = json.members ?? [];
+      if (picked.length === 0) throw new Error("这段窗口没有实际持仓");
+      patchDraft(replaceSignalPool(defaults, picked));
+      setSelected(new Set());
+      setListOpen(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "查找失败");
+    } finally {
+      setPicking(false);
+    }
+  };
+
   const save = async () => {
     if (scratch) return;
     setBusy(true);
@@ -203,9 +242,43 @@ export function SignalPoolCard({
     >
       <Text size="sm" c="dimmed" mb="md" lh={1.6}>
         {scratch
-          ? `从当前正在跑的池复制一份，只给这次回看用。改这里不会动 Discord 买/卖和两本账本。默认扩池 ${saved?.defaultCount ?? "—"} 只。`
+          ? "从当前正在跑的池复制一份，只给这次回看用。查找会先跑现金账本（12.5% 仓、满仓不置换），再按实际持仓盈亏取前 N 只。没开上的票不会进。不写 Discord。"
           : `默认标普∪纳指扩池 ${saved?.defaultCount ?? "—"} 只。保存后 Discord 买/卖和两本现金账本才改。点代码看策略图。`}
       </Text>
+      {scratch ? (
+        <Group align="flex-end" wrap="wrap" gap="sm" mb="md">
+          <DayPicker label="起点" value={pickFrom} onChange={setPickFrom} />
+          <DayPicker label="终点" value={pickTo} onChange={setPickTo} />
+          <NumberInput
+            size="sm"
+            label="只数"
+            value={pickN}
+            onChange={setPickN}
+            min={1}
+            max={120}
+            w={88}
+          />
+          <SegmentedControl
+            size="sm"
+            value={pickTf}
+            onChange={(v) => setPickTf(v as LookbackPickTf)}
+            data={[
+              { value: "4h", label: "4 小时" },
+              { value: "2h", label: "2 小时" },
+              { value: "both", label: "两边" },
+            ]}
+          />
+          <Button
+            size="sm"
+            variant="light"
+            loading={picking}
+            disabled={!pickFrom || !saved}
+            onClick={() => void findBest()}
+          >
+            查找
+          </Button>
+        </Group>
+      ) : null}
       {error ? (
         <Alert color="red" variant="light" mb="sm">
           {error}

@@ -9,7 +9,7 @@ export async function runLookback(
   from: string,
   members?: readonly string[],
 ): Promise<LookbackView> {
-  const champ = champOf(tf);
+  const champ = champOf(tf === "2h" ? "2h-broad" : tf);
   const uni = clipUniverseToSignalPool(
     await getPreparedUniverse("SMALLFUND", champ.config.timeframe, champ.poolId),
     members,
