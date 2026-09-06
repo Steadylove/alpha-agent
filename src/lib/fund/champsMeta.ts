@@ -2,14 +2,14 @@ export const CHAMP_TABS = [
   {
     id: "4h",
     name: "4 小时",
-    note: "",
-    label: "止8 吊10 无盈 门0 8% 入收盘 RSI≥30 出场关 不置换",
+    note: "sf-broad 560 · 每根立刻开仓",
+    label: "止4 吊6 盈3R 门30 12.5% 入每根 RSI≥30 出场关 不置换",
   },
   {
     id: "4h-broad",
     name: "4H 扩池",
     note: "sf-broad 560 · 扩池搜参，不是 195 冻结档",
-    label: "止8 吊6 盈3R 门30 12.5% 入收盘 RSI≥30 出场关 不置换",
+    label: "止4 吊6 盈3R 门30 12.5% 入每根 RSI≥30 出场关 不置换",
   },
   {
     id: "2h",

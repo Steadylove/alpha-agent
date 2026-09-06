@@ -2,30 +2,25 @@
 // Alpha Agent · 4H 扩池定档　一买/二买 + 吊灯止损　买卖点推送
 // =============================================================================
 //
-// 默认值来自 sf-broad（560 只）网格：止 8 / 吊 6 / 盈 3R / 门 30 / 仓 12.5%
-// 入收盘 / RSI≥30 / 出场关 / 不置换。不是 195 只那套冻结档（止 8 吊 10 无盈 仓 8%）。
+// 默认值来自 sf-broad（560 只）网格：止 4 / 吊 6 / 盈 3R / 门 30 / 仓 12.5%
+// 入每根 / RSI≥30 / 出场关 / 不置换。不是 195 只那套冻结档（止 8 吊 10 无盈 仓 8%）。
 //
 // 买点公式、Vegas、吊灯分档、成交时点与引擎一致。3R 止盈按
 // close >= 开仓价 + 3 × (stopMult × 点火根 ATR)，下一根开盘成交。
 //
 // -----------------------------------------------------------------------------
-// 为什么入场要限制在收盘那根
+// 入场是每根立刻开仓
 // -----------------------------------------------------------------------------
 //
-// 这不是为了不熬夜而付的代价，它在回测里明确更好（三段最差 MAR，成本 10bps）：
+// 扩池定档不再等当天最后一根。信号出了就挂下一根开盘。195 只那档仍是收盘入场，
+// 那边的 1.77 不要拿到这里比。
 //
-//   收盘入场 / 即时出场   1.77   ← 冻结档
-//   收盘入场 / 收盘出场   1.70
-//   每根入场 / 即时出场   0.71
-//   每根入场 / 收盘出场   0.82
+// 美股 6.5 小时被 4H 切成 9:30–13:30 的整根和 13:30–16:00 的 2.5 小时残根。
+// 上午点火会在残根上跑 ATR / 吊灯。旧止 8 每根入，三段最差 MAR 只有 0.79；
+// 止损收到 4 之后这段抬到 1.28。打开「只在当天最后一根」是旧口径，面板会标偏离。
 //
-// 机制：美股 6.5 小时被 4H 切成 9:30–13:30 的整根和 13:30–16:00 的 2.5 小时残根。
-// 上午那根收盘点火的话，成交后只剩 2.5 小时就收盘，这根残根会让 ATR 和吊灯失真。
-// 限制在当天最后一根点火，等于只用整根的信息定策，次日开盘才建仓。
-//
-// 出场则相反，慢半天是纯损失：每根都判破位能把最大回撤从 23% 压到 16%。所以
-// 出场保持每根 4H 收盘判、下一根开盘成交——美东 13:30 那个检查点是北京时间
-// 凌晨 1:30，靠这个脚本推信号、程序下单，别指望手动盯。
+// 出场每根都判。两个检查点是美东 13:30 / 16:00（北京 01:30 / 04:00），
+// 靠告警推、程序下单，别指望手动盯。
 //
 // -----------------------------------------------------------------------------
 // 这个脚本不负责的事
@@ -43,7 +38,7 @@
 //
 // 1. 图表周期**必须**是 4 小时，且用**常规交易时段**。开了盘前盘后，4H 的边界会
 //    整体挪位，「当天最后一根」和回测的切法就对不上了。挂错周期时本脚本不点火，
-//    信息面板第一行会显红——因为 8/6/3R 这套倍数只在 4H 上标定过。
+//    信息面板第一行会显红——因为 4/6/3R 这套倍数只在 4H 上标定过。
 // 2. 图表向左拖到至少 2000 根（4H 约 4 年）。Vegas 的 EMA676 播种后还要约 1300 根
 //    才收敛，屏幕左侧那段的闸门状态不可信。这一点吃过大亏：4H 数据当年只从 2021
 //    起，慢线没播种、vegasOk 恒为 0，回测被迫空仓穿过整个 2022 熊市而不自知。
@@ -57,8 +52,8 @@
 // 业绩预期
 // -----------------------------------------------------------------------------
 //
-// 回测（sf-broad 560，2021-08→2026-08，成本 10bps）：CAGR 24.1%、回撤 17%、
-// MAR 1.39，三段年化 22.9 / 24.7 / 24.6，三段最差 MAR 1.32。现任成分全程都在，
+// 回测（sf-broad 560，2021-08→2026-08，成本 10bps）：CAGR 28.3%、回撤 19%、
+// MAR 1.51，三段年化 19.0 / 33.9 / 30.0，三段最差 MAR 1.28。现任成分全程都在，
 // 不是时点指数。不要按 195 只那档 35.9% 预期。
 //
 // =============================================================================
@@ -75,12 +70,12 @@ bool useBuy2Input = input.bool(true, "⭐️ 二买")
 bool requireRsi   = input.bool(true, "RSI14 闸门")
 int  minRsi       = input.int(30, "RSI14 下限", minval = 0, maxval = 100)
 bool requireVegas = input.bool(true, "Vegas 多头排列闸门")
-float stopMult    = input.float(8.0, "初始止损 ATR 倍数", minval = 0.5, step = 0.5)
+float stopMult    = input.float(4.0, "初始止损 ATR 倍数", minval = 0.5, step = 0.5)
 float trailMult   = input.float(6.0, "吊灯止损 ATR 倍数", minval = 0.5, step = 0.5)
 float takeProfitR = input.float(3.0, "止盈 R 倍数（0 为关闭）", minval = 0.0, step = 0.5)
 
-// 关掉它就退回「每根都点火」。扩池定档是收盘入场。
-bool entryAtDayCloseOnly = input.bool(true, "入场只在当天最后一根 4H")
+// 打开它就只在当天最后一根点火。扩池定档是每根立刻开仓。
+bool entryAtDayCloseOnly = input.bool(false, "入场只在当天最后一根 4H")
 
 string labelSize = input.string(size.normal, "信号标签大小", options = [size.tiny, size.small, size.normal, size.large])
 
@@ -193,7 +188,7 @@ float es2   = ta.ema(close, 676)
 bool vegasOk = not na(ef1) and not na(ef2) and not na(es1) and not na(es2) and math.min(ef1, ef2) > math.max(es1, es2)
 bool rsiOk   = not na(rsi14) and rsi14 >= minRsi
 
-// 4H 专用：挂错周期就不点火。8/6/3R 这套倍数只在 240 分钟上标定过，
+// 4H 专用：挂错周期就不点火。4/6/3R 这套倍数只在 240 分钟上标定过，
 // 换到别的周期出来的是一套没人验证过的止损纪律，静默发信号比不发更糟。
 bool tfOk = timeframe.period == "240"
 
@@ -313,9 +308,9 @@ fill(plot_es1, plot_es2, color = color.new(color.fuchsia, 88), title = "慢带")
 if entrySignal
     float refStop = close - stopMult * atrRisk
     float riskPct = (refStop - close) / close * 100
-    string buyCard = (fire1 ? "❤️ 一买" : "⭐️ 二买") + "　当天收盘根\n" +
+    string buyCard = (fire1 ? "❤️ 一买" : "⭐️ 二买") + (entryAtDayCloseOnly ? "　当天收盘根\n" : "　本根\n") +
        "信号价 " + str.tostring(close, format.mintick) + "\n" +
-       "执行　 次日开盘买入\n" +
+       "执行　 下一根 4H 开盘买入\n" +
        "参考止损 " + str.tostring(refStop, format.mintick) +
        "（" + str.tostring(riskPct, "#.##") + "%　即 1R）\n" +
        "吊灯　 " + str.tostring(trailMult, "#.#") + "×ATR（浮盈 25%/50% 后收紧到 " +
@@ -385,7 +380,7 @@ if barstate.islast
     infoRow(0, "周期", tfTxt + (tfOk ? "　✓" : "　✗ 本脚本仅限 4H，已停止点火"), tfOk ? neutral : noColor)
 
     // 倍数偏离扩池定档就标 ⚠：改过参数的图不能拿回测业绩看
-    bool frozen = stopMult == 8.0 and trailMult == 6.0 and takeProfitR == 3.0 and requireRsi and minRsi == 30 and requireVegas and entryAtDayCloseOnly
+    bool frozen = stopMult == 4.0 and trailMult == 6.0 and takeProfitR == 3.0 and requireRsi and minRsi == 30 and requireVegas and not entryAtDayCloseOnly
     infoRow(1, "倍数",
        str.tostring(stopMult, "#.#") + "/" + str.tostring(trailMult, "#.#") + "×ATR" + (takeProfitR > 0 ? "　盈" + str.tostring(takeProfitR, "#.#") + "R" : "") + (frozen ? "　扩池定档" : "　⚠ 已偏离"),
        frozen ? neutral : noColor)
@@ -398,8 +393,8 @@ if barstate.islast
     infoRow(3, "Vegas", (vegasOk ? "多头" : "未排列") + (not requireVegas ? "  ○" : vegasOk ? "  ✓" : "  ✗"),
        not requireVegas ? neutral : vegasOk ? okColor : noColor)
     infoRow(4, "入场窗口",
-       not entryAtDayCloseOnly ? "每根（⚠ 非定档）" : dayCloseBar ? "本根可点火　✓" : "非收盘根　✗",
-       not entryAtDayCloseOnly ? noColor : dayCloseBar ? okColor : neutral)
+       not entryAtDayCloseOnly ? "每根　✓" : dayCloseBar ? "收盘根可点火（⚠ 非定档）" : "非收盘根　✗",
+       not entryAtDayCloseOnly ? okColor : noColor)
 
     if sigType == 0
         infoRow(5, "持仓", "空仓", neutral)

@@ -7,7 +7,8 @@ import { runRotate, type RotateOpts } from "@/lib/fund/rotate";
 
 /**
  * sf-broad 上搜 4H。选参：三段最差 MAR，且尽量三段都不亏。
- * 不写 champs。格子加了 5%——扩池后 8% 会堵死，这是结构问题不是加轴钓鱼。
+ * 入场锁每根立刻开仓（人为看信号下手）。不写 champs。
+ * 格子加了 5%——扩池后 8% 会堵死，这是结构问题不是加轴钓鱼。
  */
 
 const COST = 10;
@@ -92,56 +93,56 @@ function slim(s: Score) {
 }
 
 async function main() {
-  const champ = CHAMPS.find((c) => c.id === "4h")!;
+  const champ = CHAMPS.find((c) => c.id === "4h-broad")!;
   const base = champ.config;
   const uni = await getPreparedUniverse("SMALLFUND", "4h", "sf-broad");
   console.error(`[broad-4h] symbols ${uni.symbols.length}`);
 
+  const frozenOver = {
+    stopMult: champ.config.stopMult,
+    trailMult: champ.config.trailMult,
+    takeProfitR: champ.config.takeProfitR,
+    rpsMin: champ.config.rpsMin,
+    requireRsi: champ.config.requireRsi,
+    minRsi: champ.config.minRsi,
+    rpsExit: champ.config.rpsExit,
+  };
   const baseline = scoreFull(
     uni,
     base,
-    {
-      stopMult: champ.config.stopMult,
-      trailMult: champ.config.trailMult,
-      takeProfitR: champ.config.takeProfitR,
-      rpsMin: champ.config.rpsMin,
-      requireRsi: champ.config.requireRsi,
-      minRsi: champ.config.minRsi,
-      rpsExit: champ.config.rpsExit,
-    },
-    { ...champ.opts, costBps: COST },
-    "现定档 止8吊10无盈门0 8% RSI≥30 不置换",
+    frozenOver,
+    { ...champ.opts, costBps: COST, entryWindow: "all" },
+    "现定档 止4吊6盈3R门30 12.5% RSI≥30 不置换 入每根",
   );
-  console.error(`[broad-4h] baseline m3=${baseline.m3.toFixed(2)} mar=${baseline.mar.toFixed(2)} bear=${baseline.bearCagr.toFixed(1)}`);
+  console.error(`[broad-4h] baseline(all) m3=${baseline.m3.toFixed(2)} mar=${baseline.mar.toFixed(2)} bear=${baseline.bearCagr.toFixed(1)}`);
 
   type Grid = { over: Record<string, unknown>; o: Opts; label: string; m3: number; bearCagr: number; robust: boolean };
   const grid: Grid[] = [];
   let n = 0;
-  const TOTAL = 4 * 4 * 2 * 3 * 4 * 2;
+  const TOTAL = 4 * 4 * 2 * 3 * 4;
   for (const stopMult of [4, 5, 6, 8])
     for (const trailMult of [5, 6, 8, 10])
       for (const takeProfitR of [null, 3])
         for (const rpsMin of [0, 10, 30])
-          for (const slotPct of [0.05, 0.08, 0.1, 0.125])
-            for (const ew of ["all", "dayClose"] as const) {
-              const over = { stopMult, trailMult, takeProfitR, rpsMin };
-              const o: Opts = { slotPct, mode: "none", edge: 0, costBps: COST, entryWindow: ew, exitWindow: "all" };
-              const segs = SEG3.map((w) => runRotate(uni, cfg(base, over, w), o));
-              const w3 = worst(segs);
-              grid.push({
-                over,
-                o,
-                label: `止${stopMult} 吊${trailMult} ${takeProfitR ? `盈${takeProfitR}R` : "无盈"} 门${rpsMin} ${(slotPct * 100).toFixed(1)}% 入${ew === "all" ? "每根" : "收盘"}`,
-                m3: w3.mar,
-                bearCagr: segs[0].cagr,
-                robust: segs.every((s) => s.cagr >= 0),
-              });
-              n += 1;
-              if (n % 64 === 0) {
-                process.stderr.write(`[broad-4h] grid ${n}/${TOTAL}\n`);
-                writeFileSync(OUT, JSON.stringify({ phase: "grid", n, total: TOTAL }, null, 2));
-              }
+          for (const slotPct of [0.05, 0.08, 0.1, 0.125]) {
+            const over = { stopMult, trailMult, takeProfitR, rpsMin };
+            const o: Opts = { slotPct, mode: "none", edge: 0, costBps: COST, entryWindow: "all", exitWindow: "all" };
+            const segs = SEG3.map((w) => runRotate(uni, cfg(base, over, w), o));
+            const w3 = worst(segs);
+            grid.push({
+              over,
+              o,
+              label: `止${stopMult} 吊${trailMult} ${takeProfitR ? `盈${takeProfitR}R` : "无盈"} 门${rpsMin} ${(slotPct * 100).toFixed(1)}% 入每根`,
+              m3: w3.mar,
+              bearCagr: segs[0].cagr,
+              robust: segs.every((s) => s.cagr >= 0),
+            });
+            n += 1;
+            if (n % 64 === 0) {
+              process.stderr.write(`[broad-4h] grid ${n}/${TOTAL}\n`);
+              writeFileSync(OUT, JSON.stringify({ phase: "grid", n, total: TOTAL }, null, 2));
             }
+          }
 
   const robust = grid.filter((g) => g.robust).sort((a, b) => b.m3 - a.m3);
   const byM3 = [...grid].sort((a, b) => b.m3 - a.m3);

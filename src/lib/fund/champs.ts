@@ -37,27 +37,27 @@ function cfg(over: Partial<BacktestConfig>, timeframe: Timeframe): BacktestConfi
 
 const COST_BPS = 10;
 
-/** 现金账本定档。数字只从 `scripts/fund-rotate.ts` / 本配置复现。扩池档绑 sf-broad，不覆盖 195。 */
+/** 现金账本定档。数字只从 `scripts/fund-rotate.ts` / 本配置复现。4H 默认档绑 sf-broad。 */
 const meta = (id: ChampId) => CHAMP_TABS.find((t) => t.id === id)!;
 
 export const CHAMPS: readonly Champ[] = [
   {
     ...meta("4h"),
-    poolId: DEFAULT_SMALL_FUND_POOL,
+    poolId: "sf-broad",
     config: cfg(
-      { stopMult: 8, trailMult: 10, takeProfitR: null, rpsMin: 0, requireRsi: true, minRsi: 30, rpsExit: null },
+      { stopMult: 4, trailMult: 6, takeProfitR: 3, rpsMin: 30, requireRsi: true, minRsi: 30, rpsExit: null },
       "4h",
     ),
-    opts: { slotPct: 0.08, mode: "none", edge: 0, costBps: COST_BPS, entryWindow: "dayClose", exitWindow: "all" },
+    opts: { slotPct: 0.125, mode: "none", edge: 0, costBps: COST_BPS, entryWindow: "all", exitWindow: "all" },
   },
   {
     ...meta("4h-broad"),
     poolId: "sf-broad",
     config: cfg(
-      { stopMult: 8, trailMult: 6, takeProfitR: 3, rpsMin: 30, requireRsi: true, minRsi: 30, rpsExit: null },
+      { stopMult: 4, trailMult: 6, takeProfitR: 3, rpsMin: 30, requireRsi: true, minRsi: 30, rpsExit: null },
       "4h",
     ),
-    opts: { slotPct: 0.125, mode: "none", edge: 0, costBps: COST_BPS, entryWindow: "dayClose", exitWindow: "all" },
+    opts: { slotPct: 0.125, mode: "none", edge: 0, costBps: COST_BPS, entryWindow: "all", exitWindow: "all" },
   },
   {
     ...meta("2h"),

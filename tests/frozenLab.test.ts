@@ -17,15 +17,30 @@ const day = (date: string, extras: Partial<DayBook> = {}): DayBook => ({
 });
 
 describe("四周期定档", () => {
-  it("默认 4H，195 四档仍在，扩池 4H/2H 另挂", () => {
+  it("默认 4H 是扩池定档，195 的 2H/日线/1H 仍在", () => {
     expect(champOf(null).id).toBe("4h");
     expect(champOf("nope").id).toBe("4h");
     expect(CHAMPS.map((c) => c.id)).toEqual(["4h", "4h-broad", "2h", "2h-broad", "1d", "1h"]);
-    expect(champOf("4h").poolId).toBe("sf-2026-08");
+    expect(champOf("4h").poolId).toBe("sf-broad");
+    expect(champOf("4h").config).toMatchObject({
+      timeframe: "4h",
+      stopMult: 4,
+      trailMult: 6,
+      takeProfitR: 3,
+      rpsMin: 30,
+      requireRsi: true,
+      minRsi: 30,
+      rpsExit: null,
+    });
+    expect(champOf("4h").opts).toMatchObject({
+      slotPct: 0.125,
+      entryWindow: "all",
+      exitWindow: "all",
+    });
     expect(champOf("4h-broad").poolId).toBe("sf-broad");
     expect(champOf("4h-broad").config).toMatchObject({
       timeframe: "4h",
-      stopMult: 8,
+      stopMult: 4,
       trailMult: 6,
       takeProfitR: 3,
       rpsMin: 30,
@@ -35,7 +50,7 @@ describe("四周期定档", () => {
     });
     expect(champOf("4h-broad").opts).toMatchObject({
       slotPct: 0.125,
-      entryWindow: "dayClose",
+      entryWindow: "all",
       exitWindow: "all",
     });
     expect(champOf("2h-broad").poolId).toBe("sf-broad");
