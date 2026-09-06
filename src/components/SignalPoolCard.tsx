@@ -22,7 +22,7 @@ import { Card } from "@/components/Card";
 import { DayPicker } from "@/components/DayPicker";
 import { LabSymbolChart, type ChartTarget } from "@/components/LabSymbolChart";
 import type { LookbackPickTf } from "@/lib/fund/lookbackPickLogic";
-import { LOOKBACK_RECOMMEND } from "@/lib/fund/lookbackRecommend";
+import { LOOKBACK_RECOMMEND_2H, LOOKBACK_RECOMMEND_4H } from "@/lib/fund/lookbackRecommend";
 import {
   applySignalPool,
   baseOfPool,
@@ -76,8 +76,9 @@ export function SignalPoolCard({
   const [pickFrom, setPickFrom] = useState("2026-01-01");
   const [pickTo, setPickTo] = useState("");
   const [pickN, setPickN] = useState<number | string>(40);
-  const [pickTf, setPickTf] = useState<LookbackPickTf>("both");
+  const [pickTf, setPickTf] = useState<LookbackPickTf>("4h");
   const [picking, setPicking] = useState(false);
+  const [showRemoved, setShowRemoved] = useState(false);
   const chartRequest = useMemo(() => ({ champ: chartChamp, index: "SMALLFUND" }), [chartChamp]);
 
   const load = useCallback(async () => {
@@ -120,7 +121,8 @@ export function SignalPoolCard({
     return removed.filter((s) => s.includes(q));
   }, [draft, query]);
 
-  const visible = useMemo(() => [...removedHits, ...hits], [removedHits, hits]);
+  const removedShown = query.trim() || showRemoved ? removedHits : [];
+  const visible = useMemo(() => [...removedShown, ...hits], [removedShown, hits]);
   const selectedIn = hits.filter((s) => selected.has(s));
   const selectedOut = removedHits.filter((s) => selected.has(s));
 
@@ -152,6 +154,13 @@ export function SignalPoolCard({
     if (ok.length) setTicker("");
   };
 
+  const applyRecommend = (tickers: readonly string[]) => {
+    patchDraft(replaceSignalPool(defaults, tickers));
+    setSelected(new Set());
+    setShowRemoved(false);
+    setListOpen(true);
+  };
+
   const findBest = async () => {
     if (!saved || !pickFrom) return;
     setPicking(true);
@@ -174,6 +183,7 @@ export function SignalPoolCard({
       if (picked.length === 0) throw new Error("这段窗口没有实际持仓");
       patchDraft(replaceSignalPool(defaults, picked));
       setSelected(new Set());
+      setShowRemoved(false);
       setListOpen(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "查找失败");
@@ -243,7 +253,7 @@ export function SignalPoolCard({
     >
       <Text size="sm" c="dimmed" mb="md" lh={1.6}>
         {scratch
-          ? `从当前正在跑的池复制一份，只给这次回看用。查找按现金账本实际持仓取前 N，没开上的不进。推荐池是 2026 年单票复利最好的 ${LOOKBACK_RECOMMEND.length} 只，不受满仓顺序影响。不写 Discord。`
+          ? "从当前正在跑的池复制一份，只给这次回看用。查找按全池实际持仓贡献取前 N。推荐是 2026 年单票满仓排序后再按 12.5% 账本挑只数最好的一组，事后才知道。不写 Discord。"
           : `默认标普∪纳指扩池 ${saved?.defaultCount ?? "—"} 只。保存后 Discord 买/卖和两本现金账本才改。点代码看策略图。`}
       </Text>
       {scratch ? (
@@ -266,7 +276,6 @@ export function SignalPoolCard({
             data={[
               { value: "4h", label: "4 小时" },
               { value: "2h", label: "2 小时" },
-              { value: "both", label: "两边" },
             ]}
           />
           <Button
@@ -282,13 +291,17 @@ export function SignalPoolCard({
             size="sm"
             variant="default"
             disabled={!saved}
-            onClick={() => {
-              patchDraft(replaceSignalPool(defaults, LOOKBACK_RECOMMEND));
-              setSelected(new Set());
-              setListOpen(true);
-            }}
+            onClick={() => applyRecommend(LOOKBACK_RECOMMEND_4H)}
           >
-            推荐池
+            推荐 4H
+          </Button>
+          <Button
+            size="sm"
+            variant="default"
+            disabled={!saved}
+            onClick={() => applyRecommend(LOOKBACK_RECOMMEND_2H)}
+          >
+            推荐 2H
           </Button>
         </Group>
       ) : null}
@@ -370,7 +383,7 @@ export function SignalPoolCard({
           </Group>
         </>
       ) : null}
-      {draft && draft.removed.length > 0 ? (
+      {draft && draft.removed.length > 0 && draft.removed.length <= 12 ? (
         <ChipRow label="已剔除">
           {draft.removed.map((s) => (
             <Badge
@@ -477,24 +490,38 @@ export function SignalPoolCard({
                   ]}
                 />
               </Group>
-              {editing ? (
+              {(draft && draft.removed.length > 0) || editing ? (
                 <Group gap="sm" mb="sm">
-                  <Button
-                    size="compact-sm"
-                    variant="subtle"
-                    disabled={visible.length === 0}
-                    onClick={() => setSelected(new Set(visible))}
-                  >
-                    全选{query.trim() ? "筛选" : ""}
-                  </Button>
-                  <Button
-                    size="compact-sm"
-                    variant="subtle"
-                    disabled={selected.size === 0}
-                    onClick={() => setSelected(new Set())}
-                  >
-                    取消全选
-                  </Button>
+                  {draft && draft.removed.length > 0 ? (
+                    <Button
+                      size="compact-sm"
+                      variant={showRemoved ? "light" : "subtle"}
+                      color="red"
+                      onClick={() => setShowRemoved((v) => !v)}
+                    >
+                      {showRemoved ? "只看当前" : `看已剔除 ${draft.removed.length}`}
+                    </Button>
+                  ) : null}
+                  {editing ? (
+                    <>
+                      <Button
+                        size="compact-sm"
+                        variant="subtle"
+                        disabled={visible.length === 0}
+                        onClick={() => setSelected(new Set(visible))}
+                      >
+                        全选{query.trim() ? "筛选" : ""}
+                      </Button>
+                      <Button
+                        size="compact-sm"
+                        variant="subtle"
+                        disabled={selected.size === 0}
+                        onClick={() => setSelected(new Set())}
+                      >
+                        取消全选
+                      </Button>
+                    </>
+                  ) : null}
                 </Group>
               ) : null}
               <Text size="xs" c="dimmed" mb="sm">
@@ -503,7 +530,7 @@ export function SignalPoolCard({
               </Text>
               <ScrollArea h={340} type="auto" offsetScrollbars>
                 <div className="grid grid-cols-2 gap-x-2 sm:grid-cols-3 md:grid-cols-4">
-                  {removedHits.map((s) => (
+                  {removedShown.map((s) => (
                     <TickerRow
                       key={`out-${s}`}
                       symbol={s}
@@ -535,7 +562,7 @@ export function SignalPoolCard({
                     />
                   ))}
                 </div>
-                {hits.length === 0 && removedHits.length === 0 ? (
+                {hits.length === 0 && removedShown.length === 0 ? (
                   <Text size="xs" c="dimmed" py="sm">
                     {query.trim() ? "名单里没有这个代码" : "池是空的"}
                   </Text>
