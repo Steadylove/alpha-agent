@@ -1,4 +1,5 @@
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
 
 import type { Timeframe } from "@/lib/backtest/engine";
 import { getPreparedUniverse } from "@/lib/backtest/load";
@@ -68,6 +69,7 @@ async function main() {
     timeframes,
   };
 
+  mkdirSync(path.dirname(RPS_SNAPSHOT_PATH), { recursive: true });
   writeFileSync(RPS_SNAPSHOT_PATH, JSON.stringify(snapshot));
   console.log(
     `[rps] 已写入 ${RPS_SNAPSHOT_PATH}` + (failed.length > 0 ? `，缺 ${failed.join("/")}` : ""),
