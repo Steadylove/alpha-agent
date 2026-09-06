@@ -22,6 +22,7 @@ import { Card } from "@/components/Card";
 import { DayPicker } from "@/components/DayPicker";
 import { LabSymbolChart, type ChartTarget } from "@/components/LabSymbolChart";
 import type { LookbackPickTf } from "@/lib/fund/lookbackPickLogic";
+import { LOOKBACK_RECOMMEND } from "@/lib/fund/lookbackRecommend";
 import {
   applySignalPool,
   baseOfPool,
@@ -242,7 +243,7 @@ export function SignalPoolCard({
     >
       <Text size="sm" c="dimmed" mb="md" lh={1.6}>
         {scratch
-          ? "从当前正在跑的池复制一份，只给这次回看用。查找会先跑现金账本（12.5% 仓、满仓不置换），再按实际持仓盈亏取前 N 只。没开上的票不会进。不写 Discord。"
+          ? `从当前正在跑的池复制一份，只给这次回看用。查找按现金账本实际持仓取前 N，没开上的不进。推荐池是 2026 年单票复利最好的 ${LOOKBACK_RECOMMEND.length} 只，不受满仓顺序影响。不写 Discord。`
           : `默认标普∪纳指扩池 ${saved?.defaultCount ?? "—"} 只。保存后 Discord 买/卖和两本现金账本才改。点代码看策略图。`}
       </Text>
       {scratch ? (
@@ -276,6 +277,18 @@ export function SignalPoolCard({
             onClick={() => void findBest()}
           >
             查找
+          </Button>
+          <Button
+            size="sm"
+            variant="default"
+            disabled={!saved}
+            onClick={() => {
+              patchDraft(replaceSignalPool(defaults, LOOKBACK_RECOMMEND));
+              setSelected(new Set());
+              setListOpen(true);
+            }}
+          >
+            推荐池
           </Button>
         </Group>
       ) : null}
