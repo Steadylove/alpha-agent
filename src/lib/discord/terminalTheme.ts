@@ -76,7 +76,7 @@ export function metricTile(
   label: string,
   value: string,
   sub: string | undefined,
-  valueColor = T.text,
+  valueColor: string = T.text,
 ): string {
   return `
   <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4" fill="${T.panel}" stroke="${T.line}" stroke-width="1"/>
