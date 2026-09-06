@@ -1,0 +1,106 @@
+import { describe, expect, it } from "vitest";
+
+import type { DayBook, HoldingDay } from "@/lib/backtest/engine";
+import { dailyCurve, lookbackView, ytdOfCurve } from "@/lib/fund/lookbackLogic";
+
+const point = (date: string, strategy: number, over: Partial<DayBook> = {}): DayBook => ({
+  date,
+  strategy,
+  benchmark: 1,
+  spy: null,
+  nHold: 0,
+  exposurePct: 50,
+  buys: [],
+  sells: [],
+  ...over,
+});
+
+describe("lookback", () => {
+  it("4H 多根收成每日最后净值，并带上当天持仓", () => {
+    const holdings: HoldingDay[] = [
+      {
+        date: "2026-01-02T17:30",
+        rows: [
+          {
+            symbol: "AAPL",
+            weightPct: 12.5,
+            sigType: 1,
+            entryDate: "2026-01-02",
+            entryPrice: 10,
+            floatPnlPct: 1,
+            entryRps: 70,
+            rps: 70,
+          },
+        ],
+      },
+    ];
+    expect(
+      dailyCurve(
+        [point("2026-01-02T09:30", 1.01), point("2026-01-02T17:30", 1.02), point("2026-01-05T17:30", 1.05)],
+        holdings,
+      ),
+    ).toEqual([
+      {
+        date: "2026-01-02",
+        equity: 1.02,
+        exposurePct: 50,
+        rows: [{ symbol: "AAPL", floatPnlPct: 1, entryPrice: 10, weightPct: 12.5, rps: 70 }],
+        buys: [],
+        sells: [],
+      },
+      { date: "2026-01-05", equity: 1.05, exposurePct: 50, rows: [], buys: [], sells: [] },
+    ]);
+  });
+
+  it("快照用最后一天持仓和累计盈利", () => {
+    const holdings: HoldingDay[] = [
+      {
+        date: "2026-01-05T17:30",
+        rows: [
+          {
+            symbol: "NVDA",
+            weightPct: 12.5,
+            sigType: 1,
+            entryDate: "2026-01-02",
+            entryPrice: 100,
+            floatPnlPct: 10,
+            entryRps: 80,
+            rps: 82,
+          },
+        ],
+      },
+    ];
+    const view = lookbackView(
+      { book: [point("2026-01-02T17:30", 1.1), point("2026-01-05T17:30", 1.2)], holdings },
+      "2026-01-01",
+    );
+    expect(view.since).toBe("2026-01-01");
+    expect(view.asOf).toBe("2026-01-05T17:30");
+    expect(view.pnl).toBe("+20.0%");
+    expect(view.rows).toEqual([
+      { symbol: "NVDA", floatPnlPct: 10, entryPrice: 100, weightPct: 12.5, rps: 82 },
+    ]);
+    expect(view.stats.ytdYear).toBe(2026);
+    expect(view.stats.ytdPct).toBeCloseTo(20);
+  });
+
+  it("同一天多根的买卖合成当日轮换", () => {
+    const curve = dailyCurve([
+      point("2026-01-02T09:30", 1.0, { buys: ["AAPL"], sells: ["MSFT"] }),
+      point("2026-01-02T17:30", 1.02, { buys: ["NVDA"], sells: ["MSFT"] }),
+    ]);
+    expect(curve[0].buys).toEqual(["AAPL", "NVDA"]);
+    expect(curve[0].sells).toEqual(["MSFT"]);
+  });
+
+  it("YTD 用去年最后一天净值作基数", () => {
+    const curve = dailyCurve([
+      point("2025-12-31T17:30", 1.1),
+      point("2026-01-02T17:30", 1.21),
+      point("2026-09-04T17:30", 1.32),
+    ]);
+    const ytd = ytdOfCurve(curve);
+    expect(ytd?.year).toBe(2026);
+    expect(ytd?.pct).toBeCloseTo(20);
+  });
+});

@@ -7,6 +7,8 @@ import {
   editSignalPool,
   readSignalPool,
   readSignalPoolMembers,
+  replaceSignalPool,
+  tickerListOf,
   writeSignalPool,
 } from "@/lib/fund/signalPool";
 
@@ -48,17 +50,20 @@ export async function POST(request: Request) {
   }
 
   const action = body.action;
-  if (action !== "add" && action !== "remove" && action !== "reset") {
-    return NextResponse.json({ error: "action 必须是 add、remove 或 reset" }, { status: 400 });
+  if (action !== "add" && action !== "remove" && action !== "reset" && action !== "replace") {
+    return NextResponse.json({ error: "action 必须是 add、remove、reset 或 replace" }, { status: 400 });
   }
 
   try {
-    const next = editSignalPool(
-      defaultSignalPoolTickers(),
-      readSignalPool(),
-      action,
-      typeof body.ticker === "string" ? body.ticker : undefined,
-    );
+    const next =
+      action === "replace"
+        ? replaceSignalPool(defaultSignalPoolTickers(), tickerListOf(body.members) ?? [])
+        : editSignalPool(
+            defaultSignalPoolTickers(),
+            readSignalPool(),
+            action,
+            typeof body.ticker === "string" ? body.ticker : undefined,
+          );
     writeSignalPool(next);
     return NextResponse.json({ ok: true, ...payload() });
   } catch (error) {

@@ -6,11 +6,16 @@ import { afterEach, describe, expect, it } from "vitest";
 import { readSignalPool, readSignalPoolMembers, writeSignalPool } from "@/lib/fund/signalPool";
 import {
   applySignalPool,
+  baseOfPool,
   editSignalPool,
+  editSignalPoolMany,
   emptySignalPool,
   isTickerInPool,
   normalizeTicker,
+  parseTickers,
+  replaceSignalPool,
   signalPoolOf,
+  tickerListOf,
 } from "@/lib/fund/signalPoolLogic";
 
 const BASE = ["AAPL", "MSFT", "NVDA"];
@@ -62,5 +67,36 @@ describe("signal pool", () => {
     writeSignalPool(editSignalPool(BASE, emptySignalPool(), "remove", "MSFT"), new Date("2026-09-06T11:00:00Z"));
     expect(readSignalPool().removed).toEqual(["MSFT"]);
     expect(readSignalPoolMembers(BASE)).toEqual(["AAPL", "NVDA"]);
+  });
+
+  it("批量粘贴拆代码，非法的单独列出", () => {
+    expect(parseTickers("nvda, AAPL\nNASDAQ:MSFT  ??  BRK.B")).toEqual({
+      ok: ["NVDA", "AAPL", "MSFT", "BRK.B"],
+      bad: ["??"],
+    });
+  });
+
+  it("replace 用目标名单生成 added/removed", () => {
+    const patch = replaceSignalPool(BASE, ["NVDA", "XYZ"]);
+    expect(patch.added).toEqual(["XYZ"]);
+    expect(patch.removed).toEqual(["AAPL", "MSFT"]);
+    expect(applySignalPool(BASE, patch)).toEqual(["NVDA", "XYZ"]);
+  });
+
+  it("批量加减跳过已经对上的票", () => {
+    const next = editSignalPoolMany(BASE, emptySignalPool(), "remove", ["AAPL", "AAPL", "NOPE"]);
+    expect(applySignalPool(BASE, next)).toEqual(["MSFT", "NVDA"]);
+  });
+
+  it("接口名单还原默认基线", () => {
+    expect(
+      baseOfPool({ members: ["MSFT", "NVDA", "XYZ"], added: ["XYZ"], removed: ["AAPL"] }),
+    ).toEqual(["AAPL", "MSFT", "NVDA"]);
+  });
+
+  it("回看可传显式名单，空数组就是空池", () => {
+    expect(tickerListOf(["nvda", "NASDAQ:AAPL", "??"])).toEqual(["AAPL", "NVDA"]);
+    expect(tickerListOf([])).toEqual([]);
+    expect(tickerListOf(null)).toBeUndefined();
   });
 });

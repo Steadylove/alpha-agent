@@ -11,7 +11,6 @@ import { tickersForPool } from "@/lib/backtest/smallFundPools";
 
 import {
   applySignalPool,
-  editSignalPool,
   emptySignalPool,
   isTickerInPool,
   signalPoolOf,
@@ -19,7 +18,17 @@ import {
 } from "./signalPoolLogic";
 
 export type { SignalPoolPatch };
-export { applySignalPool, editSignalPool, isTickerInPool, normalizeTicker } from "./signalPoolLogic";
+export {
+  applySignalPool,
+  baseOfPool,
+  editSignalPool,
+  editSignalPoolMany,
+  isTickerInPool,
+  normalizeTicker,
+  parseTickers,
+  replaceSignalPool,
+  tickerListOf,
+} from "./signalPoolLogic";
 
 export function defaultSignalPoolTickers(): readonly string[] {
   return tickersForPool("sf-broad");
@@ -56,7 +65,10 @@ export function isInSignalPool(symbol: string): boolean {
   return isTickerInPool(symbol, readSignalPoolMembers());
 }
 
-export function clipUniverseToSignalPool(uni: PreparedUniverse): PreparedUniverse {
-  const allow = new Set(readSignalPoolMembers());
+export function clipUniverseToSignalPool(
+  uni: PreparedUniverse,
+  members?: readonly string[],
+): PreparedUniverse {
+  const allow = new Set(members ?? readSignalPoolMembers());
   return { axis: uni.axis, symbols: uni.symbols.filter((s) => allow.has(s.ticker)) };
 }

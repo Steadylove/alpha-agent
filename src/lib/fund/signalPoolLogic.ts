@@ -89,3 +89,64 @@ export function isTickerInPool(symbol: string, members: readonly string[]): bool
   const ticker = normalizeTicker(symbol);
   return ticker != null && members.includes(ticker);
 }
+
+/** 逗号、空格、换行、分号都能拆。 */
+export function parseTickers(text: string): { ok: string[]; bad: string[] } {
+  const seen = new Set<string>();
+  const ok: string[] = [];
+  const bad: string[] = [];
+  for (const part of text.split(/[\s,;|]+/).filter(Boolean)) {
+    const ticker = normalizeTicker(part);
+    if (!ticker) {
+      bad.push(part.toUpperCase());
+      continue;
+    }
+    if (seen.has(ticker)) continue;
+    seen.add(ticker);
+    ok.push(ticker);
+  }
+  return { ok, bad };
+}
+
+export function tickerListOf(raw: unknown): string[] | undefined {
+  if (raw == null) return undefined;
+  if (!Array.isArray(raw)) return undefined;
+  return uniqTickers(raw);
+}
+
+export function replaceSignalPool(base: readonly string[], members: readonly string[]): SignalPoolPatch {
+  const want = new Set(uniqTickers(members));
+  const inBase = new Set(base);
+  return {
+    added: [...want].filter((t) => !inBase.has(t)).sort(),
+    removed: base.filter((t) => !want.has(t)).sort(),
+    updatedAt: "",
+  };
+}
+
+export function editSignalPoolMany(
+  base: readonly string[],
+  patch: SignalPoolPatch,
+  action: "add" | "remove",
+  tickers: readonly string[],
+): SignalPoolPatch {
+  let next = patch;
+  for (const raw of tickers) {
+    try {
+      next = editSignalPool(base, next, action, raw);
+    } catch {
+      // 已在池里 / 不在池里 / 非法代码：批量时跳过
+    }
+  }
+  return next;
+}
+
+/** 从接口 payload 还原默认基线，避免再传 560 只。 */
+export function baseOfPool(pool: {
+  members: readonly string[];
+  added: readonly string[];
+  removed: readonly string[];
+}): string[] {
+  const extra = new Set(pool.added);
+  return [...new Set([...pool.members.filter((m) => !extra.has(m)), ...pool.removed])].sort();
+}
