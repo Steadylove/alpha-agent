@@ -1,3 +1,5 @@
+import { loadMarketPanel } from "@/lib/backtest/marketRemote";
+import type { PanelBars } from "@/lib/backtest/panel";
 import { fetchYahooDailyBars } from "@/lib/data-sources/yahoo";
 import {
   aggregateTo4H,
@@ -145,6 +147,28 @@ export async function getStockChartData(
   return wrap(symbol, "1d", bars, execution);
 }
 
+function panelTime(date: string, interval: ChartInterval): string | number {
+  if (interval === "1d") return date.slice(0, 10);
+  const iso = date.length === 16 ? `${date}:00.000Z` : date;
+  return Math.floor(Date.parse(iso) / 1000);
+}
+
+function panelToChart(
+  symbol: string,
+  interval: ChartInterval,
+  panel: PanelBars,
+  playbook?: Playbook | null,
+): StockChartData {
+  const ohlcv = panel.dates.map((date, i) => ({
+    open: panel.open?.[i] ?? panel.close[i],
+    high: panel.high[i],
+    low: panel.low[i],
+    close: panel.close[i],
+    volume: panel.volume?.[i] ?? 0,
+  }));
+  return wrap(symbol, interval, withMas(panel.dates.map((d) => panelTime(d, interval)), ohlcv), null, playbook);
+}
+
 function dailyToChart(symbol: string, rawBars: DailyBar[], playbook?: Playbook | null): StockChartData {
   const bars = withMas(
     rawBars.map((b) => b.date),
@@ -168,8 +192,7 @@ function intradayToChart(
 
 /**
  * Screener 图表：支持 1d / 4h / 1h。
- * - 1d：DB 优先，不足再 Yahoo daily
- * - 1h/4h：Yahoo 1H，4H 本地按交易日合成
+ * 先走行情库（本地 CSV 或 VPS），不够再 Neon / Yahoo。
  */
 export async function getStockChartDataWithFallback(
   symbol: string,
@@ -177,6 +200,11 @@ export async function getStockChartDataWithFallback(
 ): Promise<StockChartData | null> {
   const interval = options.interval ?? "1d";
   const playbook = options.playbook ?? null;
+  const tf = interval === "4h" ? "4h" : interval === "1h" ? "1h" : "1d";
+  const fromMarket = await loadMarketPanel(tf, symbol).catch(() => null);
+  if (fromMarket && fromMarket.dates.length >= 30) {
+    return panelToChart(symbol, interval, fromMarket, playbook);
+  }
 
   if (interval === "1d") {
     const fromDb = await getStockChartData(symbol, null).catch(() => null);

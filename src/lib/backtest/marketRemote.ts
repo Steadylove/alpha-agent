@@ -1,6 +1,6 @@
-import { parseCsvText } from "./csvPanel";
+import { parseCsvText, readCsvPanel } from "./csvPanel";
 import type { MarketTimeframe } from "./marketStore";
-import { marketBaseUrl, marketToken } from "./marketStore";
+import { csvDir, marketBaseUrl } from "./marketStore";
 import type { PanelBars } from "./panel";
 
 const CONCURRENCY = 8;
@@ -8,22 +8,27 @@ const CONCURRENCY = 8;
 function urlOf(relPath: string): string {
   const base = marketBaseUrl();
   if (!base) throw new Error("MARKET_DATA_BASE_URL 未设");
-  const token = marketToken();
-  const q = token ? `?t=${encodeURIComponent(token)}` : "";
-  return `${base}/${relPath}${q}`;
+  return `${base}/${relPath}`;
 }
 
 export async function fetchMarketText(relPath: string): Promise<string> {
-  const token = marketToken();
-  const response = await fetch(urlOf(relPath), {
-    cache: "no-store",
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-  });
+  const response = await fetch(urlOf(relPath), { cache: "no-store" });
   if (response.status === 404) return "";
   if (!response.ok) {
     throw new Error(`行情服务 ${relPath} HTTP ${response.status}`);
   }
   return response.text();
+}
+
+/** 单票：本地有文件用本地，否则走行情机。前端图和 Lab 都走这里。 */
+export async function loadMarketPanel(
+  timeframe: MarketTimeframe,
+  ticker: string,
+): Promise<PanelBars | null> {
+  const local = readCsvPanel(csvDir(timeframe), ticker);
+  if (local) return local;
+  if (!marketBaseUrl()) return null;
+  return fetchRemoteCsvPanel(timeframe, ticker);
 }
 
 export async function fetchRemoteCsvPanel(

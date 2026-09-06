@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { parseCsvText, readCsvPanel, writeCsvPanel } from "@/lib/backtest/csvPanel";
+import { loadMarketPanel } from "@/lib/backtest/marketRemote";
 import { describe, expect, it } from "vitest";
 
 describe("csvPanel", () => {
@@ -32,6 +33,24 @@ describe("csvPanel", () => {
     );
     expect(panel?.dates).toEqual(["2020-01-02", "2020-01-03"]);
     expect(panel?.close[1]).toBeCloseTo(2, 4);
+  });
+
+  it("loadMarketPanel 读本地 CSV", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "csv-panel-"));
+    const prev = process.env.MARKET_DATA_DIR;
+    try {
+      process.env.MARKET_DATA_DIR = dir;
+      writeCsvPanel(path.join(dir, "1d"), "AAPL", [
+        { date: "2020-01-02", open: 1, high: 1, low: 1, close: 1, volume: 1 },
+        { date: "2020-01-03", open: 2, high: 2, low: 2, close: 2, volume: 2 },
+      ]);
+      const panel = await loadMarketPanel("1d", "AAPL");
+      expect(panel?.dates).toEqual(["2020-01-02", "2020-01-03"]);
+    } finally {
+      if (prev === undefined) delete process.env.MARKET_DATA_DIR;
+      else process.env.MARKET_DATA_DIR = prev;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("缺文件返回 null，坏行丢弃", () => {

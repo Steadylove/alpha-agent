@@ -23,14 +23,14 @@ export function marketDataRoot(): string | null {
   return raw ? path.resolve(raw) : null;
 }
 
-/** Vercel 读 VPS 静态行情。例: http://host:8787 */
+const DEFAULT_MARKET_URL = "http://108.174.50.53:8787";
+
+/** Vercel 读 VPS 静态行情。未设时生产默认指这台机。 */
 export function marketBaseUrl(): string | null {
   const raw = process.env.MARKET_DATA_BASE_URL?.trim();
-  return raw ? raw.replace(/\/$/, "") : null;
-}
-
-export function marketToken(): string {
-  return process.env.MARKET_DATA_TOKEN?.trim() ?? "";
+  if (raw) return raw.replace(/\/$/, "");
+  if (process.env.VERCEL) return DEFAULT_MARKET_URL;
+  return null;
 }
 
 export function csvDir(timeframe: MarketTimeframe): string {

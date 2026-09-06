@@ -3,10 +3,28 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { buildManifest, writeManifest } from "@/lib/backtest/marketStore";
-import { describe, expect, it } from "vitest";
+import { buildManifest, marketBaseUrl, writeManifest } from "@/lib/backtest/marketStore";
+import { afterEach, describe, expect, it } from "vitest";
 
 describe("market store layout", () => {
+  const prev = {
+    MARKET_DATA_BASE_URL: process.env.MARKET_DATA_BASE_URL,
+    VERCEL: process.env.VERCEL,
+  };
+
+  afterEach(() => {
+    if (prev.MARKET_DATA_BASE_URL === undefined) delete process.env.MARKET_DATA_BASE_URL;
+    else process.env.MARKET_DATA_BASE_URL = prev.MARKET_DATA_BASE_URL;
+    if (prev.VERCEL === undefined) delete process.env.VERCEL;
+    else process.env.VERCEL = prev.VERCEL;
+  });
+
+  it("Vercel 未设 URL 时默认走行情机", () => {
+    delete process.env.MARKET_DATA_BASE_URL;
+    process.env.VERCEL = "1";
+    expect(marketBaseUrl()).toBe("http://108.174.50.53:8787");
+  });
+
   it("counts csv files and writes MANIFEST.json", () => {
     const root = mkdtempSync(path.join(tmpdir(), "market-"));
     try {

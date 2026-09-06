@@ -1,3 +1,4 @@
+import { loadMarketPanel } from "@/lib/backtest/marketRemote";
 import { hasDatabase } from "@/lib/db/remote";
 import { ROTATION_UNIVERSE } from "@/lib/scoring/rotationUniverse";
 import { computeLogMacdSeries } from "@/lib/scoring/logMacd";
@@ -85,25 +86,49 @@ const VEGAS_LENGTHS = [12, 144, 169, 576, 676] as const;
  * 从上市第一根累积下来的，截断窗口再算会得到完全不同的信号点。
  * 因此这里先全量计算，最后才切出展示窗口。
  */
-export async function getStockSignalChart(symbol: string): Promise<StockSignalChartData | null> {
+type BarRow = { date: string; open: number; high: number; low: number; close: number; volume: number };
+
+async function loadSignalBars(symbol: string): Promise<BarRow[] | null> {
+  const panel = await loadMarketPanel("1d", symbol);
+  if (panel && panel.dates.length >= 200) {
+    return panel.dates.map((date, i) => ({
+      date: date.slice(0, 10),
+      open: panel.open?.[i] ?? panel.close[i],
+      high: panel.high[i],
+      low: panel.low[i],
+      close: panel.close[i],
+      volume: panel.volume?.[i] ?? 0,
+    }));
+  }
+
   if (!hasDatabase()) return null;
-
-  const upper = symbol.toUpperCase();
-  const target = ROTATION_UNIVERSE.find((t) => t.symbol === upper);
-  if (!target) return null;
-
   const { getPrisma } = await import("@/lib/db/prisma");
   const prisma = getPrisma();
-
-  const instrument = await prisma.instrument.findUnique({ where: { symbol: upper } });
+  const instrument = await prisma.instrument.findUnique({ where: { symbol } });
   if (!instrument) return null;
-
   const rows = await prisma.dailyBar.findMany({
     where: { instrumentId: instrument.id },
     orderBy: { date: "asc" },
     select: { date: true, open: true, high: true, low: true, close: true, volume: true },
   });
   if (rows.length < 200) return null;
+  return rows.map((r) => ({
+    date: r.date.toISOString().slice(0, 10),
+    open: r.open,
+    high: r.high,
+    low: r.low,
+    close: r.close,
+    volume: Number(r.volume ?? 0),
+  }));
+}
+
+export async function getStockSignalChart(symbol: string): Promise<StockSignalChartData | null> {
+  const upper = symbol.toUpperCase();
+  const target = ROTATION_UNIVERSE.find((t) => t.symbol === upper);
+  if (!target) return null;
+
+  const rows = await loadSignalBars(upper);
+  if (!rows) return null;
 
   const bars = rows.map((r) => ({ open: r.open, high: r.high, low: r.low, close: r.close }));
   const signals = computeLogMacdSeries(bars);
@@ -117,7 +142,7 @@ export async function getStockSignalChart(symbol: string): Promise<StockSignalCh
   const closes = rows.map((r) => r.close);
   const vegasEmas = VEGAS_LENGTHS.map((n) => emaSeries(closes, n));
 
-  const iso = (i: number) => rows[i].date.toISOString().slice(0, 10);
+  const iso = (i: number) => rows[i].date;
   const start = Math.max(0, rows.length - WINDOW_DAYS);
   const inWindow = (i: number) => i >= start;
 
@@ -134,7 +159,7 @@ export async function getStockSignalChart(symbol: string): Promise<StockSignalCh
       high: r.high,
       low: r.low,
       close: r.close,
-      volume: Number(r.volume ?? 0),
+      volume: r.volume,
     });
     buy1Stops.push({
       time,

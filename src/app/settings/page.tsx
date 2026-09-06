@@ -1,7 +1,8 @@
 import { Card } from "@/components/Card";
 
 const settings = [
-  { key: "DATABASE_URL", required: true, description: "PostgreSQL Connection String" },
+  { key: "MARKET_DATA_BASE_URL", required: false, description: "VPS 行情 HTTP，未设时 Vercel 默认这台机" },
+  { key: "DATABASE_URL", required: false, description: "旧 Neon，仪表盘任务用，行情不再走它" },
   { key: "DISCORD_WEBHOOK_URL", required: true, description: "Discord Webhook for Reports" },
   { key: "CRON_SECRET", required: true, description: "API Auth Secret for CRON" },
   { key: "FMP_API_KEY", required: false, description: "Financial Modeling Prep API Key" },

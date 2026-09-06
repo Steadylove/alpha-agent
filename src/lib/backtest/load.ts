@@ -293,13 +293,19 @@ function poolTickers(poolId: SmallFundPoolId): readonly string[] {
 
 async function readCsvForTimeframe(timeframe: Timeframe, wanted: readonly string[]): Promise<PanelBars[]> {
   const tf = timeframe === "1d" || timeframe === "4h" || timeframe === "2h" || timeframe === "1h" ? timeframe : "1d";
+  const local =
+    timeframe === "1d"
+      ? readCsvPanels(CSV_PANEL_DIR, wanted)
+      : readCsvPanels(
+          { "4h": CSV_4H_DIR, "2h": CSV_2H_DIR, "1h": CSV_1H_DIR }[timeframe],
+          wanted,
+        ).filter((panel) => panel.ticker !== "SPCX");
+  if (coversPool(local, wanted)) return local;
   if (marketBaseUrl()) {
     const remote = await fetchRemoteCsvPanels(tf, wanted);
     return tf === "1d" ? remote : remote.filter((panel) => panel.ticker !== "SPCX");
   }
-  if (timeframe === "1d") return readCsvPanels(CSV_PANEL_DIR, wanted);
-  const dir = { "4h": CSV_4H_DIR, "2h": CSV_2H_DIR, "1h": CSV_1H_DIR }[timeframe];
-  return readCsvPanels(dir, wanted).filter((panel) => panel.ticker !== "SPCX");
+  return local;
 }
 
 async function loadSmallFundFromSource(

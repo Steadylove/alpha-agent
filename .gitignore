@@ -44,7 +44,5 @@ alpha-market-*.tar.gz
 # 历史面板的本地落盘缓存，可由数据库重建
 .cache/
 
-# 构建产物：由 data/smallfund*/ 的 CSV 确定性派生，见 scripts/build-rps-snapshot.ts
-data/rps-latest.json
-data/rps-scale-spx.json
-data/broad-intraday-progress.json
+# 行情 CSV / 本地账本在本机或 VPS，不进仓库
+data/
