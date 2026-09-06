@@ -1,6 +1,8 @@
 "use client";
 
 import { MantineProvider, createTheme } from "@mantine/core";
+import { DatesProvider } from "@mantine/dates";
+import "dayjs/locale/zh-cn";
 import type { ReactNode } from "react";
 
 const FONT =
@@ -37,7 +39,9 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     // 全站只有深色一套配色，用 forceColorScheme 就不需要 ColorSchemeScript 注入脚本
     <MantineProvider forceColorScheme="dark" theme={theme}>
-      {children}
+      <DatesProvider settings={{ locale: "zh-cn", firstDayOfWeek: 1, weekendDays: [0, 6] }}>
+        {children}
+      </DatesProvider>
     </MantineProvider>
   );
 }

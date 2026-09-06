@@ -16,6 +16,7 @@ export type DiscordEmbed = {
   title?: string;
   description?: string;
   color?: number;
+  image?: { url: string };
   fields?: Array<{
     name: string;
     value: string;
@@ -65,6 +66,43 @@ export async function sendDiscordWebhook(input: {
       throw new Error(`Discord webhook failed: ${response.status}`);
     }
   }
+}
+
+export async function postDiscordImage(
+  webhookUrl: string,
+  input: { filename: string; bytes: Buffer; content?: string },
+): Promise<void> {
+  const payload = {
+    content: input.content ?? "",
+    embeds: [{ color: 0x131722, image: { url: `attachment://${input.filename}` } }],
+  };
+
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const form = new FormData();
+      form.append("payload_json", JSON.stringify(payload));
+      form.append(
+        "files[0]",
+        new Blob([new Uint8Array(input.bytes)], { type: "image/png" }),
+        input.filename,
+      );
+      const response = await fetch(webhookUrl, {
+        method: "POST",
+        body: form,
+        keepalive: false,
+      });
+      if (response.ok) return;
+      lastError = new Error(`Discord webhook failed: ${response.status}`);
+    } catch (error) {
+      lastError = error;
+    }
+    if (attempt < 3) {
+      await new Promise((resolve) => setTimeout(resolve, attempt * 500));
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Discord webhook failed.");
 }
 
 export async function postDiscordPayload(

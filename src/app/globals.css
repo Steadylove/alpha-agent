@@ -1,4 +1,5 @@
 @import "@mantine/core/styles.css";
+@import "@mantine/dates/styles.css";
 @import "tailwindcss";
 
 :root {
@@ -45,14 +46,14 @@ th, td {
 }
 
 th {
-  color: #a1a1aa; /* zinc-400 */
+  color: #a1a1aa;
   font-weight: 500;
-  font-size: 0.8125rem; /* 13px */
+  font-size: 0.8125rem;
   white-space: nowrap;
 }
 
 td {
-  font-size: 0.875rem; /* 14px */
+  font-size: 0.875rem;
 }
 
 tbody tr {
@@ -61,6 +62,25 @@ tbody tr {
 
 tbody tr:hover {
   background-color: var(--surface-hover);
+}
+
+/* Mantine 日历也是 table。上面的全宽和大 padding 会把格子拉成整行。 */
+table.m_cc9820d3,
+.mantine-Popover-dropdown table,
+[data-portal] table.m_cc9820d3 {
+  width: max-content;
+}
+table.m_cc9820d3 th,
+table.m_cc9820d3 td,
+.mantine-Popover-dropdown th,
+.mantine-Popover-dropdown td {
+  padding: 0;
+  border-bottom: none;
+  font-size: inherit;
+}
+table.m_cc9820d3 tbody tr:hover,
+.mantine-Popover-dropdown tbody tr:hover {
+  background: transparent;
 }
 
 ::selection {

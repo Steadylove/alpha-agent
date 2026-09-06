@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Badge, Group, SegmentedControl, Stack, Table, Text, TextInput } from "@mantine/core";
+import { Badge, Group, SegmentedControl, Stack, Table, Text } from "@mantine/core";
 import {
   CartesianGrid,
   Line,
@@ -14,6 +14,7 @@ import {
 } from "recharts";
 
 import { Card } from "@/components/Card";
+import { DayPicker } from "@/components/DayPicker";
 import type { DayBook, HoldingDay, YearToDate } from "@/lib/backtest/engine";
 
 const POS = "#089981";
@@ -94,16 +95,6 @@ export function LabFundChart({
     setDateDraft(date);
   };
 
-  const applyDraft = () => {
-    const raw = dateDraft.trim();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(raw) || shown.length === 0) return;
-    let hit = shown[0].date;
-    for (const p of shown) {
-      if (p.date <= raw) hit = p.date;
-      else break;
-    }
-    pickDate(hit);
-  };
   const selected = shown.find((p) => p.date === selectedDate) ?? null;
   const selectedRows = selectedDate ? (holdMap.get(selectedDate) ?? []) : [];
   const hasSpy = shown.some((p) => p.spy != null);
@@ -209,16 +200,21 @@ export function LabFundChart({
                 </Text>
               ) : null}
             </Stack>
-            <TextInput
-              size="xs"
-              w={140}
-              value={dateDraft}
-              placeholder={selectedDate ?? "YYYY-MM-DD"}
-              onChange={(e) => setDateDraft(e.currentTarget.value)}
-              onBlur={applyDraft}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") applyDraft();
+            <DayPicker
+              value={dateDraft || selectedDate || ""}
+              onChange={(day) => {
+                setDateDraft(day);
+                const raw = day.trim();
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(raw) || shown.length === 0) return;
+                let hit = shown[0].date;
+                for (const p of shown) {
+                  if (p.date <= raw) hit = p.date;
+                  else break;
+                }
+                pickDate(hit);
               }}
+              size="xs"
+              w={150}
             />
           </Group>
         }

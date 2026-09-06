@@ -247,6 +247,7 @@ export function runRotate(uni: PreparedUniverse, config: BacktestConfig, opts: R
           entryPrice: slot.entryPrice,
           floatPnlPct: slot.entryPrice > 0 ? ((close - slot.entryPrice) / slot.entryPrice) * 100 : 0,
           entryRps: slot.entryRps >= 1 ? slot.entryRps : null,
+          rps: legs[idx].lastRps >= 1 ? legs[idx].lastRps : null,
         });
       }
       rows.sort((a, b) => b.weightPct - a.weightPct);

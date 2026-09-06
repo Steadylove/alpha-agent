@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Button, Group, Table, Text, TextInput } from "@mantine/core";
 
 import { Card } from "@/components/Card";
+import { DayPicker } from "@/components/DayPicker";
 import type { LiveBookChange } from "@/lib/backtest/liveBookLogic";
 
 type Book = {
@@ -82,14 +83,7 @@ export function LiveBookCard({ asOf, onChanged }: { asOf?: string; onChanged?: (
           onChange={(e) => setTicker(e.currentTarget.value.toUpperCase())}
           w={110}
         />
-        <TextInput
-          size="xs"
-          label="生效日"
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.currentTarget.value)}
-          w={150}
-        />
+        <DayPicker label="生效日" value={date} onChange={setDate} size="xs" w={150} />
         <TextInput
           size="xs"
           label="理由"

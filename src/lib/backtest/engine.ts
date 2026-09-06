@@ -588,6 +588,8 @@ export type HoldingRow = {
   entryPrice: number;
   floatPnlPct: number;
   entryRps: number | null;
+  /** 当日相对大池分位；rotate 账本会填，普通回测可缺。 */
+  rps?: number | null;
 };
 
 /** 逐日账本：净值、敞口、当日买卖。持仓明细在 `holdings` 里按日另存。 */

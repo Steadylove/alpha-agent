@@ -1,4 +1,6 @@
+import { BookEpochCard } from "@/components/BookEpochCard";
 import { FundBoard } from "@/components/FundBoard";
+import { SignalPoolCard } from "@/components/SignalPoolCard";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +14,8 @@ export default function FundPage() {
           RPS 要比最弱持仓高出 20 分才置换。吊灯位从实际成交价逐根推出来,与回测同一份口径。
         </p>
       </div>
+      <BookEpochCard />
+      <SignalPoolCard />
       <FundBoard />
     </div>
   );
