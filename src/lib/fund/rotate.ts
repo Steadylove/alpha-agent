@@ -50,6 +50,7 @@ export type RotateResult = {
   book: DayBook[];
   holdings: HoldingDay[];
   trades: ClosedTrade[];
+  missedBuys: { date: string; symbol: string; price: number }[];
 };
 
 function statsOf(equity: number[], bpy: number) {
@@ -144,6 +145,7 @@ export function runRotate(uni: PreparedUniverse, config: BacktestConfig, opts: R
   let holdingSum = 0;
   let exposureSum = 0;
   let exits = 0;
+  const missedBuys: { date: string; symbol: string; price: number }[] = [];
 
   let lastEq = 1;
   let seed = opts.seed ?? 12345;
@@ -309,6 +311,9 @@ export function runRotate(uni: PreparedUniverse, config: BacktestConfig, opts: R
       if (opts.mode === "none" || alive.length === 0) {
         decisions.set(cand.leg.idx, { rejectEntry: true });
         missed += 1;
+        if (!statsOnly && cand.leg.lastClose > 0) {
+          missedBuys.push({ date, symbol: cand.leg.sym.ticker, price: cand.leg.lastClose });
+        }
         continue;
       }
 
@@ -351,5 +356,6 @@ export function runRotate(uni: PreparedUniverse, config: BacktestConfig, opts: R
     book,
     holdings,
     trades,
+    missedBuys,
   };
 }

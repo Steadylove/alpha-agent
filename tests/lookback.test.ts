@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { DayBook, HoldingDay } from "@/lib/backtest/engine";
-import { dailyCurve, lookbackView, ytdOfCurve } from "@/lib/fund/lookbackLogic";
+import { dailyCurve, goodMisses, lookbackView, ytdOfCurve } from "@/lib/fund/lookbackLogic";
 
 const point = (date: string, strategy: number, over: Partial<DayBook> = {}): DayBook => ({
   date,
@@ -47,8 +47,9 @@ describe("lookback", () => {
         rows: [{ symbol: "AAPL", floatPnlPct: 1, entryPrice: 10, weightPct: 12.5, rps: 70 }],
         buys: [],
         sells: [],
+        misses: [],
       },
-      { date: "2026-01-05", equity: 1.05, exposurePct: 50, rows: [], buys: [], sells: [] },
+      { date: "2026-01-05", equity: 1.05, exposurePct: 50, rows: [], buys: [], sells: [], misses: [] },
     ]);
   });
 
@@ -102,5 +103,23 @@ describe("lookback", () => {
     const ytd = ytdOfCurve(curve);
     expect(ytd?.year).toBe(2026);
     expect(ytd?.pct).toBeCloseTo(20);
+  });
+
+  it("只标第一次错过、且期末涨得比当天净值多的票", () => {
+    const curve = dailyCurve([point("2026-01-02T17:30", 1.0), point("2026-09-04T17:30", 0.97)]);
+    expect(
+      goodMisses(
+        [
+          { date: "2026-01-02T17:30", symbol: "NVDA", price: 100 },
+          { date: "2026-03-01T17:30", symbol: "NVDA", price: 90 },
+          { date: "2026-01-02T17:30", symbol: "HOOD", price: 50 },
+        ],
+        new Map([
+          ["NVDA", 150],
+          ["HOOD", 45],
+        ]),
+        curve,
+      ),
+    ).toEqual([{ date: "2026-01-02", symbol: "NVDA", laterPct: 50 }]);
   });
 });

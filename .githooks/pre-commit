@@ -1,0 +1,4 @@
+#!/bin/sh
+# 拦住会让 Vercel `next build` 的 TypeScript 步骤失败的提交。
+set -e
+npm run typecheck

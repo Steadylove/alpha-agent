@@ -17,5 +17,6 @@ export async function runLookback(
   const to = uni.axis.at(-1) ?? champ.config.to;
   const raw = runRotate(uni, { ...champ.config, from, to }, champ.opts);
   if (raw.book.length === 0) throw new Error("这段窗口没有账本");
-  return lookbackView(raw, from);
+  const lastClose = new Map(uni.symbols.map((s) => [s.ticker, s.close.at(-1) ?? 0]));
+  return lookbackView({ ...raw, lastClose }, from);
 }

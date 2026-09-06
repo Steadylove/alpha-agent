@@ -19,6 +19,7 @@ export type LookbackPoint = {
   rows: LookbackRow[];
   buys: string[];
   sells: string[];
+  misses: LookbackMiss[];
 };
 
 export type LookbackStats = {
@@ -34,6 +35,12 @@ export type LookbackStats = {
   ytdPct: number | null;
 };
 
+export type LookbackMiss = {
+  date: string;
+  symbol: string;
+  laterPct: number;
+};
+
 export type LookbackView = {
   since: string;
   asOf: string;
@@ -43,6 +50,7 @@ export type LookbackView = {
   curve: LookbackPoint[];
   rows: LookbackRow[];
   stats: LookbackStats;
+  misses: LookbackMiss[];
 };
 
 export function isLookbackTf(raw: unknown): raw is LookbackTf {
@@ -81,6 +89,7 @@ export function dailyCurve(
       rows: holds.get(date) ?? [],
       buys: uniq([...(prev?.buys ?? []), ...row.buys]),
       sells: uniq([...(prev?.sells ?? []), ...row.sells]),
+      misses: [],
     });
   }
   return [...last.values()];
@@ -109,6 +118,8 @@ export function lookbackView(
     avgHoldings?: number;
     avgExposure?: number;
     tradesPerYear?: number;
+    missedBuys?: readonly { date: string; symbol: string; price: number }[];
+    lastClose?: ReadonlyMap<string, number>;
   },
   since: string,
 ): LookbackView {
@@ -118,6 +129,16 @@ export function lookbackView(
   const lastBook = raw.book.at(-1);
   const equity = last?.equity ?? lastBook?.strategy ?? 1;
   const ytd = ytdOfCurve(curve);
+  const misses = goodMisses(raw.missedBuys ?? [], raw.lastClose ?? new Map(), curve);
+  if (misses.length) {
+    const byDay = new Map<string, LookbackMiss[]>();
+    for (const m of misses) {
+      const list = byDay.get(m.date) ?? [];
+      list.push(m);
+      byDay.set(m.date, list);
+    }
+    for (const p of curve) p.misses = byDay.get(p.date) ?? [];
+  }
   return {
     since,
     asOf: lastHold?.date ?? lastBook?.date ?? "",
@@ -138,5 +159,31 @@ export function lookbackView(
       ytdYear: ytd?.year ?? null,
       ytdPct: ytd?.pct ?? null,
     },
+    misses,
   };
+}
+
+/** 满仓错过的买点：同一票只记第一次，期末涨幅要高于从那天起的净值。 */
+export function goodMisses(
+  missed: readonly { date: string; symbol: string; price: number }[],
+  lastClose: ReadonlyMap<string, number>,
+  curve: readonly LookbackPoint[],
+): LookbackMiss[] {
+  const eqOn = new Map<string, number>();
+  for (const p of curve) eqOn.set(p.date, p.equity);
+  const lastEq = curve.at(-1)?.equity ?? 1;
+  const seen = new Set<string>();
+  const out: LookbackMiss[] = [];
+  for (const m of missed) {
+    if (seen.has(m.symbol) || m.price <= 0) continue;
+    const close = lastClose.get(m.symbol);
+    if (close == null || close <= 0) continue;
+    const laterPct = (close / m.price - 1) * 100;
+    const base = eqOn.get(m.date.slice(0, 10)) ?? 1;
+    const bookPct = base > 0 ? (lastEq / base - 1) * 100 : 0;
+    if (laterPct <= 0 || laterPct <= bookPct) continue;
+    seen.add(m.symbol);
+    out.push({ date: m.date.slice(0, 10), symbol: m.symbol, laterPct });
+  }
+  return out.sort((a, b) => b.laterPct - a.laterPct);
 }

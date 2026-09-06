@@ -168,8 +168,8 @@ function LookbackResult({
             data={view.curve}
             margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
             onMouseMove={(state) => {
-              const p = (state?.activePayload?.[0]?.payload ?? null) as LookbackPoint | null;
-              if (p?.date && p.date !== hoverDate) onHover(p.date);
+              const date = typeof state.activeLabel === "string" ? state.activeLabel : null;
+              if (date && date !== hoverDate) onHover(date);
             }}
             onMouseLeave={() => onHover(null)}
           >
@@ -210,6 +210,11 @@ function LookbackResult({
                         {p.sells.length ? `卖 ${p.sells.join(" ")}` : ""}
                       </div>
                     ) : null}
+                    {p.misses?.length ? (
+                      <div className="mt-1 font-mono text-zinc-500">
+                        错过 {p.misses.map((m) => `${m.symbol} ${pct(m.laterPct)}`).join(" · ")}
+                      </div>
+                    ) : null}
                     {p.rows.map((row) => (
                       <div key={row.symbol} className="mt-0.5 flex justify-between gap-4 font-mono">
                         <span>{row.symbol}</span>
@@ -238,8 +243,27 @@ function LookbackResult({
         </ResponsiveContainer>
       </div>
       <Text size="xs" c="dimmed" mt="xs">
-        曲线上的点：绿买 · 红卖 · 琥珀当天既买又卖
+        曲线上的点：绿买 · 红卖 · 琥珀当天既买又卖 · 灰点是错过的好买点
       </Text>
+      {(view.misses ?? []).length > 0 ? (
+        <div className="mt-3">
+          <Text size="xs" c="dimmed" mb={6}>
+            错过的好买点 · 满仓没开、到期末涨得比当时净值多
+          </Text>
+          <Group gap={6}>
+            {view.misses.slice(0, 8).map((m) => (
+              <Badge key={`${m.date}-${m.symbol}`} size="sm" color="gray" variant="light">
+                {m.symbol} {pct(m.laterPct)} · {m.date.slice(5)}
+              </Badge>
+            ))}
+          </Group>
+          {view.misses.length > 8 ? (
+            <Text size="xs" c="dimmed" mt={6}>
+              还有 {view.misses.length - 8} 只
+            </Text>
+          ) : null}
+        </div>
+      ) : null}
       {point && (point.buys.length > 0 || point.sells.length > 0) ? (
         <Group gap={6} mt="sm">
           {point.buys.map((s) => (
@@ -320,7 +344,10 @@ function Stat({ label, value, color }: { label: string; value: string; color?: s
 function tradeDot(props: { cx?: number; cy?: number; payload?: LookbackPoint }) {
   const p = props.payload;
   if (p == null || props.cx == null || props.cy == null) return null;
-  if (p.buys.length === 0 && p.sells.length === 0) return null;
-  const fill = p.buys.length > 0 && p.sells.length > 0 ? ROTATE : p.buys.length > 0 ? POS : NEG;
-  return <circle cx={props.cx} cy={props.cy} r={3.5} fill={fill} />;
+  if (p.buys.length || p.sells.length) {
+    const fill = p.buys.length > 0 && p.sells.length > 0 ? ROTATE : p.buys.length > 0 ? POS : NEG;
+    return <circle cx={props.cx} cy={props.cy} r={3.5} fill={fill} />;
+  }
+  if (!p.misses?.length) return null;
+  return <circle cx={props.cx} cy={props.cy} r={3} fill="#a1a1aa" />;
 }

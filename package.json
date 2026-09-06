@@ -7,6 +7,8 @@
     "build": "prisma generate && npx --yes tsx scripts/ensure-lab-csv.ts && npm run rps:snapshot && next build",
     "start": "next start",
     "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "prepare": "test -d .git && cp .githooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit || true",
     "test": "vitest run",
     "test:watch": "vitest",
     "prisma:generate": "prisma generate",
