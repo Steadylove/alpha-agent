@@ -12,7 +12,6 @@
 import { NextResponse } from "next/server";
 
 import { ensureRpsSnapshot, lookupAlertRps, resolveAlertTimeframe } from "@/lib/backtest/rpsSnapshot";
-import { pushSignalBooks } from "@/lib/fund/pushSignalBook";
 import { renderSignalPng } from "@/lib/discord/signalCardImage";
 import {
   buildAlertView,
@@ -42,29 +41,7 @@ function parsePayload(raw: unknown): AlertPayload | null {
   return p as unknown as AlertPayload;
 }
 
-export const maxDuration = 300;
-
 export async function POST(request: Request) {
-  const url = new URL(request.url);
-  let raw: Record<string, unknown> = {};
-  try {
-    raw = JSON.parse(await request.text()) as Record<string, unknown>;
-  } catch {
-    raw = {};
-  }
-  if (url.searchParams.get("book") === "1" || raw.event === "book") {
-    try {
-      const result = await pushSignalBooks({
-        test: url.searchParams.get("test") === "1" || raw.test === true,
-        lookback: url.searchParams.get("lookback") === "1" || raw.lookback === true,
-      });
-      return NextResponse.json({ ok: true, ...result });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "推送失败";
-      return NextResponse.json({ error: message }, { status: 500 });
-    }
-  }
-
   const webhookUrl = process.env.DISCORD_SIGNAL_WEBHOOK_URL || process.env.DISCORD_WEBHOOK_URL;
   if (!webhookUrl) {
     return NextResponse.json(
@@ -73,7 +50,12 @@ export async function POST(request: Request) {
     );
   }
 
-  const payload = parsePayload(raw);
+  let payload: AlertPayload | null = null;
+  try {
+    payload = parsePayload(JSON.parse(await request.text()));
+  } catch {
+    payload = null;
+  }
   if (!payload) {
     return NextResponse.json({ error: "Malformed alert payload." }, { status: 400 });
   }
