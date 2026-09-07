@@ -4,12 +4,12 @@ import { bookPnlLabel, pnlLabel, winRateLabel, type CashBookView } from "./bookC
 import { loadOgFonts, OG_FONT } from "./ogFont";
 import { strengthLabel } from "./tvAlertCopy";
 
-const S = 2;
+const S = 1;
 const px = (n: number) => n * S;
 const WIDTH = px(960);
 const ROW_H = px(52);
-const HEADER_H = px(172);
-const FOOTER_H = px(92);
+const HEADER_H = px(156);
+const FOOTER_H = px(80);
 const T = {
   bg: "#070B12",
   panel: "#0E1522",
@@ -78,9 +78,9 @@ function Col({
     <div
       style={{
         display: "flex",
-        flexGrow: grow,
-        flexShrink: 1,
-        flexBasis: 0,
+        width: `${(grow / 5.85) * 100}%`,
+        flexGrow: 0,
+        flexShrink: 0,
         color: color ?? T.text,
         fontSize: px(size ?? 16),
         fontWeight: bold ? 700 : 400,
@@ -126,16 +126,17 @@ function BookCard({ input }: { input: CashBookView }) {
         fontFamily: OG_FONT,
       }}
     >
-      <div style={{ display: "flex", height: px(4), background: T.cyan }} />
+      <div style={{ display: "flex", width: "100%", height: px(4), background: T.cyan }} />
       <div
         style={{
           display: "flex",
           flexDirection: "column",
+          width: "100%",
           padding: `${px(22)}px ${px(32)}px ${px(24)}px`,
           flexGrow: 1,
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ display: "flex", alignItems: "center" }}>
             <div style={{ display: "flex", color: T.cyan, fontSize: px(16), letterSpacing: 2, marginRight: px(12), fontWeight: 700 }}>
               ALPHA
@@ -147,7 +148,7 @@ function BookCard({ input }: { input: CashBookView }) {
           </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "flex-end", marginTop: px(22), marginBottom: px(8) }}>
+        <div style={{ display: "flex", width: "100%", alignItems: "flex-end", marginTop: px(22), marginBottom: px(8) }}>
           <div style={{ display: "flex", flexDirection: "column", marginRight: px(40) }}>
             <div style={{ display: "flex", color: T.muted, fontSize: px(12), letterSpacing: 2 }}>累计</div>
             <div style={{ display: "flex", color: equityColor, fontSize: px(36), fontWeight: 700, lineHeight: 1, marginTop: px(4) }}>
@@ -161,8 +162,8 @@ function BookCard({ input }: { input: CashBookView }) {
           </div>
         </div>
 
-        <div style={{ display: "flex", height: px(1), background: T.line, marginTop: px(10), marginBottom: px(8) }} />
-        <div style={{ display: "flex", color: T.muted, fontSize: px(12), letterSpacing: 1, paddingLeft: px(4), paddingRight: px(4) }}>
+        <div style={{ display: "flex", width: "100%", height: px(1), background: T.line, marginTop: px(10), marginBottom: px(8) }} />
+        <div style={{ display: "flex", width: "100%", color: T.muted, fontSize: px(12), letterSpacing: 1, paddingLeft: px(4), paddingRight: px(4) }}>
           <Col grow={0.45} color={T.muted} size={12}>#</Col>
           <Col grow={1.2} color={T.muted} size={12}>代码</Col>
           <Col grow={1} color={T.muted} size={12} end>盈亏</Col>
@@ -170,9 +171,9 @@ function BookCard({ input }: { input: CashBookView }) {
           <Col grow={0.9} color={T.muted} size={12} end>仓位</Col>
           <Col grow={1.3} color={T.muted} size={12} end>强度</Col>
         </div>
-        <div style={{ display: "flex", height: px(1), background: T.line, marginTop: px(8) }} />
+        <div style={{ display: "flex", width: "100%", height: px(1), background: T.line, marginTop: px(8) }} />
 
-        <div style={{ display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
           {input.rows.length === 0 ? (
             <div
               style={{
@@ -192,6 +193,7 @@ function BookCard({ input }: { input: CashBookView }) {
                 key={`${row.symbol}-${i}`}
                 style={{
                   display: "flex",
+                  width: "100%",
                   alignItems: "center",
                   height: ROW_H,
                   background: i % 2 === 0 ? "transparent" : T.panel,
@@ -210,14 +212,14 @@ function BookCard({ input }: { input: CashBookView }) {
           )}
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", marginTop: px(18) }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: px(8) }}>
+        <div style={{ display: "flex", flexDirection: "column", width: "100%", marginTop: px(18) }}>
+          <div style={{ display: "flex", width: "100%", justifyContent: "space-between", marginBottom: px(8) }}>
             <div style={{ display: "flex", color: T.muted, fontSize: px(12) }}>{`敞口 ${exposure.toFixed(0)}%`}</div>
             <div style={{ display: "flex", color: T.muted, fontSize: px(12) }}>
               {`现金 ${cashPct.toFixed(0)}%   ·   当天敞口 ${input.exposurePct.toFixed(0)}%   ·   持仓 ${input.rows.length} 只`}
             </div>
           </div>
-          <div style={{ display: "flex", height: px(8), background: T.panel }}>
+          <div style={{ display: "flex", width: "100%", height: px(8), background: T.panel }}>
             <div
               style={{
                 display: "flex",
