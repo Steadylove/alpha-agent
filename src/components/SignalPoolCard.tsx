@@ -262,7 +262,7 @@ export function SignalPoolCard({
           <DayPicker label="终点" value={pickTo} onChange={setPickTo} />
           <NumberInput
             size="sm"
-            label="尺子只数"
+            label="只数"
             value={pickN}
             onChange={setPickN}
             min={1}
