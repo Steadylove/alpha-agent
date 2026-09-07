@@ -6,9 +6,8 @@ import { winRatePctOf, type LookbackTf } from "@/lib/fund/lookbackLogic";
 import { readLookbackSnapshots } from "@/lib/fund/lookbackSnapshots";
 import { runRotate } from "@/lib/fund/rotate";
 import { clipUniverseToSignalPool } from "@/lib/fund/signalPool";
-import { cashBookFromLookback, renderCashBookPng } from "@/lib/discord/bookCardImage";
-import { ytdOfNav } from "@/lib/discord/bookCopy";
-import { postDiscordImage } from "@/lib/discord/sendWebhook";
+import { renderCashBook, ytdOfNav, type CashBookView } from "@/lib/discord/bookCopy";
+import { postDiscordImage, postDiscordPayload } from "@/lib/discord/sendWebhook";
 
 const BOOKS = ["4h", "2h"] as const;
 
@@ -31,6 +30,21 @@ function caption(name: string, test: boolean): string {
   return test ? `📒 **${name} 现金账本**（测试）` : `📒 **${name} 现金账本**`;
 }
 
+async function sendBook(webhook: string, filename: string, input: CashBookView, test: boolean): Promise<void> {
+  const content = caption(input.label, test);
+  try {
+    const { renderCashBookPng } = await import("@/lib/discord/bookCardImage");
+    await postDiscordImage(webhook, {
+      filename,
+      bytes: await renderCashBookPng(input),
+      content,
+    });
+  } catch {
+    const payload = renderCashBook(input);
+    await postDiscordPayload(webhook, { ...payload, content: `${content}\n${payload.content ?? ""}` });
+  }
+}
+
 async function pushLive(champ: Champ, webhook: string, test: boolean): Promise<string> {
   const uni = await clipUniverseToSignalPool(
     await getPreparedUniverse("SMALLFUND", champ.config.timeframe, champ.poolId),
@@ -42,7 +56,7 @@ async function pushLive(champ: Champ, webhook: string, test: boolean): Promise<s
   const lastBook = raw.book.at(-1);
   if (!last || !lastBook) throw new Error(`${champ.id} 现金账本是空的`);
   const ytd = ytdOfNav(raw.book.map((b) => ({ date: b.date, equity: b.strategy })));
-  const png = await renderCashBookPng({
+  const input: CashBookView = {
     asOf: last.date,
     since,
     label: champ.name,
@@ -62,12 +76,8 @@ async function pushLive(champ: Champ, webhook: string, test: boolean): Promise<s
     avgHoldings: raw.avgHoldings,
     avgExposure: raw.avgExposure,
     winRatePct: winRatePctOf(raw.lotPnl.map((x) => x.pct)),
-  });
-  await postDiscordImage(webhook, {
-    filename: `book-${champ.id}.png`,
-    bytes: png,
-    content: caption(champ.name, test),
-  });
+  };
+  await sendBook(webhook, `book-${champ.id}.png`, input, test);
   return `${champ.name} 记账自 ${since.slice(0, 10)} 截至 ${last.date} ${last.rows.length}只`;
 }
 
@@ -80,13 +90,27 @@ async function pushLookback(tf: LookbackTf, webhook: string, test: boolean): Pro
   if (!snap) throw new Error("没有已存股票池快照");
   const view = await runLookback(tf, snap.from, snap.members, snap.slots);
   const champ = champOf(tf === "2h" ? "2h-broad" : tf);
-  const png = await renderCashBookPng(cashBookFromLookback(view, champ.name));
-  await postDiscordImage(webhook, {
-    filename: `book-${tf}.png`,
-    bytes: png,
-    content: caption(champ.name, test),
-  });
   const s = view.stats;
+  await sendBook(
+    webhook,
+    `book-${tf}.png`,
+    {
+      asOf: view.asOf,
+      since: view.since,
+      label: champ.name,
+      rows: view.rows,
+      equity: view.equity,
+      ytdPct: s.ytdPct ?? undefined,
+      ytdYear: s.ytdYear ?? undefined,
+      exposurePct: view.exposurePct,
+      dd: s.dd,
+      mar: s.mar,
+      avgHoldings: s.avgHoldings,
+      avgExposure: s.avgExposure,
+      winRatePct: s.winRatePct,
+    },
+    test,
+  );
   const win = s.winRatePct == null ? "—" : `${s.winRatePct.toFixed(0)}%`;
   return `${champ.name} ${snap.name} 累计 ${view.pnl} 回撤 ${s.dd.toFixed(0)}% MAR ${s.mar.toFixed(2)} 均持 ${s.avgHoldings.toFixed(1)} 敞口 ${s.avgExposure.toFixed(0)}% 胜率 ${win}`;
 }

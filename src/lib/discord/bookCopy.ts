@@ -41,7 +41,7 @@ function rowStrength(rps: number | null): string {
   return rps != null && rps >= 1 ? strengthLabel(rps) : "—";
 }
 
-export function renderCashBook(input: {
+export type CashBookView = {
   asOf: string;
   /** 记账起始日 YYYY-MM-DD */
   since: string;
@@ -56,7 +56,9 @@ export function renderCashBook(input: {
   avgHoldings?: number;
   avgExposure?: number;
   winRatePct?: number | null;
-}): DiscordPayload {
+};
+
+export function renderCashBook(input: CashBookView): DiscordPayload {
   const lines =
     input.rows.length === 0
       ? "空仓"
