@@ -2,6 +2,8 @@ export type SignalPoolPatch = {
   added: string[];
   removed: string[];
   updatedAt: string;
+  /** 有这份就以它为准，默认池以后再扩也不会漏进新票。 */
+  members?: string[];
 };
 
 const TICKER = /^[A-Z][A-Z0-9.]{0,9}$/;
@@ -37,10 +39,11 @@ export function signalPoolOf(raw: unknown): SignalPoolPatch {
     added: uniqTickers(p.added),
     removed: uniqTickers(p.removed),
     updatedAt: typeof p.updatedAt === "string" ? p.updatedAt : "",
+    members: Array.isArray(p.members) ? uniqTickers(p.members) : undefined,
   };
 }
 
-export function applySignalPool(base: readonly string[], patch: SignalPoolPatch): string[] {
+function applyAddedRemoved(base: readonly string[], patch: Pick<SignalPoolPatch, "added" | "removed">): string[] {
   const removed = new Set(patch.removed);
   const have = new Set<string>();
   const out: string[] = [];
@@ -55,6 +58,11 @@ export function applySignalPool(base: readonly string[], patch: SignalPoolPatch)
     out.push(ticker);
   }
   return out.sort();
+}
+
+export function applySignalPool(base: readonly string[], patch: SignalPoolPatch): string[] {
+  if (patch.members != null) return uniqTickers(patch.members);
+  return applyAddedRemoved(base, patch);
 }
 
 export function editSignalPool(
@@ -76,13 +84,15 @@ export function editSignalPool(
     if (members.has(sym)) throw new Error(`${sym} 已在池里`);
     removed.delete(sym);
     if (!inBase.has(sym)) added.add(sym);
-    return { added: [...added].sort(), removed: [...removed].sort(), updatedAt: "" };
+    const next = { added: [...added].sort(), removed: [...removed].sort(), updatedAt: "" };
+    return { ...next, members: applyAddedRemoved(base, next) };
   }
 
   if (!members.has(sym)) throw new Error(`${sym} 不在池里`);
   added.delete(sym);
   if (inBase.has(sym)) removed.add(sym);
-  return { added: [...added].sort(), removed: [...removed].sort(), updatedAt: "" };
+  const next = { added: [...added].sort(), removed: [...removed].sort(), updatedAt: "" };
+  return { ...next, members: applyAddedRemoved(base, next) };
 }
 
 export function isTickerInPool(symbol: string, members: readonly string[]): boolean {
@@ -120,6 +130,7 @@ export function replaceSignalPool(base: readonly string[], members: readonly str
   return {
     added: [...want].filter((t) => !inBase.has(t)).sort(),
     removed: base.filter((t) => !want.has(t)).sort(),
+    members: [...want].sort(),
     updatedAt: "",
   };
 }

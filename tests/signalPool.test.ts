@@ -80,7 +80,16 @@ describe("signal pool", () => {
     const patch = replaceSignalPool(BASE, ["NVDA", "XYZ"]);
     expect(patch.added).toEqual(["XYZ"]);
     expect(patch.removed).toEqual(["AAPL", "MSFT"]);
+    expect(patch.members).toEqual(["NVDA", "XYZ"]);
     expect(applySignalPool(BASE, patch)).toEqual(["NVDA", "XYZ"]);
+  });
+
+  it("记下名单后默认池再扩也不漏进新票", () => {
+    const grown = [...BASE, "TSLA", "META"];
+    const stale = { added: [] as string[], removed: ["AAPL"], updatedAt: "" };
+    expect(applySignalPool(grown, stale)).toEqual(["META", "MSFT", "NVDA", "TSLA"]);
+    const pinned = replaceSignalPool(BASE, ["MSFT", "NVDA"]);
+    expect(applySignalPool(grown, pinned)).toEqual(["MSFT", "NVDA"]);
   });
 
   it("批量加减跳过已经对上的票", () => {

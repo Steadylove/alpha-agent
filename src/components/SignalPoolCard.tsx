@@ -191,6 +191,9 @@ export function SignalPoolCard({
     const json = await res.json();
     if (!res.ok) throw new Error(json.error ?? "写入失败");
     const pool = json as Pool;
+    if (pool.memberCount !== tickers.length) {
+      throw new Error(`写入后是 ${pool.memberCount} 只，不是载入的 ${tickers.length} 只`);
+    }
     setSaved(pool);
     setDraft(asDraft(pool));
   };
