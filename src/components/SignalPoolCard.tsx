@@ -182,11 +182,38 @@ export function SignalPoolCard({
 
   const pickedSnap = snapshots.find((s) => s.id === snapId) ?? null;
 
-  const loadSnap = () => {
+  const persistMembers = async (tickers: readonly string[]) => {
+    const res = await fetch("/api/signal-pool", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "replace", members: tickers }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error ?? "写入失败");
+    const pool = json as Pool;
+    setSaved(pool);
+    setDraft(asDraft(pool));
+  };
+
+  const loadSnap = async () => {
     if (!pickedSnap) return;
-    applyRecommend(pickedSnap.members);
-    setEditing(true);
-    setListOpen(true);
+    setError(null);
+    if (scratch) {
+      applyRecommend(pickedSnap.members);
+      setEditing(true);
+      setListOpen(true);
+      return;
+    }
+    setBusy(true);
+    try {
+      await persistMembers(pickedSnap.members);
+      setEditing(false);
+      setListOpen(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "载入失败");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const renameSnap = async () => {
@@ -306,7 +333,7 @@ export function SignalPoolCard({
       <Text size="sm" c="dimmed" mb="md" lh={1.6}>
         {scratch
           ? "从当前正在跑的池复制一份，只给这次回看用。查找按全池实际持仓贡献取前 N。推荐是 2026 年单票满仓排序后再按 12.5% 账本挑只数最好的一组，事后才知道。不写 Discord。"
-          : `默认标普∪纳指扩池 ${saved?.defaultCount ?? "—"} 只。只改两本现金账本，Discord 买/卖仍按 TV 信号 + RPS 转发。点代码看策略图。`}
+          : `默认标普∪纳指扩池 ${saved?.defaultCount ?? "—"} 只。载入已存池会立刻写入，刷新还在。只改两本现金账本，Discord 买/卖仍按 TV 信号 + RPS 转发。点代码看策略图。`}
       </Text>
       <Group align="flex-end" wrap="wrap" gap="sm" mb="md">
         <Select
@@ -327,7 +354,13 @@ export function SignalPoolCard({
           clearable
           w={280}
         />
-        <Button size="sm" variant="light" disabled={!pickedSnap} onClick={loadSnap}>
+        <Button
+          size="sm"
+          variant="light"
+          disabled={!pickedSnap}
+          loading={busy && !scratch}
+          onClick={() => void loadSnap()}
+        >
           载入
         </Button>
         <TextInput

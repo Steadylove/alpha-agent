@@ -16,7 +16,7 @@ export async function runLookback(
   slots = DEFAULT_LOOKBACK_SLOTS,
 ): Promise<LookbackView> {
   const champ = champOf(tf === "2h" ? "2h-broad" : tf);
-  const uni = clipUniverseToSignalPool(
+  const uni = await clipUniverseToSignalPool(
     await getPreparedUniverse("SMALLFUND", champ.config.timeframe, champ.poolId),
     members,
   );

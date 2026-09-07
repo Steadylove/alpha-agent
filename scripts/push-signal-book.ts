@@ -11,7 +11,7 @@ import { postDiscordImage } from "@/lib/discord/sendWebhook";
 const BOOKS = ["4h", "2h"] as const;
 
 async function pushOne(champ: Champ, webhook: string) {
-  const uni = clipUniverseToSignalPool(
+  const uni = await clipUniverseToSignalPool(
     await getPreparedUniverse("SMALLFUND", champ.config.timeframe, champ.poolId),
   );
   const to = uni.axis.at(-1) ?? champ.config.to;

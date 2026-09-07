@@ -3,10 +3,11 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
 const DIR = process.env.DESK_DIR || "/data";
 const SECRET = (process.env.DESK_STORE_SECRET || "").trim();
-const FILES = new Set(["lookback-snapshots.json", "book-epoch.json"]);
+const FILES = new Set(["lookback-snapshots.json", "book-epoch.json", "signal-pool.json"]);
 const EMPTY = {
   "lookback-snapshots.json": "[]\n",
   "book-epoch.json": "{}\n",
+  "signal-pool.json": "{}\n",
 };
 const MAX = 512 * 1024;
 

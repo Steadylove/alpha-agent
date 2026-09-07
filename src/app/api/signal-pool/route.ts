@@ -22,10 +22,10 @@ function csvMissing(ticker: string): string[] {
   return missing;
 }
 
-function payload() {
+async function payload() {
   const base = defaultSignalPoolTickers();
-  const patch = readSignalPool();
-  const members = readSignalPoolMembers(base);
+  const patch = await readSignalPool();
+  const members = await readSignalPoolMembers(base);
   return {
     members,
     memberCount: members.length,
@@ -38,7 +38,12 @@ function payload() {
 }
 
 export async function GET() {
-  return NextResponse.json(payload());
+  try {
+    return NextResponse.json(await payload());
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "读取失败";
+    return NextResponse.json({ error: message }, { status: 502 });
+  }
 }
 
 export async function POST(request: Request) {
@@ -60,15 +65,19 @@ export async function POST(request: Request) {
         ? replaceSignalPool(defaultSignalPoolTickers(), tickerListOf(body.members) ?? [])
         : editSignalPool(
             defaultSignalPoolTickers(),
-            readSignalPool(),
+            await readSignalPool(),
             action,
             typeof body.ticker === "string" ? body.ticker : undefined,
           );
-    writeSignalPool(next);
-    return NextResponse.json({ ok: true, ...payload() });
+    await writeSignalPool(next);
+    return NextResponse.json({ ok: true, ...(await payload()) });
   } catch (error) {
     const message = error instanceof Error ? error.message : "写入失败";
-    const status = message.includes("已在池里") || message.includes("不在池里") ? 409 : 400;
+    const status = message.includes("已在池里") || message.includes("不在池里")
+      ? 409
+      : message.includes("VPS")
+        ? 502
+        : 400;
     return NextResponse.json({ error: message }, { status });
   }
 }

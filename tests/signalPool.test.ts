@@ -62,11 +62,11 @@ describe("signal pool", () => {
     expect(isTickerInPool("AAPL", members)).toBe(false);
   });
 
-  it("写盘后推账本读到同一份名单", () => {
+  it("写盘后推账本读到同一份名单", async () => {
     process.env.SIGNAL_POOL_PATH = path.join(mkdtempSync(path.join(tmpdir(), "pool-")), "signal-pool.json");
-    writeSignalPool(editSignalPool(BASE, emptySignalPool(), "remove", "MSFT"), new Date("2026-09-06T11:00:00Z"));
-    expect(readSignalPool().removed).toEqual(["MSFT"]);
-    expect(readSignalPoolMembers(BASE)).toEqual(["AAPL", "NVDA"]);
+    await writeSignalPool(editSignalPool(BASE, emptySignalPool(), "remove", "MSFT"), new Date("2026-09-06T11:00:00Z"));
+    expect((await readSignalPool()).removed).toEqual(["MSFT"]);
+    expect(await readSignalPoolMembers(BASE)).toEqual(["AAPL", "NVDA"]);
   });
 
   it("批量粘贴拆代码，非法的单独列出", () => {
