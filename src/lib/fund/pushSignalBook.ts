@@ -8,7 +8,7 @@ import { runRotate } from "@/lib/fund/rotate";
 import { clipUniverseToSignalPool } from "@/lib/fund/signalPool";
 import { ytdOfNav, type CashBookView } from "@/lib/discord/bookCopy";
 
-const BOOKS = ["4h", "2h"] as const;
+const BOOKS = ["4h", "2h-broad"] as const;
 
 export type PushSignalBookOpts = {
   test?: boolean;
