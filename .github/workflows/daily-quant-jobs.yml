@@ -62,5 +62,13 @@ jobs:
       - name: Refresh macro series
         run: npm run backfill:macro
 
+      # 行情补完后按记账池重算 4H/2H 现金账本，走线上出图接口推 Discord。
+      - name: Push 4H/2H cash books
+        run: |
+          curl -fsS -m 280 -X POST \
+            "${BOOK_PUSH_URL:-https://alpha-agent-eight.vercel.app/api/jobs/push-signal-book}"
+        env:
+          BOOK_PUSH_URL: ${{ secrets.BOOK_PUSH_URL }}
+
       - name: Run quant job chain
         run: npm run jobs:daily
