@@ -9,7 +9,7 @@ import {
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  return NextResponse.json({ ok: true, snapshots: readLookbackSnapshots() });
+  return NextResponse.json({ ok: true, snapshots: await readLookbackSnapshots() });
 }
 
 export async function POST(request: Request) {
@@ -25,10 +25,10 @@ export async function POST(request: Request) {
       if (typeof body.id !== "string" || !body.id) {
         return NextResponse.json({ error: "缺少快照 id" }, { status: 400 });
       }
-      return NextResponse.json({ ok: true, snapshots: deleteLookbackSnapshot(body.id) });
+      return NextResponse.json({ ok: true, snapshots: await deleteLookbackSnapshot(body.id) });
     }
     if (body.action === "save") {
-      return NextResponse.json({ ok: true, snapshots: saveLookbackSnapshot(body) });
+      return NextResponse.json({ ok: true, snapshots: await saveLookbackSnapshot(body) });
     }
     return NextResponse.json({ error: "action 必须是 save 或 delete" }, { status: 400 });
   } catch (error) {

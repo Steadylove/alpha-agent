@@ -2,6 +2,7 @@ import { Card } from "@/components/Card";
 
 const settings = [
   { key: "MARKET_DATA_BASE_URL", required: false, description: "VPS 行情 HTTP，未设时 Vercel 默认这台机" },
+  { key: "DESK_STORE_SECRET", required: false, description: "回看快照写 VPS 的密钥，留空则与 CRON_SECRET 相同" },
   { key: "DATABASE_URL", required: false, description: "旧 Neon，仪表盘任务用，行情不再走它" },
   { key: "DISCORD_WEBHOOK_URL", required: true, description: "Discord Webhook for Reports" },
   { key: "CRON_SECRET", required: true, description: "API Auth Secret for CRON" },

@@ -1,9 +1,24 @@
 services:
+  desk:
+    image: node:22-alpine
+    container_name: alpha-desk
+    restart: unless-stopped
+    mem_limit: 64m
+    volumes:
+      - /var/lib/alpha-agent/desk:/data
+      - /var/lib/alpha-agent/market-http/desk-http.mjs:/app/desk-http.mjs:ro
+    environment:
+      DESK_STORE_SECRET: ${DESK_STORE_SECRET:-}
+    command: ["node", "/app/desk-http.mjs"]
+    expose:
+      - "8080"
   market:
     image: nginx:1.27-alpine
     container_name: alpha-market
     restart: unless-stopped
     mem_limit: 64m
+    depends_on:
+      - desk
     ports:
       - "8787:80"
     volumes:

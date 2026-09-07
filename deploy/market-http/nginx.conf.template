@@ -4,8 +4,14 @@ server {
     gzip on;
     gzip_types text/plain text/csv application/json;
     gzip_min_length 256;
+    client_max_body_size 1m;
 
     root /usr/share/nginx/html;
+    location /desk/ {
+        proxy_pass http://desk:8080/;
+        proxy_http_version 1.1;
+        add_header Cache-Control "no-store";
+    }
     location / {
         autoindex off;
         add_header Cache-Control "public, max-age=300";
