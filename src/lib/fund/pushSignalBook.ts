@@ -2,7 +2,7 @@ import { getPreparedUniverse } from "@/lib/backtest/load";
 import { readBookEpoch } from "@/lib/fund/bookEpoch";
 import { champOf, type Champ } from "@/lib/fund/champs";
 import { runLookback } from "@/lib/fund/lookback";
-import { winRatePctOf, type LookbackTf } from "@/lib/fund/lookbackLogic";
+import { DEFAULT_LOOKBACK_SLOTS, winRatePctOf, type LookbackTf } from "@/lib/fund/lookbackLogic";
 import { readLookbackSnapshots } from "@/lib/fund/lookbackSnapshots";
 import { runRotate } from "@/lib/fund/rotate";
 import { clipUniverseToSignalPool } from "@/lib/fund/signalPool";
@@ -59,7 +59,11 @@ async function buildLive(champ: Champ, test: boolean): Promise<BuiltBook> {
   );
   const to = uni.axis.at(-1) ?? champ.config.to;
   const since = (await readBookEpoch()).from;
-  const raw = runRotate(uni, { ...champ.config, from: since, to }, champ.opts);
+  const raw = runRotate(
+    uni,
+    { ...champ.config, from: since, to },
+    { ...champ.opts, slotPct: 1 / DEFAULT_LOOKBACK_SLOTS },
+  );
   const last = raw.holdings.at(-1);
   const lastBook = raw.book.at(-1);
   if (!last || !lastBook) throw new Error(`${champ.id} 现金账本是空的`);
