@@ -1,6 +1,7 @@
 /**
- * Discord 信号 + 现金账本共用的交易池。默认 sf-broad，人在网页上加减。
- * 实验室五年窗和 desk 活账本不动。Vercel 只读，改池必须写盘。
+ * 现金账本用的交易池。默认 sf-broad，人在网页上加减。
+ * Discord 转发不看这份名单，只过 RPS。实验室五年窗和 desk 活账本不动。
+ * Vercel 只读，改池必须写盘。
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";

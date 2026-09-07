@@ -20,7 +20,6 @@ import {
   type AlertPayload,
 } from "@/lib/discord/tvAlertCopy";
 import { postDiscordImage } from "@/lib/discord/sendWebhook";
-import { isInSignalPool } from "@/lib/fund/signalPool";
 
 function tfLabel(period: string): string {
   const mins = Number(period);
@@ -59,10 +58,6 @@ export async function POST(request: Request) {
   }
   if (!payload) {
     return NextResponse.json({ error: "Malformed alert payload." }, { status: 400 });
-  }
-
-  if (!isInSignalPool(payload.symbol)) {
-    return NextResponse.json({ ok: true, forwarded: false, gate: "pool" });
   }
 
   const label = tfLabel(payload.tf);

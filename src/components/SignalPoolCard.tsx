@@ -279,7 +279,7 @@ export function SignalPoolCard({
 
   return (
     <Card
-      title={scratch ? "临时回看池" : "信号与记账池"}
+      title={scratch ? "临时回看池" : "记账池"}
       action={
         <Group gap={8}>
           {dirty ? (
@@ -306,7 +306,7 @@ export function SignalPoolCard({
       <Text size="sm" c="dimmed" mb="md" lh={1.6}>
         {scratch
           ? "从当前正在跑的池复制一份，只给这次回看用。查找按全池实际持仓贡献取前 N。推荐是 2026 年单票满仓排序后再按 12.5% 账本挑只数最好的一组，事后才知道。不写 Discord。"
-          : `默认标普∪纳指扩池 ${saved?.defaultCount ?? "—"} 只。保存后 Discord 买/卖和两本现金账本才改。点代码看策略图。`}
+          : `默认标普∪纳指扩池 ${saved?.defaultCount ?? "—"} 只。只改两本现金账本，Discord 买/卖仍按 TV 信号 + RPS 转发。点代码看策略图。`}
       </Text>
       <Group align="flex-end" wrap="wrap" gap="sm" mb="md">
         <Select
@@ -673,8 +673,8 @@ export function SignalPoolCard({
         <Text size="sm" lh={1.6}>
           将池写成 {members.length} 只（默认 {saved?.defaultCount ?? "—"}）。新纳入{" "}
           {draft?.added.length ?? 0} · 剔除 {draft?.removed.length ?? 0}。
-          {members.length === 0 ? " 池是空的，Discord 将不转发任何信号。" : ""}
-          确认后 Discord 买/卖和两本现金账本都会换成这份名单。
+          {members.length === 0 ? " 池是空的，账本将没有可开仓标的。" : ""}
+          确认后两本现金账本换成这份名单。Discord 转发不受影响。
         </Text>
         <Group justify="flex-end" mt="md">
           <Button variant="default" onClick={() => setConfirmOpen(false)}>
