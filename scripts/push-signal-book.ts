@@ -15,7 +15,7 @@ async function pushOne(champ: Champ, webhook: string) {
     await getPreparedUniverse("SMALLFUND", champ.config.timeframe, champ.poolId),
   );
   const to = uni.axis.at(-1) ?? champ.config.to;
-  const since = readBookEpoch().from;
+  const since = (await readBookEpoch()).from;
   const raw = runRotate(uni, { ...champ.config, from: since, to }, champ.opts);
   const last = raw.holdings.at(-1);
   const lastBook = raw.book.at(-1);

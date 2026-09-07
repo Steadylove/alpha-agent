@@ -3,7 +3,11 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
 const DIR = process.env.DESK_DIR || "/data";
 const SECRET = (process.env.DESK_STORE_SECRET || "").trim();
-const FILES = new Set(["lookback-snapshots.json"]);
+const FILES = new Set(["lookback-snapshots.json", "book-epoch.json"]);
+const EMPTY = {
+  "lookback-snapshots.json": "[]\n",
+  "book-epoch.json": "{}\n",
+};
 const MAX = 512 * 1024;
 
 function deny(res, code, msg) {
@@ -34,7 +38,7 @@ createServer((req, res) => {
   }
   const file = `${DIR}/${name}`;
   if (req.method === "GET") {
-    const body = existsSync(file) ? readFileSync(file) : Buffer.from("[]\n");
+    const body = existsSync(file) ? readFileSync(file) : Buffer.from(EMPTY[name] ?? "{}\n");
     res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
     res.end(body);
     return;

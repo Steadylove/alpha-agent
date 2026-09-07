@@ -6,7 +6,7 @@ import { readBookEpoch, resetBookEpoch } from "@/lib/fund/bookEpoch";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const epoch = readBookEpoch();
+  const epoch = await readBookEpoch();
   return NextResponse.json({
     from: epoch.from,
     resetAt: epoch.resetAt || null,
@@ -23,7 +23,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const epoch = resetBookEpoch(typeof body.from === "string" ? body.from : undefined);
+    const epoch = await resetBookEpoch(typeof body.from === "string" ? body.from : undefined);
     return NextResponse.json({
       ok: true,
       from: epoch.from,

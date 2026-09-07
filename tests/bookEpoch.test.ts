@@ -23,10 +23,10 @@ describe("book epoch", () => {
     expect(bookEpochOf(null, "2021-08-24")).toEqual({ from: "2021-08-24", resetAt: "" });
   });
 
-  it("重置后推账本读到新起点", () => {
+  it("重置后推账本读到新起点", async () => {
     process.env.BOOK_EPOCH_PATH = path.join(mkdtempSync(path.join(tmpdir(), "epoch-")), "book-epoch.json");
-    const epoch = resetBookEpoch("2026-09-04", new Date("2026-09-06T10:00:00Z"));
+    const epoch = await resetBookEpoch("2026-09-04", new Date("2026-09-06T10:00:00Z"));
     expect(epoch.from).toBe("2026-09-04");
-    expect(readBookEpoch().from).toBe("2026-09-04");
+    expect((await readBookEpoch()).from).toBe("2026-09-04");
   });
 });
