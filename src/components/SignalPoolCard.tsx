@@ -12,6 +12,7 @@ import {
   NumberInput,
   ScrollArea,
   SegmentedControl,
+  Select,
   Text,
   Textarea,
   TextInput,
@@ -23,6 +24,7 @@ import { DayPicker } from "@/components/DayPicker";
 import { LabSymbolChart, type ChartTarget } from "@/components/LabSymbolChart";
 import type { LookbackPickTf } from "@/lib/fund/lookbackPickLogic";
 import { LOOKBACK_RECOMMEND_2H, LOOKBACK_RECOMMEND_4H } from "@/lib/fund/lookbackRecommend";
+import { type LookbackSnapshot } from "@/lib/fund/lookbackSnapshotLogic";
 import {
   applySignalPool,
   baseOfPool,
@@ -78,6 +80,9 @@ export function SignalPoolCard({
   const [chartTarget, setChartTarget] = useState<ChartTarget | null>(null);
   const [chartChamp, setChartChamp] = useState<ChartChamp>("4h");
   const [pickFrom, setPickFrom] = useState("2026-01-01");
+  const [snapshots, setSnapshots] = useState<LookbackSnapshot[]>([]);
+  const [snapId, setSnapId] = useState<string | null>(null);
+  const [snapRename, setSnapRename] = useState("");
   const [pickTo, setPickTo] = useState("");
   const [pickN, setPickN] = useState<number | string>(10);
   const [pickTf, setPickTf] = useState<LookbackPickTf>("4h");
@@ -97,6 +102,15 @@ export function SignalPoolCard({
   useEffect(() => {
     void load().catch((e: unknown) => setError(e instanceof Error ? e.message : "读取失败"));
   }, [load]);
+
+  useEffect(() => {
+    void fetch("/api/lookback-snapshots")
+      .then((r) => r.json())
+      .then((j) => {
+        if (Array.isArray(j.snapshots)) setSnapshots(j.snapshots);
+      })
+      .catch(() => undefined);
+  }, []);
 
   const defaults = useMemo(() => (saved ? baseOfPool(saved) : []), [saved]);
   const members = useMemo(
@@ -164,6 +178,32 @@ export function SignalPoolCard({
     setSelected(new Set());
     setShowRemoved(false);
     setListOpen(true);
+  };
+
+  const pickedSnap = snapshots.find((s) => s.id === snapId) ?? null;
+
+  const loadSnap = () => {
+    if (!pickedSnap) return;
+    applyRecommend(pickedSnap.members);
+    setEditing(true);
+    setListOpen(true);
+  };
+
+  const renameSnap = async () => {
+    if (!pickedSnap) return;
+    setError(null);
+    try {
+      const res = await fetch("/api/lookback-snapshots", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "rename", id: pickedSnap.id, name: snapRename }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "改名失败");
+      setSnapshots(json.snapshots ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "改名失败");
+    }
   };
 
   useEffect(() => {
@@ -268,6 +308,46 @@ export function SignalPoolCard({
           ? "从当前正在跑的池复制一份，只给这次回看用。查找按全池实际持仓贡献取前 N。推荐是 2026 年单票满仓排序后再按 12.5% 账本挑只数最好的一组，事后才知道。不写 Discord。"
           : `默认标普∪纳指扩池 ${saved?.defaultCount ?? "—"} 只。保存后 Discord 买/卖和两本现金账本才改。点代码看策略图。`}
       </Text>
+      <Group align="flex-end" wrap="wrap" gap="sm" mb="md">
+        <Select
+          size="sm"
+          label="已存股票池"
+          placeholder={snapshots.length ? "选一份载入" : "还没有快照"}
+          data={snapshots.map((s) => ({
+            value: s.id,
+            label: `${s.name} · ${s.members.length}只`,
+          }))}
+          value={snapId}
+          onChange={(id) => {
+            setSnapId(id);
+            const snap = snapshots.find((s) => s.id === id);
+            setSnapRename(snap?.name ?? "");
+          }}
+          searchable
+          clearable
+          w={280}
+        />
+        <Button size="sm" variant="light" disabled={!pickedSnap} onClick={loadSnap}>
+          载入
+        </Button>
+        <TextInput
+          size="sm"
+          label="改名"
+          placeholder="新名字"
+          value={snapRename}
+          onChange={(e) => setSnapRename(e.currentTarget.value)}
+          disabled={!pickedSnap}
+          w={180}
+        />
+        <Button
+          size="sm"
+          variant="default"
+          disabled={!pickedSnap || !snapRename.trim()}
+          onClick={() => void renameSnap()}
+        >
+          保存名字
+        </Button>
+      </Group>
       {scratch ? (
         <Group align="flex-end" wrap="wrap" gap="sm" mb="md">
           <DayPicker label="起点" value={pickFrom} onChange={setPickFrom} />

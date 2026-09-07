@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import {
   deleteLookbackSnapshot,
   readLookbackSnapshots,
+  renameLookbackSnapshot,
   saveLookbackSnapshot,
 } from "@/lib/fund/lookbackSnapshots";
 
@@ -27,10 +28,16 @@ export async function POST(request: Request) {
       }
       return NextResponse.json({ ok: true, snapshots: await deleteLookbackSnapshot(body.id) });
     }
+    if (body.action === "rename") {
+      if (typeof body.id !== "string" || !body.id) {
+        return NextResponse.json({ error: "缺少快照 id" }, { status: 400 });
+      }
+      return NextResponse.json({ ok: true, snapshots: await renameLookbackSnapshot(body.id, body.name) });
+    }
     if (body.action === "save") {
       return NextResponse.json({ ok: true, snapshots: await saveLookbackSnapshot(body) });
     }
-    return NextResponse.json({ error: "action 必须是 save 或 delete" }, { status: 400 });
+    return NextResponse.json({ error: "action 必须是 save、rename 或 delete" }, { status: 400 });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "写入失败" },

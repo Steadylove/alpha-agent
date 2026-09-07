@@ -95,3 +95,15 @@ export function addSnapshot(
 export function removeSnapshot(list: readonly LookbackSnapshot[], id: string): LookbackSnapshot[] {
   return list.filter((s) => s.id !== id);
 }
+
+export function renameSnapshot(
+  list: readonly LookbackSnapshot[],
+  id: string,
+  rawName: unknown,
+): LookbackSnapshot[] {
+  const idx = list.findIndex((s) => s.id === id);
+  if (idx < 0) throw new Error("没有这条快照");
+  const name = trimName(rawName, "");
+  if (!name) throw new Error("名字不能空");
+  return list.map((s) => (s.id === id ? { ...s, name } : s));
+}

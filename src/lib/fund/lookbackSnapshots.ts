@@ -6,6 +6,7 @@ import { marketBaseUrl } from "@/lib/backtest/marketStore";
 import {
   addSnapshot,
   removeSnapshot,
+  renameSnapshot,
   snapshotListOf,
   type LookbackSnapshot,
 } from "./lookbackSnapshotLogic";
@@ -106,4 +107,8 @@ export async function saveLookbackSnapshot(raw: unknown, now = new Date()): Prom
 
 export async function deleteLookbackSnapshot(id: string): Promise<LookbackSnapshot[]> {
   return writeAll(removeSnapshot(await readLookbackSnapshots(), id));
+}
+
+export async function renameLookbackSnapshot(id: string, name: unknown): Promise<LookbackSnapshot[]> {
+  return writeAll(renameSnapshot(await readLookbackSnapshots(), id, name));
 }

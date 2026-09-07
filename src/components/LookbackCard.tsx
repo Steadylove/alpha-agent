@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Alert, Badge, Button, Group, NumberInput, SegmentedControl, Stack, Table, Text, TextInput } from "@mantine/core";
 import {
   CartesianGrid,
@@ -46,6 +46,9 @@ export function LookbackCard({
   const [snapName, setSnapName] = useState("");
   const [snapshots, setSnapshots] = useState<LookbackSnapshot[]>([]);
   const [saving, setSaving] = useState(false);
+  const [renameId, setRenameId] = useState<string | null>(null);
+  const [renameText, setRenameText] = useState("");
+  const pendingLoad = useRef(false);
   const poolSig = members?.join(",") ?? "";
   const slotN = clampLookbackSlots(slots);
 
@@ -142,6 +145,23 @@ export function LookbackCard({
     }
   };
 
+  const renameSnap = async (id: string) => {
+    setError(null);
+    try {
+      const res = await fetch("/api/lookback-snapshots", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "rename", id, name: renameText }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "改名失败");
+      setSnapshots(json.snapshots ?? []);
+      setRenameId(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "改名失败");
+    }
+  };
+
   const dropSnap = async (id: string) => {
     setError(null);
     try {
@@ -164,8 +184,17 @@ export function LookbackCard({
     setSlots(snap.slots);
     setCache({});
     setHoverDate(null);
+    pendingLoad.current = true;
     onRestore?.(snap.members);
   };
+
+  useEffect(() => {
+    if (!pendingLoad.current || !members?.length || !from) return;
+    pendingLoad.current = false;
+    void run();
+    // 载入后自动回看一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [poolSig]);
 
   const placeholder = view
     ? defaultSnapshotName({ from, members: members ?? [], tf: view.tf, pnl: view.pnl })
@@ -251,12 +280,27 @@ export function LookbackCard({
             {snapshots.map((snap) => (
               <Table.Tr key={snap.id}>
                 <Table.Td>
-                  <Text size="xs" fw={600}>
-                    {snap.name}
-                  </Text>
-                  <Text size="xs" c="dimmed" ff="monospace">
-                    {snap.from} · 持仓{snap.slots}
-                  </Text>
+                  {renameId === snap.id ? (
+                    <TextInput
+                      size="xs"
+                      value={renameText}
+                      onChange={(e) => setRenameText(e.currentTarget.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") void renameSnap(snap.id);
+                        if (e.key === "Escape") setRenameId(null);
+                      }}
+                      autoFocus
+                    />
+                  ) : (
+                    <>
+                      <Text size="xs" fw={600}>
+                        {snap.name}
+                      </Text>
+                      <Text size="xs" c="dimmed" ff="monospace">
+                        {snap.from} · 持仓{snap.slots}
+                      </Text>
+                    </>
+                  )}
                 </Table.Td>
                 <Table.Td ta="right" ff="monospace">
                   {snap.members.length}
@@ -267,6 +311,22 @@ export function LookbackCard({
                 </Table.Td>
                 <Table.Td>
                   <Group gap={6} justify="flex-end">
+                    {renameId === snap.id ? (
+                      <Button size="compact-xs" variant="light" onClick={() => void renameSnap(snap.id)}>
+                        确定
+                      </Button>
+                    ) : (
+                      <Button
+                        size="compact-xs"
+                        variant="subtle"
+                        onClick={() => {
+                          setRenameId(snap.id);
+                          setRenameText(snap.name);
+                        }}
+                      >
+                        改名
+                      </Button>
+                    )}
                     <Button size="compact-xs" variant="light" onClick={() => loadSnap(snap)}>
                       载入
                     </Button>
@@ -330,6 +390,10 @@ function LookbackResult({
         <Stat label="敞口" value={`${s.avgExposure.toFixed(0)}%`} />
         <Stat label="年换手" value={s.tradesPerYear.toFixed(0)} />
         <Stat label="入场" value={String(s.entries)} />
+        <Stat
+          label="胜率"
+          value={s.winRatePct == null ? "—" : `${s.winRatePct.toFixed(0)}%`}
+        />
       </Group>
       <Text size="xs" c="dimmed" mb="sm" ff="monospace">
         {view.since} → {(point?.date ?? view.asOf).replace("T", " ").slice(0, 16)} · 当天 {dayPnl} · 持仓{" "}

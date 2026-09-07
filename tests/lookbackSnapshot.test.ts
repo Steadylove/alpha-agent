@@ -4,6 +4,7 @@ import {
   addSnapshot,
   defaultSnapshotName,
   removeSnapshot,
+  renameSnapshot,
   snapshotListOf,
   snapshotOf,
 } from "@/lib/fund/lookbackSnapshotLogic";
@@ -40,6 +41,13 @@ describe("lookback snapshot", () => {
     const second = addSnapshot(first, { ...base, name: "第二份", pnl: "+9%" }, new Date("2026-09-07T04:00:00Z"));
     expect(second.map((s) => s.name)).toEqual(["第二份", first[0].name]);
     expect(removeSnapshot(second, second[0].id)).toEqual(first);
+  });
+
+  it("可以改名，空名不行", () => {
+    const list = addSnapshot([], { ...base, name: "旧名" }, new Date("2026-09-07T03:00:00Z"));
+    expect(renameSnapshot(list, list[0].id, "  半导体  ")[0].name).toBe("半导体");
+    expect(() => renameSnapshot(list, list[0].id, "  ")).toThrow("名字不能空");
+    expect(() => renameSnapshot(list, "nope", "x")).toThrow("没有这条快照");
   });
 
   it("坏文件当空列表", () => {

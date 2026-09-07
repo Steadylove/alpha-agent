@@ -7,6 +7,7 @@ import {
   DEFAULT_LOOKBACK_SLOTS,
   goodMisses,
   lookbackView,
+  winRatePctOf,
   ytdOfCurve,
 } from "@/lib/fund/lookbackLogic";
 
@@ -23,6 +24,12 @@ const point = (date: string, strategy: number, over: Partial<DayBook> = {}): Day
 });
 
 describe("lookback", () => {
+  it("胜率只看已平仓，没有单就是空", () => {
+    expect(winRatePctOf([])).toBeNull();
+    expect(winRatePctOf([1.2, -0.4, 3])).toBeCloseTo(66.666, 2);
+    expect(lookbackView({ book: [point("2026-01-02T17:30", 1.1)], holdings: [], lotPnl: [{ pct: 2 }, { pct: -1 }] }, "2026-01-01").stats.winRatePct).toBe(50);
+  });
+
   it("最多持仓默认 10，只接受 1–20 的整数", () => {
     expect(DEFAULT_LOOKBACK_SLOTS).toBe(10);
     expect(clampLookbackSlots(10)).toBe(10);

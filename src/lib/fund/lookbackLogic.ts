@@ -42,6 +42,8 @@ export type LookbackStats = {
   tradesPerYear: number;
   ytdYear: number | null;
   ytdPct: number | null;
+  /** 已平仓胜率。没有平仓单则为 null。 */
+  winRatePct: number | null;
 };
 
 export type LookbackMiss = {
@@ -104,6 +106,12 @@ export function dailyCurve(
   return [...last.values()];
 }
 
+/** 已平仓收益里赚的占比。空列表为 null。 */
+export function winRatePctOf(pnls: readonly number[]): number | null {
+  if (pnls.length === 0) return null;
+  return (pnls.filter((p) => p > 0).length / pnls.length) * 100;
+}
+
 /** 年末净值作基数；窗口从年中起步则相对 1。 */
 export function ytdOfCurve(curve: readonly LookbackPoint[]): { year: number; pct: number } | null {
   const last = curve.at(-1);
@@ -127,6 +135,7 @@ export function lookbackView(
     avgHoldings?: number;
     avgExposure?: number;
     tradesPerYear?: number;
+    lotPnl?: readonly { pct: number }[];
     missedBuys?: readonly { date: string; symbol: string; price: number }[];
     lastClose?: ReadonlyMap<string, number>;
   },
@@ -167,6 +176,7 @@ export function lookbackView(
       tradesPerYear: raw.tradesPerYear ?? 0,
       ytdYear: ytd?.year ?? null,
       ytdPct: ytd?.pct ?? null,
+      winRatePct: winRatePctOf((raw.lotPnl ?? []).map((x) => x.pct)),
     },
     misses,
   };
