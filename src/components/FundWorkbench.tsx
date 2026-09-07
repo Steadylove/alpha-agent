@@ -13,6 +13,7 @@ type Tab = "live" | "lookback";
 export function FundWorkbench() {
   const [tab, setTab] = useState<Tab>("live");
   const [scratch, setScratch] = useState<string[] | null>(null);
+  const [restore, setRestore] = useState<{ token: number; members: string[] } | null>(null);
 
   return (
     <div className="space-y-6">
@@ -32,8 +33,16 @@ export function FundWorkbench() {
         <FundBoard />
       </div>
       <div className={tab === "lookback" ? "space-y-6" : "hidden"}>
-        <SignalPoolCard mode="scratch" onMembersChange={setScratch} />
-        <LookbackCard members={scratch} />
+        <SignalPoolCard
+          mode="scratch"
+          restoreMembers={restore?.members}
+          restoreToken={restore?.token}
+          onMembersChange={setScratch}
+        />
+        <LookbackCard
+          members={scratch}
+          onRestore={(members) => setRestore({ token: Date.now(), members })}
+        />
       </div>
     </div>
   );

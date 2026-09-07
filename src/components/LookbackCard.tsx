@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Alert, Badge, Button, Group, NumberInput, SegmentedControl, Stack, Table, Text } from "@mantine/core";
+import { Alert, Badge, Button, Group, NumberInput, SegmentedControl, Stack, Table, Text, TextInput } from "@mantine/core";
 import {
   CartesianGrid,
   Line,
@@ -22,13 +22,20 @@ import {
   type LookbackTf,
   type LookbackView,
 } from "@/lib/fund/lookbackLogic";
+import { defaultSnapshotName, type LookbackSnapshot } from "@/lib/fund/lookbackSnapshotLogic";
 
 const POS = "#089981";
 const NEG = "#f23645";
 
 type Result = LookbackView & { tf: LookbackTf };
 
-export function LookbackCard({ members }: { members: string[] | null }) {
+export function LookbackCard({
+  members,
+  onRestore,
+}: {
+  members: string[] | null;
+  onRestore?: (members: string[]) => void;
+}) {
   const [tf, setTf] = useState<LookbackTf>("4h");
   const [from, setFrom] = useState("");
   const [slots, setSlots] = useState<number | string>(DEFAULT_LOOKBACK_SLOTS);
@@ -36,6 +43,9 @@ export function LookbackCard({ members }: { members: string[] | null }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hoverDate, setHoverDate] = useState<string | null>(null);
+  const [snapName, setSnapName] = useState("");
+  const [snapshots, setSnapshots] = useState<LookbackSnapshot[]>([]);
+  const [saving, setSaving] = useState(false);
   const poolSig = members?.join(",") ?? "";
   const slotN = clampLookbackSlots(slots);
 
@@ -43,6 +53,15 @@ export function LookbackCard({ members }: { members: string[] | null }) {
     setCache({});
     setHoverDate(null);
   }, [poolSig]);
+
+  useEffect(() => {
+    void fetch("/api/lookback-snapshots")
+      .then((r) => r.json())
+      .then((j) => {
+        if (Array.isArray(j.snapshots)) setSnapshots(j.snapshots);
+      })
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     void fetch("/api/signal-book")
@@ -87,6 +106,70 @@ export function LookbackCard({ members }: { members: string[] | null }) {
       setBusy(false);
     }
   };
+
+  const saveSnap = async () => {
+    if (!view || !members?.length || slotN == null) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/lookback-snapshots", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "save",
+          name: snapName,
+          members,
+          tf: view.tf,
+          from,
+          slots: slotN,
+          asOf: view.asOf,
+          pnl: view.pnl,
+          equity: view.equity,
+          cagr: view.stats.cagr,
+          dd: view.stats.dd,
+          mar: view.stats.mar,
+          ytdPct: view.stats.ytdPct,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "保存失败");
+      setSnapshots(json.snapshots ?? []);
+      setSnapName("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "保存失败");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const dropSnap = async (id: string) => {
+    setError(null);
+    try {
+      const res = await fetch("/api/lookback-snapshots", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "delete", id }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "删除失败");
+      setSnapshots(json.snapshots ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "删除失败");
+    }
+  };
+
+  const loadSnap = (snap: LookbackSnapshot) => {
+    setTf(snap.tf);
+    setFrom(snap.from);
+    setSlots(snap.slots);
+    setCache({});
+    setHoverDate(null);
+    onRestore?.(snap.members);
+  };
+
+  const placeholder = view
+    ? defaultSnapshotName({ from, members: members ?? [], tf: view.tf, pnl: view.pnl })
+    : "先回看再保存";
 
   return (
     <Card title="临时回看">
@@ -134,6 +217,73 @@ export function LookbackCard({ members }: { members: string[] | null }) {
           回看
         </Button>
       </Group>
+      <Group align="flex-end" wrap="wrap" gap="sm" mb="md">
+        <TextInput
+          size="sm"
+          label="快照名"
+          placeholder={placeholder}
+          value={snapName}
+          onChange={(e) => setSnapName(e.currentTarget.value)}
+          w={280}
+        />
+        <Button
+          size="sm"
+          variant="default"
+          loading={saving}
+          disabled={!view || !members?.length}
+          onClick={() => void saveSnap()}
+        >
+          保存快照
+        </Button>
+      </Group>
+      {snapshots.length > 0 ? (
+        <Table fz="xs" mb="md" verticalSpacing={4}>
+          <Table.Thead>
+            <Table.Tr>
+              <Table.Th>快照</Table.Th>
+              <Table.Th ta="right">只数</Table.Th>
+              <Table.Th>周期</Table.Th>
+              <Table.Th ta="right">累计</Table.Th>
+              <Table.Th />
+            </Table.Tr>
+          </Table.Thead>
+          <Table.Tbody>
+            {snapshots.map((snap) => (
+              <Table.Tr key={snap.id}>
+                <Table.Td>
+                  <Text size="xs" fw={600}>
+                    {snap.name}
+                  </Text>
+                  <Text size="xs" c="dimmed" ff="monospace">
+                    {snap.from} · 持仓{snap.slots}
+                  </Text>
+                </Table.Td>
+                <Table.Td ta="right" ff="monospace">
+                  {snap.members.length}
+                </Table.Td>
+                <Table.Td>{snap.tf === "4h" ? "4 小时" : "2 小时"}</Table.Td>
+                <Table.Td ta="right" ff="monospace" style={{ color: snap.equity >= 1 ? POS : NEG }}>
+                  {snap.pnl}
+                </Table.Td>
+                <Table.Td>
+                  <Group gap={6} justify="flex-end">
+                    <Button size="compact-xs" variant="light" onClick={() => loadSnap(snap)}>
+                      载入
+                    </Button>
+                    <Button size="compact-xs" variant="subtle" color="red" onClick={() => void dropSnap(snap.id)}>
+                      删
+                    </Button>
+                  </Group>
+                </Table.Td>
+              </Table.Tr>
+            ))}
+          </Table.Tbody>
+        </Table>
+      ) : (
+        <Text size="xs" c="dimmed" mb="md">
+          回看出成绩后可把当前名单和收益存成快照，下次载入名单再回看。
+        </Text>
+      )}
       {view ? (
         <LookbackResult view={view} hoverDate={hoverDate} onHover={setHoverDate} />
       ) : (

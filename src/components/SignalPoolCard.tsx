@@ -56,9 +56,13 @@ function sameDraft(a: SignalPoolPatch, b: Pick<Pool, "added" | "removed">): bool
 export function SignalPoolCard({
   mode = "live",
   onMembersChange,
+  restoreMembers,
+  restoreToken,
 }: {
   mode?: "live" | "scratch";
   onMembersChange?: (members: string[]) => void;
+  restoreMembers?: string[];
+  restoreToken?: number;
 }) {
   const scratch = mode === "scratch";
   const [saved, setSaved] = useState<Pool | null>(null);
@@ -155,11 +159,19 @@ export function SignalPoolCard({
   };
 
   const applyRecommend = (tickers: readonly string[]) => {
+    if (!draft) return;
     patchDraft(replaceSignalPool(defaults, tickers));
     setSelected(new Set());
     setShowRemoved(false);
     setListOpen(true);
   };
+
+  useEffect(() => {
+    if (!restoreToken || !restoreMembers?.length || !saved) return;
+    applyRecommend(restoreMembers);
+    // 只在点载入或池子刚读完时套用
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restoreToken, saved]);
 
   const findBest = async () => {
     if (!saved || !pickFrom) return;
