@@ -6,8 +6,9 @@ import { winRatePctOf, type LookbackTf } from "@/lib/fund/lookbackLogic";
 import { readLookbackSnapshots } from "@/lib/fund/lookbackSnapshots";
 import { runRotate } from "@/lib/fund/rotate";
 import { clipUniverseToSignalPool } from "@/lib/fund/signalPool";
-import { renderCashBook, ytdOfNav, type CashBookView } from "@/lib/discord/bookCopy";
-import { postDiscordImage, postDiscordPayload } from "@/lib/discord/sendWebhook";
+import { renderCashBookPng } from "@/lib/discord/bookCardImage";
+import { ytdOfNav, type CashBookView } from "@/lib/discord/bookCopy";
+import { postDiscordImage } from "@/lib/discord/sendWebhook";
 
 const BOOKS = ["4h", "2h"] as const;
 
@@ -31,18 +32,11 @@ function caption(name: string, test: boolean): string {
 }
 
 async function sendBook(webhook: string, filename: string, input: CashBookView, test: boolean): Promise<void> {
-  const content = caption(input.label, test);
-  try {
-    const { renderCashBookPng } = await import("@/lib/discord/bookCardImage");
-    await postDiscordImage(webhook, {
-      filename,
-      bytes: await renderCashBookPng(input),
-      content,
-    });
-  } catch {
-    const payload = renderCashBook(input);
-    await postDiscordPayload(webhook, { ...payload, content: `${content}\n${payload.content ?? ""}` });
-  }
+  await postDiscordImage(webhook, {
+    filename,
+    bytes: await renderCashBookPng(input),
+    content: caption(input.label, test),
+  });
 }
 
 async function pushLive(champ: Champ, webhook: string, test: boolean): Promise<string> {
