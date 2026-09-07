@@ -75,7 +75,7 @@ export function SignalPoolCard({
   const [chartChamp, setChartChamp] = useState<ChartChamp>("4h");
   const [pickFrom, setPickFrom] = useState("2026-01-01");
   const [pickTo, setPickTo] = useState("");
-  const [pickN, setPickN] = useState<number | string>(40);
+  const [pickN, setPickN] = useState<number | string>(10);
   const [pickTf, setPickTf] = useState<LookbackPickTf>("4h");
   const [picking, setPicking] = useState(false);
   const [showRemoved, setShowRemoved] = useState(false);
@@ -262,7 +262,7 @@ export function SignalPoolCard({
           <DayPicker label="终点" value={pickTo} onChange={setPickTo} />
           <NumberInput
             size="sm"
-            label="只数"
+            label="尺子只数"
             value={pickN}
             onChange={setPickN}
             min={1}

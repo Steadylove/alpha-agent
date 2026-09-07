@@ -4,6 +4,15 @@ import { bookPnlLabel } from "@/lib/discord/bookCopy";
 
 export type LookbackTf = "4h" | "2h";
 
+/** 回看默认最多同时持有 10 只，每笔投 1/N。 */
+export const DEFAULT_LOOKBACK_SLOTS = 10;
+
+export function clampLookbackSlots(raw: unknown): number | null {
+  const n = typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw) : NaN;
+  if (!Number.isInteger(n) || n < 1 || n > 20) return null;
+  return n;
+}
+
 export type LookbackRow = {
   symbol: string;
   floatPnlPct: number;

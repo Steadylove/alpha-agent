@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Alert, Badge, Button, Group, SegmentedControl, Stack, Table, Text } from "@mantine/core";
+import { Alert, Badge, Button, Group, NumberInput, SegmentedControl, Stack, Table, Text } from "@mantine/core";
 import {
   CartesianGrid,
   Line,
@@ -15,7 +15,13 @@ import {
 import { Card } from "@/components/Card";
 import { DayPicker } from "@/components/DayPicker";
 import { bookPnlLabel } from "@/lib/discord/bookCopy";
-import type { LookbackPoint, LookbackTf, LookbackView } from "@/lib/fund/lookbackLogic";
+import {
+  clampLookbackSlots,
+  DEFAULT_LOOKBACK_SLOTS,
+  type LookbackPoint,
+  type LookbackTf,
+  type LookbackView,
+} from "@/lib/fund/lookbackLogic";
 
 const POS = "#089981";
 const NEG = "#f23645";
@@ -25,11 +31,13 @@ type Result = LookbackView & { tf: LookbackTf };
 export function LookbackCard({ members }: { members: string[] | null }) {
   const [tf, setTf] = useState<LookbackTf>("4h");
   const [from, setFrom] = useState("");
+  const [slots, setSlots] = useState<number | string>(DEFAULT_LOOKBACK_SLOTS);
   const [cache, setCache] = useState<Partial<Record<string, Result>>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hoverDate, setHoverDate] = useState<string | null>(null);
   const poolSig = members?.join(",") ?? "";
+  const slotN = clampLookbackSlots(slots);
 
   useEffect(() => {
     setCache({});
@@ -45,11 +53,16 @@ export function LookbackCard({ members }: { members: string[] | null }) {
       .catch(() => undefined);
   }, []);
 
-  const key = `${tf}|${from}`;
+  const key = `${tf}|${from}|${slotN ?? ""}`;
   const view = cache[key] ?? null;
 
   const run = async (nextTf = tf) => {
     if (!from) return;
+    const nextSlots = clampLookbackSlots(slots);
+    if (nextSlots == null) {
+      setError("最多持仓必须是 1–20");
+      return;
+    }
     if (members && members.length === 0) {
       setError("信号池是空的");
       return;
@@ -61,13 +74,13 @@ export function LookbackCard({ members }: { members: string[] | null }) {
       const res = await fetch("/api/lookback", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ tf: nextTf, from, members }),
+        body: JSON.stringify({ tf: nextTf, from, members, slots: nextSlots }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "回看失败");
       const next = json as Result;
       setHoverDate(null);
-      setCache((prev) => ({ ...prev, [`${next.tf}|${from}`]: next }));
+      setCache((prev) => ({ ...prev, [`${next.tf}|${from}|${nextSlots}`]: next }));
     } catch (e) {
       setError(e instanceof Error ? e.message : "回看失败");
     } finally {
@@ -79,7 +92,7 @@ export function LookbackCard({ members }: { members: string[] | null }) {
     <Card title="临时回看">
       <Text size="sm" c="dimmed" mb="md">
         只用上方临时回看池（{members ? `${members.length} 只` : "读取中"}
-        ）。2 小时用扩池档。从选定日起空仓算到最近一根。改池后请再点回看。不写
+        ）。最多持仓默认 10 只，每笔投 1/N，可改。2 小时用扩池档。从选定日起空仓算到最近一根。改池或只数后请再点回看。不写
         Discord 信号池。
       </Text>
       {error ? (
@@ -95,17 +108,27 @@ export function LookbackCard({ members }: { members: string[] | null }) {
           onChange={(v) => {
             const next = v as LookbackTf;
             setTf(next);
-            if (from && members?.length && !cache[`${next}|${from}`]) void run(next);
+            if (from && members?.length && slotN != null && !cache[`${next}|${from}|${slotN}`]) void run(next);
           }}
           data={[
             { value: "4h", label: "4 小时" },
             { value: "2h", label: "2 小时" },
           ]}
         />
+        <NumberInput
+          size="sm"
+          label="最多持仓"
+          value={slots}
+          onChange={setSlots}
+          min={1}
+          max={20}
+          allowDecimal={false}
+          w={96}
+        />
         <Button
           variant="light"
           loading={busy}
-          disabled={!from || !members || members.length === 0}
+          disabled={!from || !members || members.length === 0 || slotN == null}
           onClick={() => void run()}
         >
           回看

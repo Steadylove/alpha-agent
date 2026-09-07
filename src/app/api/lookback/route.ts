@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { normalizeBookFrom } from "@/lib/fund/bookEpochLogic";
 import { runLookback } from "@/lib/fund/lookback";
-import { isLookbackTf } from "@/lib/fund/lookbackLogic";
+import { clampLookbackSlots, DEFAULT_LOOKBACK_SLOTS, isLookbackTf } from "@/lib/fund/lookbackLogic";
 import { pickLookbackPool } from "@/lib/fund/lookbackPick";
 import { clampPickSize, isLookbackPickTf } from "@/lib/fund/lookbackPickLogic";
 import { tickerListOf } from "@/lib/fund/signalPoolLogic";
@@ -34,11 +34,15 @@ async function handlePick(body: Record<string, unknown>) {
   }
 }
 
-async function handle(tfRaw: unknown, fromRaw: unknown, membersRaw: unknown) {
+async function handle(tfRaw: unknown, fromRaw: unknown, membersRaw: unknown, slotsRaw: unknown) {
   const tf = typeof tfRaw === "string" ? tfRaw : null;
   const from = normalizeBookFrom(typeof fromRaw === "string" ? fromRaw : null);
-  if (!isLookbackTf(tf) || !from) {
-    return NextResponse.json({ error: "tf 必须是 4h 或 2h，from 必须是 YYYY-MM-DD" }, { status: 400 });
+  const slots = slotsRaw == null || slotsRaw === "" ? DEFAULT_LOOKBACK_SLOTS : clampLookbackSlots(slotsRaw);
+  if (!isLookbackTf(tf) || !from || slots == null) {
+    return NextResponse.json(
+      { error: "tf 必须是 4h 或 2h，from 必须是 YYYY-MM-DD，最多持仓必须是 1–20" },
+      { status: 400 },
+    );
   }
   const members = tickerListOf(membersRaw);
   if (members && members.length === 0) {
@@ -46,8 +50,8 @@ async function handle(tfRaw: unknown, fromRaw: unknown, membersRaw: unknown) {
   }
 
   try {
-    const view = await runLookback(tf, from, members);
-    return NextResponse.json({ ok: true, tf, ...view });
+    const view = await runLookback(tf, from, members, slots);
+    return NextResponse.json({ ok: true, tf, slots, ...view });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "回看失败" },
@@ -58,7 +62,12 @@ async function handle(tfRaw: unknown, fromRaw: unknown, membersRaw: unknown) {
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  return handle(url.searchParams.get("tf"), url.searchParams.get("from"), null);
+  return handle(
+    url.searchParams.get("tf"),
+    url.searchParams.get("from"),
+    null,
+    url.searchParams.get("slots"),
+  );
 }
 
 export async function POST(request: Request) {
@@ -69,5 +78,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "无效 JSON" }, { status: 400 });
   }
   if (body.action === "pick") return handlePick(body);
-  return handle(body.tf, body.from, body.members);
+  return handle(body.tf, body.from, body.members, body.slots);
 }

@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import type { DayBook, HoldingDay } from "@/lib/backtest/engine";
-import { dailyCurve, goodMisses, lookbackView, ytdOfCurve } from "@/lib/fund/lookbackLogic";
+import {
+  clampLookbackSlots,
+  dailyCurve,
+  DEFAULT_LOOKBACK_SLOTS,
+  goodMisses,
+  lookbackView,
+  ytdOfCurve,
+} from "@/lib/fund/lookbackLogic";
 
 const point = (date: string, strategy: number, over: Partial<DayBook> = {}): DayBook => ({
   date,
@@ -16,6 +23,15 @@ const point = (date: string, strategy: number, over: Partial<DayBook> = {}): Day
 });
 
 describe("lookback", () => {
+  it("最多持仓默认 10，只接受 1–20 的整数", () => {
+    expect(DEFAULT_LOOKBACK_SLOTS).toBe(10);
+    expect(clampLookbackSlots(10)).toBe(10);
+    expect(clampLookbackSlots("8")).toBe(8);
+    expect(clampLookbackSlots(0)).toBeNull();
+    expect(clampLookbackSlots(21)).toBeNull();
+    expect(clampLookbackSlots(10.5)).toBeNull();
+  });
+
   it("4H 多根收成每日最后净值，并带上当天持仓", () => {
     const holdings: HoldingDay[] = [
       {
