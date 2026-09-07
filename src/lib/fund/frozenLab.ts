@@ -2,6 +2,7 @@ import {
   prepareSymbolInputs,
   tradeParamsOf,
   windowBounds,
+  type BacktestConfig,
   type DayBook,
   type HoldingDay,
   type PreparedSymbol,
@@ -228,7 +229,12 @@ export async function runFrozenLab(id: string | null): Promise<FrozenLabResult> 
   };
 }
 
-/** 单只标的按定档窗口跑状态机，给个股图用。 */
+/** 个股图接到行情最后一根；定档成绩仍用 champ.config.to。 */
+export function liveChampBounds(axis: string[], config: BacktestConfig) {
+  return windowBounds(axis, { ...config, to: axis.at(-1) ?? config.to });
+}
+
+/** 单只标的按定档纪律跑到最新一根，给个股图用。 */
 export function runChampSymbol(
   uni: PreparedUniverse,
   champ: Champ,
@@ -244,7 +250,7 @@ export function runChampSymbol(
   const sym = uni.symbols.find((s) => s.ticker === ticker);
   if (!sym) return null;
 
-  const { lo, hi } = windowBounds(uni.axis, champ.config);
+  const { lo, hi } = liveChampBounds(uni.axis, champ.config);
   const isDayClose = uni.axis.map(
     (a, i) => i + 1 >= uni.axis.length || uni.axis[i + 1].slice(0, 10) !== a.slice(0, 10),
   );

@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import type { DayBook, HoldingDay } from "@/lib/backtest/engine";
 import { champOf, CHAMPS } from "@/lib/fund/champs";
-import { byYearOf, collapseBookDaily, collapseHoldingsDaily, ytdOf } from "@/lib/fund/frozenLab";
+import { liveChampBounds, byYearOf, collapseBookDaily, collapseHoldingsDaily, ytdOf } from "@/lib/fund/frozenLab";
+import { windowBounds } from "@/lib/backtest/engine";
 
 const day = (date: string, extras: Partial<DayBook> = {}): DayBook => ({
   date,
@@ -69,6 +70,13 @@ describe("四周期定档", () => {
       entryWindow: "all",
       exitWindow: "all",
     });
+  });
+
+  it("个股图窗口接到行情最后一根，定档窗口不动", () => {
+    const champ = champOf("4h");
+    const axis = ["2026-08-20T13:30", "2026-08-24T13:30", "2026-09-04T17:30"];
+    expect(liveChampBounds(axis, champ.config).hi).toBe(3);
+    expect(windowBounds(axis, champ.config).hi).toBeLessThan(3);
   });
 
   it("盘中多根收成日终，买卖合并", () => {
