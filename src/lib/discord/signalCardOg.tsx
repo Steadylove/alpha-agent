@@ -6,7 +6,6 @@ import { strengthLabel, type AlertView } from "./tvAlertCopy";
 const WIDTH = 840;
 const T = {
   bg: "#020617",
-  panel: "#0B1220",
   panelAlt: "#111827",
   line: "#1E293B",
   text: "#F8FAFC",
@@ -82,10 +81,10 @@ function SignalCard({ view }: { view: AlertView }) {
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center" }}>
-          <div style={{ color: T.cyan, fontSize: 13, marginRight: 16 }}>ALPHA</div>
-          <div style={{ fontSize: 16, fontWeight: 700 }}>{`SIGNAL · ${view.tfLabel}`}</div>
+          <div style={{ display: "flex", color: T.cyan, fontSize: 13, marginRight: 16 }}>ALPHA</div>
+          <div style={{ display: "flex", fontSize: 16, fontWeight: 700 }}>{`SIGNAL · ${view.tfLabel}`}</div>
         </div>
-        <div style={{ fontSize: 22, fontWeight: 700 }}>{view.symbol}</div>
+        <div style={{ display: "flex", fontSize: 22, fontWeight: 700 }}>{view.symbol}</div>
       </div>
       <div style={{ display: "flex", alignItems: "center", marginTop: 14 }}>
         <div
@@ -105,9 +104,9 @@ function SignalCard({ view }: { view: AlertView }) {
         >
           {view.code}
         </div>
-        <div style={{ fontSize: 16 }}>{view.title}</div>
+        <div style={{ display: "flex", fontSize: 16 }}>{view.title}</div>
       </div>
-      <div style={{ height: 1, background: T.line, marginTop: 12, marginBottom: 16 }} />
+      <div style={{ display: "flex", height: 1, background: T.line, marginTop: 12, marginBottom: 16 }} />
       <div style={{ display: "flex" }}>
         {fields.map((field, i) => (
           <div
@@ -115,25 +114,37 @@ function SignalCard({ view }: { view: AlertView }) {
             style={{
               display: "flex",
               flexDirection: "column",
-              flex: 1,
+              flexGrow: 1,
+              flexShrink: 1,
+              flexBasis: 0,
               marginRight: i === fields.length - 1 ? 0 : 16,
             }}
           >
-            <div style={{ color: T.dim, fontSize: 14 }}>{field.label}</div>
-            <div style={{ color: field.color, fontSize: 20, fontWeight: 700, marginTop: 8 }}>{field.value}</div>
-            {field.sub ? <div style={{ color: T.muted, fontSize: 13, marginTop: 6 }}>{field.sub}</div> : null}
+            <div style={{ display: "flex", color: T.dim, fontSize: 14 }}>{field.label}</div>
+            <div style={{ display: "flex", color: field.color, fontSize: 20, fontWeight: 700, marginTop: 8 }}>{field.value}</div>
+            {field.sub ? (
+              <div style={{ display: "flex", color: T.muted, fontSize: 13, marginTop: 6 }}>{field.sub}</div>
+            ) : (
+              <div style={{ display: "none" }} />
+            )}
           </div>
         ))}
       </div>
       {view.rps != null ? (
         <div style={{ display: "flex", alignItems: "center", marginTop: 18 }}>
-          <div style={{ color: T.dim, fontSize: 13, marginRight: 12 }}>相对大池</div>
-          <div style={{ display: "flex", flex: 1, height: 7, background: T.panelAlt }}>
-            <div style={{ width: `${fill}%`, height: 7, background: accent }} />
+          <div style={{ display: "flex", color: T.dim, fontSize: 13, marginRight: 12 }}>相对大池</div>
+          <div style={{ display: "flex", flexGrow: 1, height: 7, background: T.panelAlt }}>
+            <div style={{ display: "flex", width: `${fill}%`, height: 7, background: accent }} />
           </div>
         </div>
-      ) : null}
-      {view.footer ? <div style={{ color: T.dim, fontSize: 13, marginTop: 16 }}>{view.footer}</div> : null}
+      ) : (
+        <div style={{ display: "none" }} />
+      )}
+      {view.footer ? (
+        <div style={{ display: "flex", color: T.dim, fontSize: 13, marginTop: 16 }}>{view.footer}</div>
+      ) : (
+        <div style={{ display: "none" }} />
+      )}
     </div>
   );
 }

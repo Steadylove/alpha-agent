@@ -42,6 +42,59 @@ function bookText(input: CashBookView): string {
   ].join(" ");
 }
 
+function Cell({
+  width,
+  color,
+  children,
+  end,
+  bold,
+}: {
+  width: number;
+  color?: string;
+  children: string;
+  end?: boolean;
+  bold?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        width,
+        color,
+        fontWeight: bold ? 700 : 400,
+        justifyContent: end ? "flex-end" : "flex-start",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function Tile({ label, value, color, last }: { label: string; value: string; color: string; last?: boolean }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        flexGrow: 1,
+        flexShrink: 1,
+        flexBasis: 0,
+        background: T.panel,
+        borderWidth: 1,
+        borderStyle: "solid",
+        borderColor: T.line,
+        borderLeftWidth: 3,
+        borderLeftColor: color,
+        padding: "10px 12px",
+        marginRight: last ? 0 : 12,
+      }}
+    >
+      <div style={{ display: "flex", color: T.muted, fontSize: 11 }}>{label}</div>
+      <div style={{ display: "flex", color, fontSize: 22, fontWeight: 700, marginTop: 8 }}>{value}</div>
+    </div>
+  );
+}
+
 function BookCard({ input }: { input: CashBookView }) {
   const cashPct = Math.max(0, 100 - input.exposurePct);
   const subtitle = `记账自 ${input.since.slice(0, 10)} · 截至 ${fmtAsOf(input.asOf)}`;
@@ -69,6 +122,9 @@ function BookCard({ input }: { input: CashBookView }) {
     { label: "现金", value: `${cashPct.toFixed(0)}%`, color: T.dim },
     { label: "持仓", value: `${input.rows.length} 只`, color: T.text },
   ];
+  const rows = input.rows.length === 0
+    ? [{ symbol: "空仓", floatPnlPct: 0, entryPrice: 0, weightPct: 0, rps: null, empty: true }]
+    : input.rows.map((row) => ({ ...row, empty: false }));
 
   return (
     <div
@@ -85,92 +141,59 @@ function BookCard({ input }: { input: CashBookView }) {
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center" }}>
-          <div style={{ color: T.cyan, fontSize: 13, marginRight: 16 }}>ALPHA</div>
-          <div style={{ fontSize: 16, fontWeight: 700 }}>{`BOOK · ${input.label}`}</div>
+          <div style={{ display: "flex", color: T.cyan, fontSize: 13, marginRight: 16 }}>ALPHA</div>
+          <div style={{ display: "flex", fontSize: 16, fontWeight: 700 }}>{`BOOK · ${input.label}`}</div>
         </div>
-        <div style={{ color: T.muted, fontSize: 13 }}>{subtitle}</div>
+        <div style={{ display: "flex", color: T.muted, fontSize: 13 }}>{subtitle}</div>
       </div>
-      <div style={{ height: 1, background: T.line, marginTop: 12, marginBottom: 8 }} />
+      <div style={{ display: "flex", height: 1, background: T.line, marginTop: 12, marginBottom: 8 }} />
       <div style={{ display: "flex", color: T.muted, fontSize: 12, marginBottom: 4 }}>
-        <div style={{ width: 40 }}>#</div>
-        <div style={{ width: 90 }}>代码</div>
-        <div style={{ width: 90, justifyContent: "flex-end" }}>盈亏</div>
-        <div style={{ width: 110, justifyContent: "flex-end" }}>开仓价</div>
-        <div style={{ width: 90, justifyContent: "flex-end" }}>仓位</div>
-        <div style={{ width: 140, justifyContent: "flex-end" }}>强度</div>
+        <Cell width={40}>#</Cell>
+        <Cell width={90}>代码</Cell>
+        <Cell width={90} end>盈亏</Cell>
+        <Cell width={110} end>开仓价</Cell>
+        <Cell width={90} end>仓位</Cell>
+        <Cell width={140} end>强度</Cell>
       </div>
-      <div style={{ height: 1, background: T.line, marginBottom: 4 }} />
-      {input.rows.length === 0 ? (
-        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", color: T.muted, fontSize: 16, height: ROW_H }}>
-          空仓
-        </div>
-      ) : (
-        input.rows.map((row, i) => (
-          <div
-            key={`${row.symbol}-${i}`}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              height: ROW_H,
-              background: i % 2 === 0 ? T.bg : T.panel,
-              fontSize: 16,
-            }}
-          >
-            <div style={{ width: 40, color: T.muted }}>{String(i + 1).padStart(2, "0")}</div>
-            <div style={{ width: 90, fontWeight: 700 }}>{row.symbol}</div>
-            <div style={{ width: 90, justifyContent: "flex-end", color: row.floatPnlPct >= 0 ? T.buy : T.stop, fontWeight: 700 }}>
-              {signed(row.floatPnlPct)}
+      <div style={{ display: "flex", height: 1, background: T.line, marginBottom: 4 }} />
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        {rows.map((row, i) =>
+          row.empty ? (
+            <div
+              key="empty"
+              style={{ display: "flex", justifyContent: "center", alignItems: "center", color: T.muted, fontSize: 16, height: ROW_H }}
+            >
+              空仓
             </div>
-            <div style={{ width: 110, justifyContent: "flex-end", color: T.dim }}>{row.entryPrice.toFixed(2)}</div>
-            <div style={{ width: 90, justifyContent: "flex-end", color: T.dim }}>{row.weightPct.toFixed(1)}%</div>
-            <div style={{ width: 140, justifyContent: "flex-end", color: T.cyan }}>{rowStrength(row.rps)}</div>
-          </div>
-        ))
-      )}
+          ) : (
+            <div
+              key={`${row.symbol}-${i}`}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                height: ROW_H,
+                background: i % 2 === 0 ? T.bg : T.panel,
+                fontSize: 16,
+              }}
+            >
+              <Cell width={40} color={T.muted}>{String(i + 1).padStart(2, "0")}</Cell>
+              <Cell width={90} bold>{row.symbol}</Cell>
+              <Cell width={90} end bold color={row.floatPnlPct >= 0 ? T.buy : T.stop}>{signed(row.floatPnlPct)}</Cell>
+              <Cell width={110} end color={T.dim}>{row.entryPrice.toFixed(2)}</Cell>
+              <Cell width={90} end color={T.dim}>{`${row.weightPct.toFixed(1)}%`}</Cell>
+              <Cell width={140} end color={T.cyan}>{rowStrength(row.rps)}</Cell>
+            </div>
+          ),
+        )}
+      </div>
       <div style={{ display: "flex", marginTop: 16 }}>
         {stats.map((tile, i) => (
-          <div
-            key={tile.label}
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              flex: 1,
-              background: T.panel,
-              borderWidth: 1,
-              borderStyle: "solid",
-              borderColor: T.line,
-              borderLeftWidth: 3,
-              borderLeftColor: tile.color,
-              padding: "10px 12px",
-              marginRight: i === stats.length - 1 ? 0 : 12,
-            }}
-          >
-            <div style={{ color: T.muted, fontSize: 11 }}>{tile.label}</div>
-            <div style={{ color: tile.color, fontSize: 22, fontWeight: 700, marginTop: 8 }}>{tile.value}</div>
-          </div>
+          <Tile key={tile.label} {...tile} last={i === stats.length - 1} />
         ))}
       </div>
       <div style={{ display: "flex", marginTop: 10 }}>
         {snapshot.map((tile, i) => (
-          <div
-            key={tile.label}
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              flex: 1,
-              background: T.panel,
-              borderWidth: 1,
-              borderStyle: "solid",
-              borderColor: T.line,
-              borderLeftWidth: 3,
-              borderLeftColor: tile.color,
-              padding: "10px 12px",
-              marginRight: i === snapshot.length - 1 ? 0 : 12,
-            }}
-          >
-            <div style={{ color: T.muted, fontSize: 11 }}>{tile.label}</div>
-            <div style={{ color: tile.color, fontSize: 22, fontWeight: 700, marginTop: 8 }}>{tile.value}</div>
-          </div>
+          <Tile key={tile.label} {...tile} last={i === snapshot.length - 1} />
         ))}
       </div>
     </div>
