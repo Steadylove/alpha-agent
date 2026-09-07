@@ -9,7 +9,7 @@ import {
 } from "@/lib/backtest/engine";
 import type { TradeDay } from "@/lib/scoring/rotationTrade";
 import { getPreparedUniverse } from "@/lib/backtest/load";
-import { parseConfig, parseIndex, parsePoolId, tradeRows } from "@/lib/backtest/labRequest";
+import { openTradeRow, parseConfig, parseIndex, parsePoolId, tradeRows } from "@/lib/backtest/labRequest";
 import { champOf } from "@/lib/fund/champs";
 import { runChampSymbol } from "@/lib/fund/frozenLab";
 import { emaSeries } from "@/lib/scoring/series";
@@ -105,6 +105,7 @@ export async function POST(request: Request) {
     const signals = collectSignals(sym, config, lo, hi, days, time, {
       dayCloseOnly: champ?.opts.entryWindow === "dayClose",
     });
+    const openRow = openTradeRow(days, config.splitDate, symbol);
 
     return NextResponse.json({
       symbol,
@@ -125,7 +126,7 @@ export async function POST(request: Request) {
       vegas,
       rsi,
       signals,
-      trades: tradeRows(closed, config.splitDate),
+      trades: [...tradeRows(closed, config.splitDate), ...(openRow ? [openRow] : [])],
     });
   } catch (error) {
     return NextResponse.json(

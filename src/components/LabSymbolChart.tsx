@@ -80,14 +80,15 @@ const PAD_AFTER = 45;
 type Trade = {
   entryDate: string;
   entryPrice: number;
-  exitDate: string;
-  exitPrice: number;
+  exitDate: string | null;
+  exitPrice: number | null;
   pnlPct: number;
   barsHeld: number;
   exitReason: string;
   sigType: 1 | 2;
   r: number;
   isOutOfSample: boolean;
+  open?: boolean;
 };
 
 type Signal = {
@@ -134,6 +135,7 @@ const EXIT_TEXT: Record<string, string> = {
   rsWeak: "转弱",
   veto: "否决",
   rotate: "置换",
+  open: "在场",
 };
 
 /**
@@ -346,6 +348,7 @@ export function LabSymbolChart({
       );
     }
     for (const t of data.trades) {
+      if (!t.exitDate) continue;
       put(t.exitDate, `平仓 · ${EXIT_TEXT[t.exitReason] ?? t.exitReason}`, [
         formatBarTime(t.exitDate),
         pct(t.pnlPct),
@@ -400,6 +403,7 @@ export function LabSymbolChart({
         color: t.sigType === 1 ? BUY1 : BUY2,
         text: labelled ? `开仓 ${t.entryPrice.toFixed(2)}` : "",
       });
+      if (!t.exitDate) return;
       markers.push({
         time: toChartTime(t.exitDate),
         position: "aboveBar",
@@ -431,7 +435,7 @@ export function LabSymbolChart({
       return;
     }
     const from = signal?.date ?? trade?.entryDate ?? focus;
-    const to = trade?.exitDate ?? signal?.date ?? focus;
+    const to = trade?.exitDate ?? (trade ? time.at(-1) : null) ?? signal?.date ?? focus;
     const fromIdx = Math.max(0, barIndexOf(time, from));
     const toIdx = barIndexOf(time, to);
     const padB = trade ? PAD_BEFORE : 36;
@@ -462,7 +466,8 @@ export function LabSymbolChart({
           <Text fw={700}>{symbol}</Text>
           {data ? (
             <Text size="xs" c="dimmed" ff="monospace">
-              本次回测成交 {data.trades.length} 笔 · 全期 {data.bars.time.length} 根
+              本次回测成交 {data.trades.filter((t) => !t.open).length} 笔
+              {data.trades.some((t) => t.open) ? " · 在场 1" : ""} · 全期 {data.bars.time.length} 根
             </Text>
           ) : null}
         </Group>
@@ -647,7 +652,7 @@ export function LabSymbolChart({
               <Table.Tbody>
                 {data.trades.map((t, i) => (
                   <Table.Tr
-                    key={`${t.entryDate}-${t.exitDate}`}
+                    key={`${t.entryDate}-${t.exitDate ?? "open"}`}
                     onClick={() => symbol && setPicked({ symbol, entryDate: t.entryDate })}
                     style={{
                       cursor: "pointer",
@@ -658,9 +663,9 @@ export function LabSymbolChart({
                     <Table.Td ta="right" ff="monospace">
                       {t.entryPrice.toFixed(2)}
                     </Table.Td>
-                    <Table.Td ff="monospace">{formatBarTime(t.exitDate)}</Table.Td>
+                    <Table.Td ff="monospace">{t.exitDate ? formatBarTime(t.exitDate) : "—"}</Table.Td>
                     <Table.Td ta="right" ff="monospace">
-                      {t.exitPrice.toFixed(2)}
+                      {t.exitPrice != null ? t.exitPrice.toFixed(2) : "—"}
                     </Table.Td>
                     <Table.Td ta="right" ff="monospace" c="dimmed">
                       {t.barsHeld} 根
@@ -671,7 +676,7 @@ export function LabSymbolChart({
                       ff="monospace"
                       style={{ color: t.pnlPct >= 0 ? UP : DOWN }}
                     >
-                      {pct(t.pnlPct)}
+                      {t.open ? `浮${pct(t.pnlPct)}` : pct(t.pnlPct)}
                     </Table.Td>
                     <Table.Td ta="right" ff="monospace" style={{ color: t.r >= 0 ? UP : DOWN }}>
                       {t.r >= 0 ? "+" : ""}

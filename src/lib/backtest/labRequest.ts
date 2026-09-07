@@ -21,7 +21,7 @@ import {
   SMALL_FUND_DEFAULT_CONFIG,
 } from "@/lib/backtest/smallFundUniverse";
 import { champOf } from "@/lib/fund/champs";
-import type { ClosedTrade } from "@/lib/scoring/rotationTrade";
+import type { ClosedTrade, TradeDay } from "@/lib/scoring/rotationTrade";
 
 const clamp = (v: unknown, lo: number, hi: number, fallback: number) => {
   const n = Number(v);
@@ -140,5 +140,35 @@ export function tradeRows(trades: readonly ClosedTrade[], splitDate: string) {
     riskPct: t.riskPct,
     r: t.riskPct > 0 ? t.pnlPct / t.riskPct : 0,
     isOutOfSample: t.entryDate >= splitDate,
+    open: false,
   }));
+}
+
+/** 最后一根还持着，就附一行浮盈，没有离场。 */
+export function openTradeRow(
+  days: readonly TradeDay[],
+  splitDate: string,
+  symbol: string,
+) {
+  const last = days.at(-1);
+  if (!last || last.sigType === 0 || last.entryPrice == null || last.entryDate == null) {
+    return null;
+  }
+  const start = days.findIndex((d) => d.entered && d.entryDate === last.entryDate);
+  const riskPct = last.riskPct ?? 0;
+  return {
+    symbol,
+    sigType: last.sigType,
+    entryDate: last.entryDate,
+    entryPrice: last.entryPrice,
+    exitDate: null,
+    exitPrice: null,
+    pnlPct: last.floatPnlPct,
+    barsHeld: start >= 0 ? days.length - start : 0,
+    exitReason: "open",
+    riskPct,
+    r: riskPct > 0 ? last.floatPnlPct / riskPct : 0,
+    isOutOfSample: last.entryDate >= splitDate,
+    open: true,
+  };
 }
