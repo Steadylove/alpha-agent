@@ -1,14 +1,11 @@
 import { NextResponse } from "next/server";
 
-import { renderCashBookPng } from "@/lib/discord/bookCardImage";
-import { renderSignalPng } from "@/lib/discord/signalCardImage";
-import { postDiscordImage } from "@/lib/discord/sendWebhook";
+import { renderCashBookOgPng } from "@/lib/discord/bookCardOg";
 import type { CashBookView } from "@/lib/discord/bookCopy";
+import { postDiscordImage } from "@/lib/discord/sendWebhook";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
-
-void renderSignalPng;
 
 type Body = {
   filename?: string;
@@ -33,7 +30,7 @@ export async function POST(request: Request) {
   try {
     await postDiscordImage(webhook, {
       filename: body.filename,
-      bytes: await renderCashBookPng(body.input),
+      bytes: await renderCashBookOgPng(body.input),
       content: body.content ?? "",
     });
     return NextResponse.json({ ok: true });

@@ -12,7 +12,7 @@
 import { NextResponse } from "next/server";
 
 import { ensureRpsSnapshot, lookupAlertRps, resolveAlertTimeframe } from "@/lib/backtest/rpsSnapshot";
-import { renderSignalPng } from "@/lib/discord/signalCardImage";
+import { renderSignalOgPng } from "@/lib/discord/signalCardOg";
 import {
   buildAlertView,
   buyPassesGate,
@@ -68,7 +68,7 @@ export async function POST(request: Request) {
     const view = buildAlertView(payload, label);
     await postDiscordImage(webhookUrl, {
       filename: `signal-${payload.symbol}.png`,
-      bytes: await renderSignalPng(view),
+      bytes: await renderSignalOgPng(view),
       content: `**${view.title} · ${payload.symbol}** · ${label}`,
     });
     return NextResponse.json({ ok: true, forwarded: true });
@@ -96,7 +96,7 @@ export async function POST(request: Request) {
   const view = buildAlertView(payload, label, rps);
   await postDiscordImage(webhookUrl, {
     filename: `signal-${payload.symbol}.png`,
-    bytes: await renderSignalPng(view),
+    bytes: await renderSignalOgPng(view),
     content: `**${view.title} · ${payload.symbol}** · ${label}`,
   });
   return NextResponse.json({ ok: true, forwarded: true, gate: "pass", rps, lookupError });
