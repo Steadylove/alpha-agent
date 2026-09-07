@@ -1,6 +1,6 @@
 import type { DayBook, HoldingDay, HoldingRow } from "@/lib/backtest/engine";
 
-import { bookPnlLabel } from "@/lib/discord/bookCopy";
+import { bookPnlLabel, ytdOfNav } from "@/lib/discord/bookCopy";
 
 export type LookbackTf = "4h" | "2h";
 
@@ -114,13 +114,7 @@ export function winRatePctOf(pnls: readonly number[]): number | null {
 
 /** 年末净值作基数；窗口从年中起步则相对 1。 */
 export function ytdOfCurve(curve: readonly LookbackPoint[]): { year: number; pct: number } | null {
-  const last = curve.at(-1);
-  if (!last) return null;
-  const year = Number(last.date.slice(0, 4));
-  const from = `${year}-01-01`;
-  if (!curve.some((p) => p.date >= from)) return null;
-  const prev = [...curve].reverse().find((p) => p.date < from);
-  return { year, pct: (last.equity / (prev?.equity ?? 1) - 1) * 100 };
+  return ytdOfNav(curve);
 }
 
 export function lookbackView(

@@ -1,5 +1,5 @@
 import { cashBookSvg } from "@/lib/discord/bookCardImage";
-import { renderCashBook } from "@/lib/discord/bookCopy";
+import { renderCashBook, ytdOfNav } from "@/lib/discord/bookCopy";
 import { describe, expect, it } from "vitest";
 
 const sample = {
@@ -8,8 +8,25 @@ const sample = {
   label: "4 小时",
   exposurePct: 75,
   equity: 1.12,
+  ytdPct: 8.5,
+  ytdYear: 2026,
+  dd: 9,
+  mar: 12.83,
+  avgHoldings: 6.1,
+  avgExposure: 62,
+  winRatePct: 53,
   rows: [{ symbol: "NVDA", floatPnlPct: 6.2, entryPrice: 170, weightPct: 12.5, rps: 79 }],
 };
+
+describe("ytd of nav", () => {
+  it("有去年收盘就用它当基数", () => {
+    const ytd = ytdOfNav([
+      { date: "2025-12-31T17:30", equity: 1.1 },
+      { date: "2026-09-04T17:30", equity: 1.32 },
+    ]);
+    expect(ytd).toEqual({ year: 2026, pct: expect.closeTo(20) });
+  });
+});
 
 describe("cash book copy", () => {
   it("每行写该股相对大池分位，不写门槛、RPS、一买二买", () => {
@@ -18,7 +35,13 @@ describe("cash book copy", () => {
     expect(msg.content).toContain("记账自 2021-08-24");
     expect(text).toContain("强于 79%");
     expect(text).toContain("累计盈利");
+    expect(text).toContain("回撤");
+    expect(text).toContain("MAR");
+    expect(text).toContain("均持");
+    expect(text).toContain("胜率");
+    expect(text).toContain("2026 YTD");
     expect(text).toContain("+12.0%");
+    expect(text).toContain("+8.5%");
     expect(text).not.toContain("权益");
     expect(text).not.toContain("强于 30%");
     expect(text).not.toMatch(/RPS|一买|二买/);
@@ -36,8 +59,18 @@ describe("cash book card", () => {
     expect(svg).toContain("+6.2%");
     expect(svg).toContain("170.00");
     expect(svg).toContain("12.5%");
-    expect(svg).toContain("累计盈利");
+    expect(svg).toContain("累计");
+    expect(svg).toContain("回撤");
+    expect(svg).toContain("MAR");
+    expect(svg).toContain("12.83");
+    expect(svg).toContain("均持");
+    expect(svg).toContain("6.1");
+    expect(svg).toContain("胜率");
+    expect(svg).toContain("53%");
+    expect(svg).toContain("62%");
+    expect(svg).toContain("2026 YTD");
     expect(svg).toContain("+12.0%");
+    expect(svg).toContain("+8.5%");
     expect(svg).not.toContain("权益");
     expect(svg).not.toContain("强于 30%");
     expect(svg).not.toMatch(/RPS|一买|二买|强度超过/);

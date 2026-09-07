@@ -17,6 +17,26 @@ export function bookPnlLabel(equity: number): string {
   return signed((equity - 1) * 100);
 }
 
+export function pnlLabel(pct: number): string {
+  return signed(pct);
+}
+
+export function winRateLabel(pct: number | null | undefined): string {
+  return pct == null ? "—" : `${pct.toFixed(0)}%`;
+}
+
+/** 年末净值作基数；窗口从年中起步则相对 1。 */
+export function ytdOfNav(points: readonly { date: string; equity: number }[]): { year: number; pct: number } | null {
+  const last = points.at(-1);
+  if (!last) return null;
+  const year = Number(last.date.slice(0, 4));
+  if (!Number.isFinite(year)) return null;
+  const from = `${year}-01-01`;
+  if (!points.some((p) => p.date >= from)) return null;
+  const prev = [...points].reverse().find((p) => p.date < from);
+  return { year, pct: (last.equity / (prev?.equity ?? 1) - 1) * 100 };
+}
+
 function rowStrength(rps: number | null): string {
   return rps != null && rps >= 1 ? strengthLabel(rps) : "—";
 }
@@ -28,7 +48,14 @@ export function renderCashBook(input: {
   label: string;
   rows: readonly BookRowView[];
   equity?: number;
+  ytdPct?: number;
+  ytdYear?: number;
   exposurePct: number;
+  dd?: number;
+  mar?: number;
+  avgHoldings?: number;
+  avgExposure?: number;
+  winRatePct?: number | null;
 }): DiscordPayload {
   const lines =
     input.rows.length === 0
@@ -40,17 +67,49 @@ export function renderCashBook(input: {
           .join("\n");
 
   const cashPct = Math.max(0, 100 - input.exposurePct);
+  const exposureLabel = input.avgExposure != null ? `${input.avgExposure.toFixed(0)}%` : `${input.exposurePct.toFixed(0)}%`;
   const fields = [
     { name: `持仓 ${input.rows.length} 只`, value: lines.slice(0, 1024) },
-    { name: "敞口", value: `\`${input.exposurePct.toFixed(0)}%\``, inline: true },
+    ...(input.equity != null
+      ? [{ name: "累计盈利", value: `\`${bookPnlLabel(input.equity)}\``, inline: true }]
+      : []),
+    ...(input.dd != null ? [{ name: "回撤", value: `\`${input.dd.toFixed(0)}%\``, inline: true }] : []),
+    ...(input.mar != null ? [{ name: "MAR", value: `\`${input.mar.toFixed(2)}\``, inline: true }] : []),
+    ...(input.avgHoldings != null
+      ? [{ name: "均持", value: `\`${input.avgHoldings.toFixed(1)}\``, inline: true }]
+      : []),
+    { name: "敞口", value: `\`${exposureLabel}\``, inline: true },
+    ...(input.winRatePct !== undefined
+      ? [{ name: "胜率", value: `\`${winRateLabel(input.winRatePct)}\``, inline: true }]
+      : []),
+    ...(input.ytdPct != null
+      ? [
+          {
+            name: input.ytdYear != null ? `${input.ytdYear} YTD` : "YTD",
+            value: `\`${pnlLabel(input.ytdPct)}\``,
+            inline: true,
+          },
+        ]
+      : []),
     { name: "现金", value: `\`${cashPct.toFixed(0)}%\``, inline: true },
   ];
-  if (input.equity != null) {
-    fields.splice(1, 0, { name: "累计盈利", value: `\`${bookPnlLabel(input.equity)}\``, inline: true });
-  }
+
+  const headline = [
+    `📒 **${input.label} 现金账本**`,
+    `记账自 ${input.since.slice(0, 10)}`,
+    `截至 ${input.asOf}`,
+    input.equity != null ? `累计 ${bookPnlLabel(input.equity)}` : null,
+    input.dd != null ? `回撤 ${input.dd.toFixed(0)}%` : null,
+    input.mar != null ? `MAR ${input.mar.toFixed(2)}` : null,
+    input.avgHoldings != null ? `均持 ${input.avgHoldings.toFixed(1)}` : null,
+    `敞口 ${exposureLabel}`,
+    input.winRatePct !== undefined ? `胜率 ${winRateLabel(input.winRatePct)}` : null,
+  ]
+    .filter((x): x is string => x != null)
+    .join("  ");
 
   return {
-    content: `📒 **${input.label} 现金账本**  记账自 ${input.since.slice(0, 10)}  截至 ${input.asOf}`,
+    content: headline,
     embeds: [{ color: 0x2563eb, fields }],
   };
 }

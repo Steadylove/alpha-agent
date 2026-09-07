@@ -1,11 +1,13 @@
-import { bookPnlLabel, type BookRowView } from "./bookCopy";
+import type { LookbackView } from "@/lib/fund/lookbackLogic";
+
+import { bookPnlLabel, pnlLabel, winRateLabel, type BookRowView } from "./bookCopy";
 import { FONT, MONO, T, esc, hudBackdrop, hudHeader, metricTile, svgToPng } from "./terminalTheme";
 import { strengthLabel } from "./tvAlertCopy";
 
 const WIDTH = 840;
 const ROW_H = 48;
 const HEADER_H = 108;
-const FOOTER_H = 108;
+const FOOTER_H = 196;
 
 const COL = {
   rank: 52,
@@ -30,7 +32,14 @@ export type CashBookCardInput = {
   label: string;
   rows: readonly BookRowView[];
   equity?: number;
+  ytdPct?: number;
+  ytdYear?: number;
   exposurePct: number;
+  dd?: number;
+  mar?: number;
+  avgHoldings?: number;
+  avgExposure?: number;
+  winRatePct?: number | null;
 };
 
 function rowStrength(rps: number | null): string {
@@ -69,23 +78,63 @@ export function cashBookSvg(input: CashBookCardInput): string {
 
   const footerY = HEADER_H + bodyH + 16;
   const tileH = 72;
-  const boxes = [
-    input.equity != null
-      ? metricTile(
-          32,
-          footerY,
-          180,
-          tileH,
-          "累计盈利",
-          bookPnlLabel(input.equity),
-          undefined,
-          input.equity >= 1 ? T.buy : T.stop,
-        )
-      : "",
-    metricTile(input.equity != null ? 224 : 32, footerY, 150, tileH, "敞口", `${input.exposurePct.toFixed(0)}%`, undefined, T.cyan),
-    metricTile(input.equity != null ? 386 : 194, footerY, 150, tileH, "现金", `${cashPct.toFixed(0)}%`, undefined, T.dim),
-    metricTile(input.equity != null ? 548 : 356, footerY, 150, tileH, "持仓", `${input.rows.length} 只`, undefined, T.text),
-  ].join("\n");
+  const gap = 12;
+  const startX = 32;
+  const inner = WIDTH - 64;
+  const row = (
+    tiles: readonly { label: string; value: string; color: string }[],
+    y: number,
+  ) => {
+    const tileW = (inner - gap * (tiles.length - 1)) / tiles.length;
+    return tiles
+      .map((tile, i) =>
+        metricTile(startX + i * (tileW + gap), y, tileW, tileH, tile.label, tile.value, undefined, tile.color),
+      )
+      .join("\n");
+  };
+  const stats = [
+    ...(input.equity != null
+      ? [
+          {
+            label: "累计",
+            value: bookPnlLabel(input.equity),
+            color: input.equity >= 1 ? T.buy : T.stop,
+          },
+        ]
+      : []),
+    ...(input.dd != null
+      ? [{ label: "回撤", value: `${input.dd.toFixed(0)}%`, color: T.stop }]
+      : []),
+    ...(input.mar != null
+      ? [{ label: "MAR", value: input.mar.toFixed(2), color: T.text }]
+      : []),
+    ...(input.avgHoldings != null
+      ? [{ label: "均持", value: input.avgHoldings.toFixed(1), color: T.text }]
+      : []),
+    {
+      label: "敞口",
+      value: `${(input.avgExposure ?? input.exposurePct).toFixed(0)}%`,
+      color: T.cyan,
+    },
+    ...(input.winRatePct !== undefined
+      ? [{ label: "胜率", value: winRateLabel(input.winRatePct), color: T.text }]
+      : []),
+  ];
+  const snapshot = [
+    ...(input.ytdPct != null
+      ? [
+          {
+            label: input.ytdYear != null ? `${input.ytdYear} YTD` : "YTD",
+            value: pnlLabel(input.ytdPct),
+            color: input.ytdPct >= 0 ? T.buy : T.stop,
+          },
+        ]
+      : []),
+    { label: "当天敞口", value: `${input.exposurePct.toFixed(0)}%`, color: T.cyan },
+    { label: "现金", value: `${cashPct.toFixed(0)}%`, color: T.dim },
+    { label: "持仓", value: `${input.rows.length} 只`, color: T.text },
+  ];
+  const boxes = `${row(stats, footerY)}\n${row(snapshot, footerY + tileH + 10)}`;
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg width="${WIDTH}" height="${height}" viewBox="0 0 ${WIDTH} ${height}" xmlns="http://www.w3.org/2000/svg">
@@ -101,6 +150,25 @@ export function cashBookSvg(input: CashBookCardInput): string {
   ${body}
   ${boxes}
 </svg>`;
+}
+
+export function cashBookFromLookback(view: LookbackView, label: string): CashBookCardInput {
+  const s = view.stats;
+  return {
+    asOf: view.asOf,
+    since: view.since,
+    label,
+    rows: view.rows,
+    equity: view.equity,
+    ytdPct: s.ytdPct ?? undefined,
+    ytdYear: s.ytdYear ?? undefined,
+    exposurePct: view.exposurePct,
+    dd: s.dd,
+    mar: s.mar,
+    avgHoldings: s.avgHoldings,
+    avgExposure: s.avgExposure,
+    winRatePct: s.winRatePct,
+  };
 }
 
 export function renderCashBookPng(input: CashBookCardInput): Promise<Buffer> {
