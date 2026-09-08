@@ -50,16 +50,16 @@ describe("gex format", () => {
 });
 
 describe("gex copy", () => {
-  it("QQQ 贴近 Flip 写波动放大，SPX 写上行看 Call", () => {
-    expect(gexImpact(snapshot.items[0])).toContain("上行看 7800");
-    expect(gexImpact(snapshot.items[2])).toBe("现价贴近 Flip 720，波动易放大");
+  it("QQQ 贴近 Flip 写区间变薄，SPX 写近端 Call", () => {
+    expect(gexImpact(snapshot.items[0])).toContain("近端 Call 7800");
+    expect(gexImpact(snapshot.items[0])).not.toMatch(/上行看|失守/);
+    expect(gexImpact(snapshot.items[2])).toBe("现价贴近 Flip 720，波动区间变薄");
   });
 
-  it("卡片带 10Y 总结，不写 4H/2H", () => {
+  it("卡片带 10Y，不写 4H/2H", () => {
     const view = gexCardFromSnapshot(snapshot);
     expect(view.asOf).toBe("2026-09-04 16:14");
     expect(view.tnx).toBe("4.78");
-    expect(view.note).toContain("10Y 4.78%");
     expect(view.note).toContain("SPX 在 Flip 上方偏稳");
     expect(view.rows[0]).toMatchObject({ symbol: "SPX", spot: "7719", netGex: "+$12.2B", flip: "7702" });
     expect(gexCaption(false)).toContain("TREND-ADAPTIVE");

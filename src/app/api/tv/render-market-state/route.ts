@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { isGexBriefView, renderGexBriefOgPng } from "@/lib/discord/gexBriefCardOg";
-import { renderGexOgPng } from "@/lib/discord/gexCardOg";
-import type { GexCardView } from "@/lib/discord/gexCopy";
-import type { GexBriefView } from "@/lib/discord/marketStateCopy";
+import { renderMarketStateOgPng } from "@/lib/discord/marketStateCardOg";
+import type { MarketStateView } from "@/lib/discord/marketStateCopy";
 import { postDiscordImage } from "@/lib/discord/sendWebhook";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +10,7 @@ export const maxDuration = 60;
 type Body = {
   filename?: string;
   content?: string;
-  input?: GexBriefView | GexCardView;
+  input?: MarketStateView;
 };
 
 export async function POST(request: Request) {
@@ -32,9 +30,7 @@ export async function POST(request: Request) {
   try {
     await postDiscordImage(webhook, {
       filename: body.filename,
-      bytes: isGexBriefView(body.input)
-        ? await renderGexBriefOgPng(body.input)
-        : await renderGexOgPng(body.input),
+      bytes: await renderMarketStateOgPng(body.input),
       content: body.content ?? "",
     });
     return NextResponse.json({ ok: true });

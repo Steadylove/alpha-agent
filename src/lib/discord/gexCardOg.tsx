@@ -9,7 +9,7 @@ const px = (n: number) => n * S;
 const WIDTH = px(960);
 const ROW_H = px(68);
 const HEADER_H = px(196);
-const FOOTER_H = px(88);
+const FOOTER_H = px(128);
 const T = {
   bg: "#0B1015",
   panel: "#121820",
@@ -43,6 +43,7 @@ function gexText(input: GexCardView): string {
     input.asOf,
     input.dte,
     input.tnx ?? "",
+    input.headline ?? "",
     input.note,
     ...input.rows.flatMap((row) => [
       row.symbol,
@@ -191,8 +192,30 @@ function GexCard({ input }: { input: GexCardView }) {
           ))}
         </div>
 
-        <div style={{ display: "flex", width: "100%", marginTop: px(16) }}>
-          <div style={{ display: "flex", color: T.dim, fontSize: px(13) }}>{input.note}</div>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            width: "100%",
+            marginTop: px(16),
+            padding: `${px(12)}px ${px(14)}px`,
+            background: T.box,
+            border: `1px solid ${T.line}`,
+          }}
+        >
+          {input.headline ? (
+            <div style={{ display: "flex", color: T.text, fontSize: px(14), fontWeight: 700 }}>{input.headline}</div>
+          ) : null}
+          <div
+            style={{
+              display: "flex",
+              color: T.dim,
+              fontSize: px(13),
+              marginTop: input.headline ? px(6) : 0,
+            }}
+          >
+            {input.note}
+          </div>
         </div>
       </div>
     </div>

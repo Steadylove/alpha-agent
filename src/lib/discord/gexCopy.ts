@@ -34,6 +34,7 @@ export type GexCardView = {
   asOf: string;
   dte: string;
   tnx: string | null;
+  headline?: string;
   note: string;
   rows: GexRowView[];
 };
@@ -75,15 +76,15 @@ export function gexImpact(row: GexSnapshotItem): string {
   const flip = row.gamma_flip;
   const spot = row.spot;
   if (flip != null && Math.abs(spot - flip) / spot <= FLIP_NEAR) {
-    return `现价贴近 Flip ${fmtLevel(flip)}，波动易放大`;
+    return `现价贴近 Flip ${fmtLevel(flip)}，波动区间变薄`;
   }
   if (row.net_gex > 0 && (flip == null || spot > flip)) {
-    return `现价在 Flip 上方；上行看 ${fmtLevel(row.call_wall)}，正 GEX 偏均值回归`;
+    return `现价在 Flip 上方；近端 Call ${fmtLevel(row.call_wall)}，正 GEX 偏均值回归`;
   }
   if (row.net_gex < 0) {
-    return `现价在负 GEX；${fmtLevel(row.put_wall)} 为关键节点，失守波动易放大`;
+    return `现价在负 GEX；近端 Put ${fmtLevel(row.put_wall)}`;
   }
-  return `先看 ${fmtLevel(row.put_wall)} / ${fmtLevel(row.call_wall)}`;
+  return `近端墙 ${fmtLevel(row.put_wall)} / ${fmtLevel(row.call_wall)}`;
 }
 
 export function gexClosingNote(items: readonly GexSnapshotItem[], tnxLast: number | null | undefined): string {
@@ -105,7 +106,7 @@ export function gexClosingNote(items: readonly GexSnapshotItem[], tnxLast: numbe
 
 export function gexCardFromSnapshot(snapshot: GexSnapshot): GexCardView {
   const items = snapshot.items ?? [];
-  const asOf = items[0]?.as_of;
+  const asOf = items.find((row) => row.symbol === "SPX")?.as_of ?? items.find((row) => row.as_of)?.as_of;
   return {
     asOf: fmtAsOf(asOf),
     dte: snapshot.dte ?? "0-45d",
