@@ -22,7 +22,7 @@ describe("tv alert copy", () => {
   it("买点写该股相对大池分位，不写门槛、一买二买和 RPS", () => {
     const msg = renderBuy({ event: "buy", symbol: "NVDA", tf: "240", kind: 1, price: 100 }, "4H", 79);
     const text = JSON.stringify(msg);
-    expect(msg.content).toBe("🟢 **买点 · NVDA** · 4H");
+    expect(msg.content).toBe("🟢 **TREND-ADAPTIVE 买点 · NVDA** · 4H");
     expect(text).toContain("强于 79%");
     expect(text).not.toContain("强于 30%");
     expect(text).not.toMatch(/一买|二买|RPS|未达标/);
@@ -32,6 +32,7 @@ describe("tv alert copy", () => {
     const svg = signalCardSvg(
       buildAlertView({ event: "buy", symbol: "NVDA", tf: "240", kind: 1, price: 178.4, atr: 4.2, stopMult: 4 }, "4H", 79),
     );
+    expect(svg).toContain("TREND-ADAPTIVE");
     expect(svg).toContain("NVDA");
     expect(svg).toContain("买点");
     expect(svg).toContain("强于 79%");
@@ -46,7 +47,7 @@ describe("tv alert copy", () => {
       "4H",
     );
     const text = JSON.stringify(msg);
-    expect(msg.content).toBe("🛑 **止损 · ADI** · 4H");
+    expect(msg.content).toBe("🛑 **TREND-ADAPTIVE 止损 · ADI** · 4H");
     expect(text).not.toMatch(/一买|二买/);
   });
 });

@@ -1,5 +1,6 @@
 import type { Timeframe } from "@/lib/backtest/engine";
 import { SMALL_FUND_DEFAULT_CONFIG } from "@/lib/backtest/smallFundUniverse";
+import { STRATEGY_NAME } from "./brand";
 import type { DiscordPayload } from "./sendWebhook";
 
 export function rpsMinOf(tf: Timeframe): number {
@@ -99,7 +100,7 @@ export function renderBuy(p: AlertPayload, label: string, rps: number): DiscordP
     });
   }
   return {
-    content: `🟢 **买点 · ${p.symbol}** · ${label}`,
+    content: `🟢 **${STRATEGY_NAME} 买点 · ${p.symbol}** · ${label}`,
     embeds: [{ color: 0x22c55e, fields }],
   };
 }
@@ -118,7 +119,7 @@ export function renderSell(p: AlertPayload, label: string): DiscordPayload {
   if (isNum(p.pnl)) fields.push({ name: "盈亏", value: `\`${signed(p.pnl)}\``, inline: true });
 
   return {
-    content: `${head.icon} **${head.title} · ${p.symbol}** · ${label}`,
+    content: `${head.icon} **${STRATEGY_NAME} ${head.title} · ${p.symbol}** · ${label}`,
     embeds: [
       {
         color: head.color,

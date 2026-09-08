@@ -1,3 +1,4 @@
+import { STRATEGY_NAME, STRATEGY_TAGLINE } from "./brand";
 import { FONT, MONO, T, esc, hudBackdrop, hudHeader, svgToPng } from "./terminalTheme";
 import { strengthLabel, type AlertView } from "./tvAlertCopy";
 
@@ -81,7 +82,7 @@ export function signalCardSvg(view: AlertView): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg width="${WIDTH}" height="${height}" viewBox="0 0 ${WIDTH} ${height}" xmlns="http://www.w3.org/2000/svg">
   ${hudBackdrop(WIDTH, height, accent)}
-  ${hudHeader(WIDTH, "ALPHA", `SIGNAL · ${view.tfLabel}`, view.code, accent)}
+  ${hudHeader(WIDTH, STRATEGY_NAME, `${STRATEGY_TAGLINE} · ${view.tfLabel}`, view.code, accent)}
   <rect x="28" y="66" width="56" height="22" rx="2" fill="${accent}"/>
   <text x="56" y="82" font-size="12" font-weight="bold" fill="${T.bg}" text-anchor="middle" font-family="${MONO}">${esc(view.code)}</text>
   <text x="94" y="82" font-size="16" fill="${T.text}" font-family="${FONT}">${esc(view.title)}</text>

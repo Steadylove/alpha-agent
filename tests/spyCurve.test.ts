@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { DayBook, YearRow, YearToDate } from "@/lib/backtest/engine";
-import { loadQqqCloses, overlaySpyCurve } from "@/lib/backtest/spyCurve";
+import { benchmarkReturnPct, loadQqqCloses, overlaySpyCurve } from "@/lib/backtest/spyCurve";
 
 const day = (date: string, extras: Partial<DayBook> = {}): DayBook => ({
   date,
@@ -13,6 +13,17 @@ const day = (date: string, extras: Partial<DayBook> = {}): DayBook => ({
   buys: [],
   sells: [],
   ...extras,
+});
+
+describe("benchmarkReturnPct", () => {
+  it("用窗口前一交易日到截止日算买入持有", () => {
+    const closes = new Map([
+      ["2025-12-31", 100],
+      ["2026-01-02", 110],
+      ["2026-09-04", 123.8],
+    ]);
+    expect(benchmarkReturnPct(closes, "2026-01-01", "2026-09-04T17:30")).toBeCloseTo(23.8, 5);
+  });
 });
 
 describe("overlaySpyCurve", () => {

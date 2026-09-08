@@ -1,5 +1,6 @@
 import { ImageResponse } from "next/og";
 
+import { STRATEGY_NAME, STRATEGY_TAGLINE } from "./brand";
 import { loadOgFonts, OG_FONT } from "./ogFont";
 import { strengthLabel, type AlertView } from "./tvAlertCopy";
 
@@ -81,8 +82,8 @@ function SignalCard({ view }: { view: AlertView }) {
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center" }}>
-          <div style={{ display: "flex", color: T.cyan, fontSize: 13, marginRight: 16 }}>ALPHA</div>
-          <div style={{ display: "flex", fontSize: 16, fontWeight: 700 }}>{`SIGNAL · ${view.tfLabel}`}</div>
+          <div style={{ display: "flex", color: T.cyan, fontSize: 13, marginRight: 16 }}>{STRATEGY_NAME}</div>
+          <div style={{ display: "flex", fontSize: 16, fontWeight: 700 }}>{`${STRATEGY_TAGLINE} · ${view.tfLabel}`}</div>
         </div>
         <div style={{ display: "flex", fontSize: 22, fontWeight: 700 }}>{view.symbol}</div>
       </div>
@@ -152,7 +153,7 @@ function SignalCard({ view }: { view: AlertView }) {
 function signalText(view: AlertView): string {
   const fields = fieldsOf(view, ACCENT[view.tone]);
   return [
-    "ALPHA SIGNAL 买点 卖点 止盈 止损 信号价 参考止损 开仓价 强度 盈亏 相对大池 强于 触发 收盘跌破生效止损",
+    `${STRATEGY_NAME} ${STRATEGY_TAGLINE} SIGNAL 买点 卖点 止盈 止损 信号价 参考止损 开仓价 强度 盈亏 相对大池 强于 触发 收盘跌破生效止损`,
     view.title,
     view.code,
     view.symbol,

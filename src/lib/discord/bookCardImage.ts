@@ -1,5 +1,6 @@
 import type { LookbackView } from "@/lib/fund/lookbackLogic";
 
+import { STRATEGY_NAME, STRATEGY_TAGLINE } from "./brand";
 import { bookPnlLabel, pnlLabel, winRateLabel, type BookRowView } from "./bookCopy";
 import { FONT, MONO, T, esc, hudBackdrop, hudHeader, metricTile, svgToPng } from "./terminalTheme";
 import { strengthLabel } from "./tvAlertCopy";
@@ -139,7 +140,7 @@ export function cashBookSvg(input: CashBookCardInput): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg width="${WIDTH}" height="${height}" viewBox="0 0 ${WIDTH} ${height}" xmlns="http://www.w3.org/2000/svg">
   ${hudBackdrop(WIDTH, height, T.cyan)}
-  ${hudHeader(WIDTH, "ALPHA", `BOOK · ${input.label}`, subtitle, T.cyan)}
+  ${hudHeader(WIDTH, STRATEGY_NAME, STRATEGY_TAGLINE, subtitle, T.cyan)}
   <text x="${COL.rank}" y="88" font-size="12" fill="${T.muted}" text-anchor="middle" font-family="${FONT}">#</text>
   <text x="${COL.symbol}" y="88" font-size="12" fill="${T.muted}" font-family="${FONT}">代码</text>
   <text x="${COL.pnl}" y="88" font-size="12" fill="${T.muted}" text-anchor="end" font-family="${FONT}">盈亏</text>

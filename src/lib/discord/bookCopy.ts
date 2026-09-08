@@ -8,6 +8,7 @@ export type BookRowView = {
   weightPct: number;
   /** 该股相对大池的分位；未排名为 null */
   rps: number | null;
+  entryDate?: string | null;
 };
 
 const signed = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
@@ -23,6 +24,26 @@ export function pnlLabel(pct: number): string {
 
 export function winRateLabel(pct: number | null | undefined): string {
   return pct == null ? "—" : `${pct.toFixed(0)}%`;
+}
+
+/** 开仓日到记账截止日的日历天数。 */
+export function daysOpenOf(entryDate: string | null | undefined, asOf: string): number | null {
+  if (!entryDate) return null;
+  const a = Date.parse(`${entryDate.slice(0, 10)}T00:00:00Z`);
+  const b = Date.parse(`${asOf.slice(0, 10)}T00:00:00Z`);
+  if (!Number.isFinite(a) || !Number.isFinite(b) || b < a) return null;
+  return Math.round((b - a) / 86_400_000);
+}
+
+export function daysOpenLabel(days: number | null): string {
+  return days == null ? "—" : `${days}天`;
+}
+
+/** 把净值序列抽成火花图用的点。 */
+export function sparklineValues(values: readonly number[], n = 40): number[] {
+  if (values.length === 0) return [];
+  if (values.length <= n) return [...values];
+  return Array.from({ length: n }, (_, i) => values[Math.round((i / (n - 1)) * (values.length - 1))] ?? values[0]);
 }
 
 /** 年末净值作基数；窗口从年中起步则相对 1。 */
@@ -56,6 +77,10 @@ export type CashBookView = {
   avgHoldings?: number;
   avgExposure?: number;
   winRatePct?: number | null;
+  /** 净值曲线，给卡片火花图 */
+  curve?: readonly number[];
+  /** 同窗口相对 QQQ 超额，百分点 */
+  vsQqqPct?: number | null;
 };
 
 export function renderCashBook(input: CashBookView): DiscordPayload {

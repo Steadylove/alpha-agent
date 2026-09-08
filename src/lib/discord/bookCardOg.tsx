@@ -1,25 +1,27 @@
 import { ImageResponse } from "next/og";
 
-import { bookPnlLabel, pnlLabel, winRateLabel, type CashBookView } from "./bookCopy";
+import { STRATEGY_NAME, STRATEGY_TAGLINE, STRATEGY_TITLE } from "./brand";
+import { bookPnlLabel, daysOpenLabel, daysOpenOf, pnlLabel, winRateLabel, type CashBookView } from "./bookCopy";
 import { loadOgFonts, OG_FONT } from "./ogFont";
-import { strengthLabel } from "./tvAlertCopy";
 
 const S = 1;
 const px = (n: number) => n * S;
 const WIDTH = px(960);
-const ROW_H = px(52);
-const HEADER_H = px(156);
-const FOOTER_H = px(80);
+const ROW_H = px(44);
+const HEADER_H = px(214);
+const FOOTER_H = px(72);
 const T = {
-  bg: "#070B12",
-  panel: "#0E1522",
-  line: "#1C2740",
-  text: "#F1F5F9",
-  muted: "#6B7A90",
-  dim: "#9AA8BC",
-  buy: "#3DDC97",
-  stop: "#FF5C7A",
-  cyan: "#5CE1E6",
+  bg: "#0B1015",
+  panel: "#121820",
+  box: "#10161D",
+  line: "#243042",
+  text: "#F4F7FB",
+  muted: "#8B9BB0",
+  dim: "#A8B4C4",
+  buy: "#4ADE80",
+  stop: "#F87171",
+  cyan: "#7DD3FC",
+  gold: "#E4B86A",
 };
 
 function signed(v: number): string {
@@ -30,33 +32,34 @@ function fmtAsOf(s: string): string {
   return s.replace("T", " ").slice(0, 16);
 }
 
-function rowStrength(rps: number | null): string {
-  return rps != null && rps >= 1 ? strengthLabel(rps) : "—";
+function sparkPath(values: readonly number[], w: number, h: number): string {
+  if (values.length < 2) return "";
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+  return values
+    .map((v, i) => {
+      const x = (i / (values.length - 1)) * w;
+      const y = h - ((v - min) / span) * (h - 2) - 1;
+      return `${i === 0 ? "M" : "L"}${x.toFixed(1)} ${y.toFixed(1)}`;
+    })
+    .join(" ");
 }
 
 function bookText(input: CashBookView): string {
   return [
-    "ALPHA BOOK 现金账本 记账自 截至 代码 盈亏 开仓 仓位 强度 空仓 当前没有持仓 累计 回撤 均持 敞口 胜率 现金 持仓 只 强于 YTD",
+    `${STRATEGY_TITLE} 现金账本 更新 Cumulative P&L Year-to-Date Return Max Drawdown vs QQQ Win Rate 胜率 持仓天数 代码 仓位 开仓价格 盈亏比例 EXPOSURE 敞口 Cash 现金 空仓 当前没有持仓`,
     input.label,
     input.since,
     fmtAsOf(input.asOf),
-    ...input.rows.flatMap((row) => [row.symbol, signed(row.floatPnlPct), row.entryPrice.toFixed(2), `${row.weightPct.toFixed(1)}%`, rowStrength(row.rps)]),
+    ...input.rows.flatMap((row) => [
+      row.symbol,
+      signed(row.floatPnlPct),
+      `$${row.entryPrice.toFixed(2)}`,
+      `${row.weightPct.toFixed(1)}%`,
+      daysOpenLabel(daysOpenOf(row.entryDate, input.asOf)),
+    ]),
   ].join(" ");
-}
-
-function Chip({ label, value, color, last }: { label: string; value: string; color: string; last?: boolean }) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        marginRight: last ? 0 : px(28),
-      }}
-    >
-      <div style={{ display: "flex", color: T.muted, fontSize: px(12), letterSpacing: 1 }}>{label}</div>
-      <div style={{ display: "flex", color, fontSize: px(22), fontWeight: 700, marginTop: px(6) }}>{value}</div>
-    </div>
-  );
 }
 
 function Col({
@@ -78,11 +81,11 @@ function Col({
     <div
       style={{
         display: "flex",
-        width: `${(grow / 5.85) * 100}%`,
+        width: `${(grow / 5.9) * 100}%`,
         flexGrow: 0,
         flexShrink: 0,
         color: color ?? T.text,
-        fontSize: px(size ?? 16),
+        fontSize: px(size ?? 15),
         fontWeight: bold ? 700 : 400,
         justifyContent: end ? "flex-end" : "flex-start",
         alignItems: "center",
@@ -93,26 +96,26 @@ function Col({
   );
 }
 
+function Kpi({ label, value, color }: { label: string; value: string; color: string }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", marginLeft: px(14) }}>
+      <div style={{ display: "flex", color: T.muted, fontSize: px(10) }}>{label}</div>
+      <div style={{ display: "flex", color, fontSize: px(18), fontWeight: 700, marginTop: px(4) }}>{value}</div>
+    </div>
+  );
+}
+
 function BookCard({ input }: { input: CashBookView }) {
   const cashPct = Math.max(0, 100 - input.exposurePct);
-  const exposure = input.avgExposure ?? input.exposurePct;
   const equityLabel = input.equity != null ? bookPnlLabel(input.equity) : "—";
-  const equityColor = input.equity == null ? T.text : input.equity >= 1 ? T.buy : T.stop;
-  const chips = [
-    ...(input.dd != null ? [{ label: "回撤", value: `${input.dd.toFixed(0)}%`, color: T.stop }] : []),
-    ...(input.mar != null ? [{ label: "MAR", value: input.mar.toFixed(2), color: T.text }] : []),
-    ...(input.winRatePct !== undefined ? [{ label: "胜率", value: winRateLabel(input.winRatePct), color: T.text }] : []),
-    ...(input.avgHoldings != null ? [{ label: "均持", value: input.avgHoldings.toFixed(1), color: T.text }] : []),
-    ...(input.ytdPct != null
-      ? [
-          {
-            label: input.ytdYear != null ? `${input.ytdYear} YTD` : "YTD",
-            value: pnlLabel(input.ytdPct),
-            color: input.ytdPct >= 0 ? T.buy : T.stop,
-          },
-        ]
-      : []),
-  ];
+  const equityColor = input.equity == null ? T.text : input.equity >= 1 ? T.cyan : T.stop;
+  const ytdLabel = input.ytdPct != null ? pnlLabel(input.ytdPct) : "—";
+  const ytdColor = input.ytdPct == null ? T.text : input.ytdPct >= 0 ? T.buy : T.stop;
+  const ddLabel = input.dd != null ? `${input.dd.toFixed(0)}%` : "—";
+  const vsLabel = input.vsQqqPct == null ? "—" : pnlLabel(input.vsQqqPct);
+  const vsColor = input.vsQqqPct == null ? T.text : input.vsQqqPct >= 0 ? T.buy : T.stop;
+  const winLabel = input.winRatePct === undefined ? null : winRateLabel(input.winRatePct);
+  const path = sparkPath(input.curve ?? [], 88, 36);
 
   return (
     <div
@@ -126,50 +129,61 @@ function BookCard({ input }: { input: CashBookView }) {
         fontFamily: OG_FONT,
       }}
     >
-      <div style={{ display: "flex", width: "100%", height: px(4), background: T.cyan }} />
       <div
         style={{
           display: "flex",
           flexDirection: "column",
           width: "100%",
-          padding: `${px(22)}px ${px(32)}px ${px(24)}px`,
+          padding: `${px(22)}px ${px(28)}px ${px(18)}px`,
           flexGrow: 1,
         }}
       >
         <div style={{ display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ display: "flex", alignItems: "center" }}>
-            <div style={{ display: "flex", color: T.cyan, fontSize: px(16), letterSpacing: 2, marginRight: px(12), fontWeight: 700 }}>
-              ALPHA
-            </div>
-            <div style={{ display: "flex", fontSize: px(16), fontWeight: 700 }}>{`${input.label} 现金账本`}</div>
+            <div style={{ display: "flex", color: T.text, fontSize: px(18), fontWeight: 700 }}>{STRATEGY_NAME}</div>
+            <div style={{ display: "flex", color: T.muted, fontSize: px(18), marginLeft: px(8), marginRight: px(8) }}>|</div>
+            <div style={{ display: "flex", color: T.dim, fontSize: px(16) }}>{STRATEGY_TAGLINE}</div>
           </div>
           <div style={{ display: "flex", color: T.muted, fontSize: px(13) }}>
-            {`记账 ${input.since.slice(0, 10)}  →  ${fmtAsOf(input.asOf)}`}
+            {`${input.since.slice(0, 10)}  →  ${fmtAsOf(input.asOf)} 更新`}
           </div>
         </div>
 
-        <div style={{ display: "flex", width: "100%", alignItems: "flex-end", marginTop: px(22), marginBottom: px(8) }}>
-          <div style={{ display: "flex", flexDirection: "column", marginRight: px(40) }}>
-            <div style={{ display: "flex", color: T.muted, fontSize: px(12), letterSpacing: 2 }}>累计</div>
-            <div style={{ display: "flex", color: equityColor, fontSize: px(36), fontWeight: 700, lineHeight: 1, marginTop: px(4) }}>
-              {equityLabel}
-            </div>
+        <div
+          style={{
+            display: "flex",
+            width: "100%",
+            alignItems: "center",
+            marginTop: px(16),
+            padding: `${px(12)}px ${px(16)}px`,
+            background: T.box,
+            border: `1px solid ${T.line}`,
+          }}
+        >
+          <div style={{ display: "flex", width: px(96), height: px(40), alignItems: "center" }}>
+            {path ? (
+              <svg width={88} height={36} viewBox="0 0 88 36">
+                <path d={path} stroke={T.cyan} strokeWidth="2" fill="none" />
+              </svg>
+            ) : (
+              <div style={{ display: "flex", width: px(88), height: px(2), background: T.line }} />
+            )}
           </div>
-          <div style={{ display: "flex", alignItems: "flex-end", paddingBottom: px(6) }}>
-            {chips.map((chip, i) => (
-              <Chip key={chip.label} {...chip} last={i === chips.length - 1} />
-            ))}
-          </div>
+          <Kpi label="Cumulative P&L" value={equityLabel} color={equityColor} />
+          <Kpi label="Year-to-Date Return" value={ytdLabel} color={ytdColor} />
+          <Kpi label="Max Drawdown" value={ddLabel} color={T.stop} />
+          <Kpi label="Win Rate" value={winLabel ?? "—"} color={T.text} />
+          <Kpi label={`${STRATEGY_NAME} vs. QQQ`} value={vsLabel} color={vsColor} />
         </div>
 
-        <div style={{ display: "flex", width: "100%", height: px(1), background: T.line, marginTop: px(10), marginBottom: px(8) }} />
-        <div style={{ display: "flex", width: "100%", color: T.muted, fontSize: px(12), letterSpacing: 1, paddingLeft: px(4), paddingRight: px(4) }}>
-          <Col grow={0.45} color={T.muted} size={12}>#</Col>
-          <Col grow={1.2} color={T.muted} size={12}>代码</Col>
-          <Col grow={1} color={T.muted} size={12} end>盈亏</Col>
-          <Col grow={1} color={T.muted} size={12} end>开仓</Col>
+        <div style={{ display: "flex", width: "100%", height: px(1), background: T.line, marginTop: px(16), marginBottom: px(8) }} />
+        <div style={{ display: "flex", width: "100%", color: T.muted, fontSize: px(12), paddingLeft: px(4), paddingRight: px(4) }}>
+          <Col grow={0.4} color={T.muted} size={12}>#</Col>
+          <Col grow={1.0} color={T.muted} size={12}>代码</Col>
+          <Col grow={1.1} color={T.muted} size={12}>持仓天数</Col>
           <Col grow={0.9} color={T.muted} size={12} end>仓位</Col>
-          <Col grow={1.3} color={T.muted} size={12} end>强度</Col>
+          <Col grow={1.3} color={T.muted} size={12} end>开仓价格</Col>
+          <Col grow={1.2} color={T.muted} size={12} end>盈亏比例</Col>
         </div>
         <div style={{ display: "flex", width: "100%", height: px(1), background: T.line, marginTop: px(8) }} />
 
@@ -201,33 +215,31 @@ function BookCard({ input }: { input: CashBookView }) {
                   paddingRight: px(4),
                 }}
               >
-                <Col grow={0.45} color={T.muted} size={13}>{String(i + 1).padStart(2, "0")}</Col>
-                <Col grow={1.2} bold>{row.symbol}</Col>
-                <Col grow={1} end bold color={row.floatPnlPct >= 0 ? T.buy : T.stop}>{signed(row.floatPnlPct)}</Col>
-                <Col grow={1} end color={T.dim}>{row.entryPrice.toFixed(2)}</Col>
+                <Col grow={0.4} color={T.muted} size={13}>{String(i + 1)}</Col>
+                <Col grow={1.0} bold>{row.symbol}</Col>
+                <Col grow={1.1} color={T.dim} size={14}>{daysOpenLabel(daysOpenOf(row.entryDate, input.asOf))}</Col>
                 <Col grow={0.9} end color={T.dim}>{`${row.weightPct.toFixed(1)}%`}</Col>
-                <Col grow={1.3} end color={T.cyan}>{rowStrength(row.rps)}</Col>
+                <Col grow={1.3} end color={T.dim}>{`$${row.entryPrice.toFixed(2)}`}</Col>
+                <Col grow={1.2} end bold color={row.floatPnlPct >= 0 ? T.buy : T.stop}>{signed(row.floatPnlPct)}</Col>
               </div>
             ))
           )}
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", width: "100%", marginTop: px(18) }}>
-          <div style={{ display: "flex", width: "100%", justifyContent: "space-between", marginBottom: px(8) }}>
-            <div style={{ display: "flex", color: T.muted, fontSize: px(12) }}>{`敞口 ${exposure.toFixed(0)}%`}</div>
-            <div style={{ display: "flex", color: T.muted, fontSize: px(12) }}>
-              {`现金 ${cashPct.toFixed(0)}%   ·   当天敞口 ${input.exposurePct.toFixed(0)}%   ·   持仓 ${input.rows.length} 只`}
+        <div style={{ display: "flex", width: "100%", justifyContent: "space-between", marginTop: px(18), alignItems: "center" }}>
+          <div style={{ display: "flex", alignItems: "center" }}>
+            <div style={{ display: "flex", color: T.cyan, fontSize: px(13), letterSpacing: 1 }}>EXPOSURE</div>
+            <div style={{ display: "flex", color: T.muted, fontSize: px(13), marginLeft: px(6) }}>(敞口)</div>
+            <div style={{ display: "flex", color: T.cyan, fontSize: px(16), fontWeight: 700, marginLeft: px(10) }}>
+              {`${input.exposurePct.toFixed(0)}%`}
             </div>
           </div>
-          <div style={{ display: "flex", width: "100%", height: px(8), background: T.panel }}>
-            <div
-              style={{
-                display: "flex",
-                width: `${Math.max(0, Math.min(100, exposure))}%`,
-                height: px(8),
-                background: T.cyan,
-              }}
-            />
+          <div style={{ display: "flex", alignItems: "center" }}>
+            <div style={{ display: "flex", color: T.gold, fontSize: px(13), letterSpacing: 1 }}>Cash</div>
+            <div style={{ display: "flex", color: T.muted, fontSize: px(13), marginLeft: px(6) }}>(现金)</div>
+            <div style={{ display: "flex", color: T.gold, fontSize: px(16), fontWeight: 700, marginLeft: px(10) }}>
+              {`${cashPct.toFixed(0)}%`}
+            </div>
           </div>
         </div>
       </div>

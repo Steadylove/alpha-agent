@@ -1,5 +1,5 @@
 import { cashBookSvg } from "@/lib/discord/bookCardImage";
-import { renderCashBook, ytdOfNav } from "@/lib/discord/bookCopy";
+import { daysOpenLabel, daysOpenOf, renderCashBook, sparklineValues, ytdOfNav } from "@/lib/discord/bookCopy";
 import { describe, expect, it } from "vitest";
 
 const sample = {
@@ -17,6 +17,21 @@ const sample = {
   winRatePct: 53,
   rows: [{ symbol: "NVDA", floatPnlPct: 6.2, entryPrice: 170, weightPct: 12.5, rps: 79 }],
 };
+
+describe("days open", () => {
+  it("按日历日算持仓天数", () => {
+    expect(daysOpenOf("2026-08-14", "2026-09-04T17:30")).toBe(21);
+    expect(daysOpenLabel(21)).toBe("21天");
+    expect(daysOpenOf(null, "2026-09-04")).toBeNull();
+  });
+});
+
+describe("sparkline", () => {
+  it("过长序列抽成固定点数", () => {
+    expect(sparklineValues([1, 2, 3], 8)).toEqual([1, 2, 3]);
+    expect(sparklineValues([1, 2, 3, 4, 5], 3)).toEqual([1, 3, 5]);
+  });
+});
 
 describe("ytd of nav", () => {
   it("有去年收盘就用它当基数", () => {

@@ -124,6 +124,21 @@ function lastWhere<T>(items: readonly T[], pred: (item: T) => boolean): T | unde
   }
 }
 
+/** 窗口首日前一交易日到截止日的买入持有收益，百分点。 */
+export function benchmarkReturnPct(closes: Map<string, number>, from: string, to: string): number | null {
+  if (closes.size === 0) return null;
+  const fromDay = from.slice(0, 10);
+  const toDay = to.slice(0, 10);
+  const dates = [...closes.keys()].sort();
+  const startDate = lastWhere(dates, (d) => d < fromDay) ?? dates.find((d) => d >= fromDay);
+  const endDate = lastWhere(dates, (d) => d <= toDay);
+  if (!startDate || !endDate) return null;
+  const start = closes.get(startDate);
+  const end = closes.get(endDate);
+  if (!start || !end || start <= 0) return null;
+  return (end / start - 1) * 100;
+}
+
 /**
  * 把外部基准买入持有叠到已有账本上（Small Fund=QQQ，其他=SPY）。
  * 净值以窗口首日前一交易日收盘为 1，分年 / YTD 和策略「含首日涨跌」口径一致。

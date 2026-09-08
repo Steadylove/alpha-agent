@@ -19,6 +19,7 @@ import {
   rpsMinOf,
   type AlertPayload,
 } from "@/lib/discord/tvAlertCopy";
+import { STRATEGY_NAME } from "@/lib/discord/brand";
 import { postDiscordImage } from "@/lib/discord/sendWebhook";
 
 function tfLabel(period: string): string {
@@ -69,7 +70,7 @@ export async function POST(request: Request) {
     await postDiscordImage(webhookUrl, {
       filename: `signal-${payload.symbol}.png`,
       bytes: await renderSignalOgPng(view),
-      content: `**${view.title} · ${payload.symbol}** · ${label}`,
+      content: `**${STRATEGY_NAME} ${view.title} · ${payload.symbol}** · ${label}`,
     });
     return NextResponse.json({ ok: true, forwarded: true });
   }
@@ -97,7 +98,7 @@ export async function POST(request: Request) {
   await postDiscordImage(webhookUrl, {
     filename: `signal-${payload.symbol}.png`,
     bytes: await renderSignalOgPng(view),
-    content: `**${view.title} · ${payload.symbol}** · ${label}`,
+    content: `**${STRATEGY_NAME} ${view.title} · ${payload.symbol}** · ${label}`,
   });
   return NextResponse.json({ ok: true, forwarded: true, gate: "pass", rps, lookupError });
 }

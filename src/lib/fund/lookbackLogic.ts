@@ -19,6 +19,7 @@ export type LookbackRow = {
   entryPrice: number;
   weightPct: number;
   rps: number | null;
+  entryDate?: string | null;
 };
 
 export type LookbackPoint = {
@@ -79,6 +80,7 @@ function toRow(h: HoldingRow): LookbackRow {
     entryPrice: h.entryPrice,
     weightPct: h.weightPct,
     rps: h.rps ?? h.entryRps,
+    entryDate: h.entryDate,
   };
 }
 

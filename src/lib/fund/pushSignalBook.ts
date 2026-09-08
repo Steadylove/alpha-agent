@@ -1,12 +1,15 @@
 import { getPreparedUniverse } from "@/lib/backtest/load";
+import { loadMarketPanel } from "@/lib/backtest/marketRemote";
+import { benchmarkReturnPct } from "@/lib/backtest/spyCurve";
 import { readBookEpoch } from "@/lib/fund/bookEpoch";
 import { champOf, type Champ } from "@/lib/fund/champs";
 import { runLookback } from "@/lib/fund/lookback";
-import { DEFAULT_LOOKBACK_SLOTS, winRatePctOf, type LookbackTf } from "@/lib/fund/lookbackLogic";
+import { dailyCurve, DEFAULT_LOOKBACK_SLOTS, winRatePctOf, type LookbackTf } from "@/lib/fund/lookbackLogic";
 import { readLookbackSnapshots } from "@/lib/fund/lookbackSnapshots";
 import { runRotate } from "@/lib/fund/rotate";
 import { clipUniverseToSignalPool } from "@/lib/fund/signalPool";
-import { ytdOfNav, type CashBookView } from "@/lib/discord/bookCopy";
+import { STRATEGY_TITLE } from "@/lib/discord/brand";
+import { sparklineValues, ytdOfNav, type CashBookView } from "@/lib/discord/bookCopy";
 
 const BOOKS = ["4h", "2h-broad"] as const;
 
@@ -27,10 +30,26 @@ export type PushSignalBookResult = {
 };
 
 export function bookCaption(name: string, test: boolean): string {
-  return test ? `📒 **${name} 现金账本**（测试）` : `📒 **${name} 现金账本**`;
+  return test ? `📒 **${STRATEGY_TITLE} · ${name} 现金账本**（测试）` : `📒 **${STRATEGY_TITLE} · ${name} 现金账本**`;
 }
 
-function liveCard(champ: Champ, since: string, last: { date: string; rows: CashBookView["rows"] }, lastBook: { strategy: number; exposurePct: number }, raw: { dd: number; mar: number; avgHoldings: number; avgExposure: number; lotPnl: { pct: number }[] }, ytd: { pct: number; year: number } | null, test: boolean): BuiltBook {
+function liveCard(
+  champ: Champ,
+  since: string,
+  last: { date: string; rows: CashBookView["rows"] },
+  lastBook: { strategy: number; exposurePct: number },
+  raw: {
+    dd: number;
+    mar: number;
+    avgHoldings: number;
+    avgExposure: number;
+    lotPnl: { pct: number }[];
+    book: Parameters<typeof dailyCurve>[0];
+  },
+  ytd: { pct: number; year: number } | null,
+  vsQqqPct: number | null,
+  test: boolean,
+): BuiltBook {
   return {
     filename: `book-${champ.id}.png`,
     content: bookCaption(champ.name, test),
@@ -49,8 +68,23 @@ function liveCard(champ: Champ, since: string, last: { date: string; rows: CashB
       avgHoldings: raw.avgHoldings,
       avgExposure: raw.avgExposure,
       winRatePct: winRatePctOf(raw.lotPnl.map((x) => x.pct)),
+      curve: sparklineValues(dailyCurve(raw.book).map((p) => p.equity)),
+      vsQqqPct,
     },
   };
+}
+
+async function vsQqqOf(equity: number, since: string, asOf: string): Promise<number | null> {
+  const panel = await loadMarketPanel("1d", "QQQ");
+  if (!panel) return null;
+  const closes = new Map<string, number>();
+  for (let i = 0; i < panel.dates.length; i += 1) {
+    const px = panel.close[i];
+    if (px > 0) closes.set(panel.dates[i], px);
+  }
+  const qqq = benchmarkReturnPct(closes, since, asOf);
+  if (qqq == null) return null;
+  return (equity - 1) * 100 - qqq;
 }
 
 async function buildLive(champ: Champ, test: boolean): Promise<BuiltBook> {
@@ -79,11 +113,13 @@ async function buildLive(champ: Champ, test: boolean): Promise<BuiltBook> {
         entryPrice: h.entryPrice,
         weightPct: h.weightPct,
         rps: h.rps ?? h.entryRps,
+        entryDate: h.entryDate,
       })),
     },
     lastBook,
     raw,
     ytd,
+    await vsQqqOf(lastBook.strategy, since, last.date),
     test,
   );
 }
@@ -117,6 +153,8 @@ async function buildLookback(tf: LookbackTf, test: boolean): Promise<BuiltBook> 
       avgHoldings: s.avgHoldings,
       avgExposure: s.avgExposure,
       winRatePct: s.winRatePct,
+      curve: sparklineValues(view.curve.map((p) => p.equity)),
+      vsQqqPct: await vsQqqOf(view.equity, view.since, view.asOf),
     },
   };
 }

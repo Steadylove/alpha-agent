@@ -67,7 +67,7 @@ describe("lookback", () => {
         date: "2026-01-02",
         equity: 1.02,
         exposurePct: 50,
-        rows: [{ symbol: "AAPL", floatPnlPct: 1, entryPrice: 10, weightPct: 12.5, rps: 70 }],
+        rows: [{ symbol: "AAPL", floatPnlPct: 1, entryPrice: 10, weightPct: 12.5, rps: 70, entryDate: "2026-01-02" }],
         buys: [],
         sells: [],
         misses: [],
@@ -102,7 +102,7 @@ describe("lookback", () => {
     expect(view.asOf).toBe("2026-01-05T17:30");
     expect(view.pnl).toBe("+20.0%");
     expect(view.rows).toEqual([
-      { symbol: "NVDA", floatPnlPct: 10, entryPrice: 100, weightPct: 12.5, rps: 82 },
+      { symbol: "NVDA", floatPnlPct: 10, entryPrice: 100, weightPct: 12.5, rps: 82, entryDate: "2026-01-02" },
     ]);
     expect(view.stats.ytdYear).toBe(2026);
     expect(view.stats.ytdPct).toBeCloseTo(20);
