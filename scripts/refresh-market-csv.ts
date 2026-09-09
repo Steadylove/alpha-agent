@@ -14,6 +14,7 @@ import {
 } from "@/lib/backtest/csvPanel";
 import { marketDataRoot, rpsScaleFile, writeManifest } from "@/lib/backtest/marketStore";
 import type { RpsScaleFile } from "@/lib/backtest/rpsScale";
+import { assertFourHourShape } from "@/lib/backtest/intradayShape";
 import { lastSettledSession, mergeNewBars, type OhlcvBar } from "@/lib/backtest/mergeBars";
 import type { PanelBars } from "@/lib/backtest/panel";
 import { tickersForPool } from "@/lib/backtest/smallFundPools";
@@ -172,6 +173,7 @@ async function refreshTf(
       const raw = await fetchIntraday(ticker, fromIso);
       const incoming = aggregate(raw);
       const merged = mergeNewBars(existing ? toBars(existing) : [], incoming, until);
+      if (label === "4h") assertFourHourShape([{ ticker, dates: merged.map((b) => b.date) }]);
       if (!existing || merged.length !== existing.dates.length) {
         writeBars(dir, ticker, merged);
         updated += 1;

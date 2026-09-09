@@ -18,6 +18,7 @@ import {
   snapshotSize,
   type PanelSnapshot,
 } from "./panelCache";
+import { assertFourHourShape } from "./intradayShape";
 import { readLiveBook } from "./liveBook";
 import {
   DEFAULT_SMALL_FUND_POOL,
@@ -183,6 +184,7 @@ async function loadSmallFundPanels(
     const label = timeframe === "1d" ? "CSV" : timeframe.toUpperCase();
     const csv = await readCsvForTimeframe(timeframe, wanted);
     if (coversPool(csv, wanted)) {
+      if (timeframe === "4h") assertFourHourShape(csv);
       console.log(`[smallfund] ${label} ${csv.length} 只  pool=${poolId}`);
       return csv;
     }
