@@ -11,7 +11,7 @@ import {
 
 const base = {
   members: ["NVDA", "AAPL"],
-  tf: "4h",
+  tf: "4h" as const,
   from: "2026-01-01",
   slots: 10,
   pnl: "+12.3%",
