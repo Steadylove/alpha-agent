@@ -15,6 +15,7 @@ export async function POST(request: Request) {
     const books = await buildSignalBooks({
       test: url.searchParams.get("test") === "1",
       lookback: url.searchParams.get("lookback") === "1",
+      fromCache: url.searchParams.get("lookback") !== "1",
     });
     const dest = new URL("/api/tv/render-book", url.origin);
     const sent: string[] = [];

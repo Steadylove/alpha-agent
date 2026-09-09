@@ -83,10 +83,15 @@ jobs:
             "$MARKET_DATA_DIR/" \
             "root@${HOST}:/var/lib/alpha-agent/market/"
 
-      # Vercel 读 VPS 文件。必须在行情写回之后。
+      - name: Compute 4H/2H cash books on VPS
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes "root@${HOST}" \
+            "docker exec alpha-book wget -qO- --post-data='' --timeout=600 http://127.0.0.1:8081/live-books"
+
+      # Vercel 读 VPS 缓存出图。必须在 VPS 算完之后。
       - name: Push 4H/2H cash books
         run: |
-          curl -fsS -m 280 -X POST \
+          curl -fsS -m 120 -X POST \
             "${BOOK_PUSH_URL:-https://alpha-agent-eight.vercel.app/api/jobs/push-signal-book}"
         env:
           BOOK_PUSH_URL: ${{ secrets.BOOK_PUSH_URL }}

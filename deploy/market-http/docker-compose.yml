@@ -12,6 +12,25 @@ services:
     command: ["node", "/app/desk-http.mjs"]
     expose:
       - "8080"
+  book:
+    image: node:22-alpine
+    container_name: alpha-book
+    restart: unless-stopped
+    mem_limit: 4g
+    volumes:
+      - /var/lib/alpha-agent/market:/market:ro
+      - /var/lib/alpha-agent/desk:/desk
+      - /var/lib/alpha-agent/market-http/compute.mjs:/app/compute.mjs:ro
+    environment:
+      MARKET_DATA_DIR: /market
+      BOOK_EPOCH_PATH: /desk/book-epoch.json
+      SIGNAL_POOL_PATH: /desk/signal-pool.json
+      LIVE_BOOKS_PATH: /desk/live-books.json
+      DESK_STORE_SECRET: ${DESK_STORE_SECRET:-}
+      NODE_OPTIONS: --max-old-space-size=3072
+    command: ["node", "/app/compute.mjs"]
+    expose:
+      - "8081"
   market:
     image: nginx:1.27-alpine
     container_name: alpha-market
@@ -19,6 +38,7 @@ services:
     mem_limit: 64m
     depends_on:
       - desk
+      - book
     ports:
       - "8787:80"
     volumes:

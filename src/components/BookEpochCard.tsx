@@ -53,7 +53,7 @@ export function BookEpochCard() {
       <Text size="sm" c="dimmed" mb="sm">
         现在记账自 {epoch?.from ?? "—"}
         {epoch?.resetAt ? ` · 上次重置 ${epoch.resetAt.slice(0, 16).replace("T", " ")}` : ""}
-        。实验室五年窗不动，只有推送到频道的账本从这天起步。
+        。实验室五年窗不动；当前应用和 Discord 现金账本都从这天空仓起步。
       </Text>
       {error ? (
         <Alert color="red" variant="light" mb="sm">

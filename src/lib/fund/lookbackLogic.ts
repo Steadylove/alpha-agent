@@ -53,6 +53,15 @@ export type LookbackMiss = {
   laterPct: number;
 };
 
+export type LookbackFill = {
+  date: string;
+  side: "buy" | "sell";
+  symbol: string;
+  price: number;
+  pnlPct?: number;
+  reason?: string;
+};
+
 export type LookbackView = {
   since: string;
   asOf: string;
@@ -61,6 +70,7 @@ export type LookbackView = {
   exposurePct: number;
   curve: LookbackPoint[];
   rows: LookbackRow[];
+  fills: LookbackFill[];
   stats: LookbackStats;
   misses: LookbackMiss[];
 };
@@ -108,6 +118,40 @@ export function dailyCurve(
   return [...last.values()];
 }
 
+/** 已平仓买卖 + 仍持有的开仓，按时间排。 */
+export function fillsOf(
+  trades: readonly {
+    symbol: string;
+    entryDate: string;
+    entryPrice: number;
+    exitDate: string;
+    exitPrice: number;
+    pnlPct: number;
+    exitReason: string;
+  }[],
+  open: readonly HoldingRow[],
+): LookbackFill[] {
+  const out: LookbackFill[] = [];
+  for (const t of trades) {
+    out.push({ date: t.entryDate, side: "buy", symbol: t.symbol, price: t.entryPrice });
+    out.push({
+      date: t.exitDate,
+      side: "sell",
+      symbol: t.symbol,
+      price: t.exitPrice,
+      pnlPct: t.pnlPct,
+      reason: t.exitReason,
+    });
+  }
+  for (const h of open) {
+    if (!h.entryDate) continue;
+    out.push({ date: h.entryDate, side: "buy", symbol: h.symbol, price: h.entryPrice });
+  }
+  return out.sort(
+    (a, b) => a.date.localeCompare(b.date) || a.symbol.localeCompare(b.symbol) || a.side.localeCompare(b.side),
+  );
+}
+
 /** 已平仓收益里赚的占比。空列表为 null。 */
 export function winRatePctOf(pnls: readonly number[]): number | null {
   if (pnls.length === 0) return null;
@@ -132,6 +176,15 @@ export function lookbackView(
     avgExposure?: number;
     tradesPerYear?: number;
     lotPnl?: readonly { pct: number }[];
+    trades?: readonly {
+      symbol: string;
+      entryDate: string;
+      entryPrice: number;
+      exitDate: string;
+      exitPrice: number;
+      pnlPct: number;
+      exitReason: string;
+    }[];
     missedBuys?: readonly { date: string; symbol: string; price: number }[];
     lastClose?: ReadonlyMap<string, number>;
   },
@@ -161,6 +214,7 @@ export function lookbackView(
     exposurePct: last?.exposurePct ?? lastBook?.exposurePct ?? 0,
     curve,
     rows: last?.rows ?? [],
+    fills: fillsOf(raw.trades ?? [], lastHold?.rows ?? []),
     stats: {
       cagr: raw.cagr ?? 0,
       dd: raw.dd ?? 0,

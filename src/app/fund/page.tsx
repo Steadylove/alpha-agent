@@ -8,7 +8,7 @@ export default function FundPage() {
       <div className="rise-in">
         <h1 className="text-3xl font-semibold tracking-tight text-zinc-50">资金账本</h1>
         <p className="mt-2 max-w-3xl text-sm leading-relaxed text-zinc-400">
-          记真实成交，按纪律出明日开盘清单。每笔投权益的 12.5%，现金不够就不开；满仓不置换。吊灯位从实际成交价逐根推出来，与回测同一份口径。
+          当前应用读日推算好的 4 小时和 2H 扩池账本，和 Discord 同一口径。改池、改起点或等下次行情日推才会更新；也可以手动重算。
         </p>
       </div>
       <FundWorkbench />

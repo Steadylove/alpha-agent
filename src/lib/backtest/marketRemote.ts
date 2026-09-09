@@ -3,7 +3,7 @@ import type { MarketTimeframe } from "./marketStore";
 import { csvDir, marketBaseUrl } from "./marketStore";
 import type { PanelBars } from "./panel";
 
-const CONCURRENCY = 8;
+const CONCURRENCY = 24;
 
 function urlOf(relPath: string): string {
   const base = marketBaseUrl();
@@ -45,12 +45,19 @@ export async function fetchRemoteCsvPanels(
   timeframe: MarketTimeframe,
   tickers: readonly string[],
 ): Promise<PanelBars[]> {
+  const started = Date.now();
   const out: PanelBars[] = [];
   for (let i = 0; i < tickers.length; i += CONCURRENCY) {
     const chunk = await Promise.all(
       tickers.slice(i, i + CONCURRENCY).map((ticker) => fetchRemoteCsvPanel(timeframe, ticker)),
     );
     for (const panel of chunk) if (panel) out.push(panel);
+    if (i === 0 || (i + CONCURRENCY) % 80 === 0 || i + CONCURRENCY >= tickers.length) {
+      console.info(
+        `[market] ${timeframe} ${Math.min(i + CONCURRENCY, tickers.length)}/${tickers.length} 只 ${Date.now() - started}ms`,
+      );
+    }
   }
+  console.info(`[market] ${timeframe} 拉完 ${out.length}/${tickers.length} 只 ${Date.now() - started}ms`);
   return out;
 }

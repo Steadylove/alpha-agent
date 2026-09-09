@@ -5,6 +5,7 @@ import {
   clampLookbackSlots,
   dailyCurve,
   DEFAULT_LOOKBACK_SLOTS,
+  fillsOf,
   goodMisses,
   lookbackView,
   winRatePctOf,
@@ -106,6 +107,42 @@ describe("lookback", () => {
     ]);
     expect(view.stats.ytdYear).toBe(2026);
     expect(view.stats.ytdPct).toBeCloseTo(20);
+    expect(view.fills).toEqual([
+      { date: "2026-01-02", side: "buy", symbol: "NVDA", price: 100 },
+    ]);
+  });
+
+  it("成交是已平仓买卖加上仍持有的开仓", () => {
+    expect(
+      fillsOf(
+        [
+          {
+            symbol: "AAPL",
+            entryDate: "2026-01-02T13:30",
+            entryPrice: 10,
+            exitDate: "2026-01-05T17:30",
+            exitPrice: 11,
+            pnlPct: 10,
+            exitReason: "stop",
+          },
+        ],
+        [
+          {
+            symbol: "NVDA",
+            weightPct: 10,
+            sigType: 1,
+            entryDate: "2026-01-08T15:30",
+            entryPrice: 100,
+            floatPnlPct: 2,
+            entryRps: 80,
+          },
+        ],
+      ),
+    ).toEqual([
+      { date: "2026-01-02T13:30", side: "buy", symbol: "AAPL", price: 10 },
+      { date: "2026-01-05T17:30", side: "sell", symbol: "AAPL", price: 11, pnlPct: 10, reason: "stop" },
+      { date: "2026-01-08T15:30", side: "buy", symbol: "NVDA", price: 100 },
+    ]);
   });
 
   it("同一天多根的买卖合成当日轮换", () => {

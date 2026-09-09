@@ -1,21 +1,22 @@
-import { getPreparedUniverse } from "@/lib/backtest/load";
 import { loadMarketPanel } from "@/lib/backtest/marketRemote";
 import { benchmarkReturnPct } from "@/lib/backtest/spyCurve";
 import { readBookEpoch } from "@/lib/fund/bookEpoch";
 import { champOf, type Champ } from "@/lib/fund/champs";
 import { runLookback } from "@/lib/fund/lookback";
-import { dailyCurve, DEFAULT_LOOKBACK_SLOTS, winRatePctOf, type LookbackTf } from "@/lib/fund/lookbackLogic";
+import { type LookbackTf, type LookbackView } from "@/lib/fund/lookbackLogic";
 import { readLookbackSnapshots } from "@/lib/fund/lookbackSnapshots";
-import { runRotate } from "@/lib/fund/rotate";
-import { clipUniverseToSignalPool } from "@/lib/fund/signalPool";
+import { peekLiveBooks, saveLiveBooks } from "@/lib/fund/liveBooks";
+import type { LiveBookOk } from "@/lib/fund/liveBooksLogic";
 import { STRATEGY_TITLE } from "@/lib/discord/brand";
-import { sparklineValues, ytdOfNav, type CashBookView } from "@/lib/discord/bookCopy";
+import { sparklineValues, type CashBookView } from "@/lib/discord/bookCopy";
 
 const BOOKS = ["4h", "2h-broad"] as const;
 
 export type PushSignalBookOpts = {
   test?: boolean;
   lookback?: boolean;
+  /** 有日推缓存就出图，不再拉全池重算。 */
+  fromCache?: boolean;
 };
 
 export type BuiltBook = {
@@ -35,43 +36,45 @@ export function bookCaption(name: string, test: boolean): string {
 
 function liveCard(
   champ: Champ,
-  since: string,
-  last: { date: string; rows: CashBookView["rows"] },
-  lastBook: { strategy: number; exposurePct: number },
-  raw: {
-    dd: number;
-    mar: number;
-    avgHoldings: number;
-    avgExposure: number;
-    lotPnl: { pct: number }[];
-    book: Parameters<typeof dailyCurve>[0];
-  },
-  ytd: { pct: number; year: number } | null,
+  view: LookbackView,
   vsQqqPct: number | null,
   test: boolean,
+  sparkline?: number[],
 ): BuiltBook {
+  const s = view.stats;
   return {
     filename: `book-${champ.id}.png`,
     content: bookCaption(champ.name, test),
-    summary: `${champ.name} 记账自 ${since.slice(0, 10)} 截至 ${last.date} ${last.rows.length}只`,
+    summary: `${champ.name} 记账自 ${view.since.slice(0, 10)} 截至 ${view.asOf} ${view.rows.length}只`,
     input: {
-      asOf: last.date,
-      since,
+      asOf: view.asOf,
+      since: view.since,
       label: champ.name,
-      rows: last.rows,
-      equity: lastBook.strategy,
-      ytdPct: ytd?.pct,
-      ytdYear: ytd?.year,
-      exposurePct: lastBook.exposurePct,
-      dd: raw.dd,
-      mar: raw.mar,
-      avgHoldings: raw.avgHoldings,
-      avgExposure: raw.avgExposure,
-      winRatePct: winRatePctOf(raw.lotPnl.map((x) => x.pct)),
-      curve: sparklineValues(dailyCurve(raw.book).map((p) => p.equity)),
+      rows: view.rows,
+      equity: view.equity,
+      ytdPct: s.ytdPct ?? undefined,
+      ytdYear: s.ytdYear ?? undefined,
+      exposurePct: view.exposurePct,
+      dd: s.dd,
+      mar: s.mar,
+      avgHoldings: s.avgHoldings,
+      avgExposure: s.avgExposure,
+      winRatePct: s.winRatePct,
+      curve: sparkline ?? sparklineValues(view.curve.map((p) => p.equity)),
       vsQqqPct,
     },
   };
+}
+
+async function builtFromCache(row: LiveBookOk, test: boolean): Promise<BuiltBook> {
+  const champ = champOf(row.tf === "2h" ? "2h-broad" : row.tf);
+  return liveCard(
+    champ,
+    row.view,
+    await vsQqqOf(row.view.equity, row.view.since, row.view.asOf),
+    test,
+    row.sparkline,
+  );
 }
 
 async function vsQqqOf(equity: number, since: string, asOf: string): Promise<number | null> {
@@ -87,41 +90,15 @@ async function vsQqqOf(equity: number, since: string, asOf: string): Promise<num
   return (equity - 1) * 100 - qqq;
 }
 
-async function buildLive(champ: Champ, test: boolean): Promise<BuiltBook> {
-  const uni = await clipUniverseToSignalPool(
-    await getPreparedUniverse("SMALLFUND", champ.config.timeframe, champ.poolId),
-  );
-  const to = uni.axis.at(-1) ?? champ.config.to;
+async function buildLive(champ: Champ, test: boolean): Promise<{ book: BuiltBook; view: LookbackView }> {
+  const tf: LookbackTf = champ.config.timeframe === "2h" ? "2h" : "4h";
   const since = (await readBookEpoch()).from;
-  const raw = runRotate(
-    uni,
-    { ...champ.config, from: since, to },
-    { ...champ.opts, slotPct: 1 / DEFAULT_LOOKBACK_SLOTS },
-  );
-  const last = raw.holdings.at(-1);
-  const lastBook = raw.book.at(-1);
-  if (!last || !lastBook) throw new Error(`${champ.id} 现金账本是空的`);
-  const ytd = ytdOfNav(raw.book.map((b) => ({ date: b.date, equity: b.strategy })));
-  return liveCard(
-    champ,
-    since,
-    {
-      date: last.date,
-      rows: last.rows.map((h) => ({
-        symbol: h.symbol,
-        floatPnlPct: h.floatPnlPct,
-        entryPrice: h.entryPrice,
-        weightPct: h.weightPct,
-        rps: h.rps ?? h.entryRps,
-        entryDate: h.entryDate,
-      })),
-    },
-    lastBook,
-    raw,
-    ytd,
-    await vsQqqOf(lastBook.strategy, since, last.date),
-    test,
-  );
+  const view = await runLookback(tf, since);
+  if (view.curve.length === 0) throw new Error(`${champ.id} 现金账本是空的`);
+  return {
+    view,
+    book: liveCard(champ, view, await vsQqqOf(view.equity, view.since, view.asOf), test),
+  };
 }
 
 async function buildLookback(tf: LookbackTf, test: boolean): Promise<BuiltBook> {
@@ -164,8 +141,27 @@ export async function buildSignalBooks(opts: PushSignalBookOpts = {}): Promise<B
   if (opts.lookback) {
     return [await buildLookback("4h", test), await buildLookback("2h", test)];
   }
+  if (opts.fromCache) {
+    const cached = await peekLiveBooks();
+    if (cached && !cached.stale && cached.books.length >= 2) {
+      console.info(`[live-books] 日推用缓存 ${cached.computedAt}`);
+      return Promise.all(cached.books.map((row) => builtFromCache(row, test)));
+    }
+    console.info("[live-books] 没有可用缓存，现场重算");
+  }
   const out: BuiltBook[] = [];
-  for (const id of BOOKS) out.push(await buildLive(champOf(id), test));
+  const live: { tf: LookbackTf; name: string; view: LookbackView }[] = [];
+  for (const id of BOOKS) {
+    const champ = champOf(id);
+    const built = await buildLive(champ, test);
+    out.push(built.book);
+    live.push({
+      tf: champ.config.timeframe === "2h" ? "2h" : "4h",
+      name: champ.name,
+      view: built.view,
+    });
+  }
+  await saveLiveBooks(live);
   return out;
 }
 

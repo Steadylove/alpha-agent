@@ -5,6 +5,11 @@ export function deskRemoteUrl(file: string): string | null {
   return base ? `${base}/desk/${file}` : null;
 }
 
+export function computeLiveBooksUrl(): string | null {
+  const base = marketBaseUrl();
+  return base ? `${base}/compute/live-books` : null;
+}
+
 function deskSecret(): string {
   return (process.env.DESK_STORE_SECRET || process.env.CRON_SECRET || "").trim();
 }
@@ -34,6 +39,18 @@ export async function readDeskJson(file: string): Promise<unknown> {
   } catch {
     return null;
   }
+}
+
+export async function postComputeLiveBooks(): Promise<unknown> {
+  const url = computeLiveBooksUrl();
+  if (!url) throw new Error("VPS 地址未设");
+  const headers = new Headers();
+  const secret = deskSecret();
+  if (secret) headers.set("authorization", `Bearer ${secret}`);
+  const res = await fetch(url, { method: "POST", cache: "no-store", headers });
+  const json = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) throw new Error(json.error ?? `VPS 算账本失败 HTTP ${res.status}`);
+  return json;
 }
 
 export async function writeDeskJson(file: string, value: unknown): Promise<void> {

@@ -202,16 +202,27 @@ async function loadSmallFundPanels(
 async function loadSmallFundUniverse(
   timeframe: Timeframe = "1d",
   poolId: SmallFundPoolId = DEFAULT_SMALL_FUND_POOL,
+  tradeTickers?: readonly string[],
 ): Promise<PreparedUniverse> {
+  const t0 = Date.now();
   const scale = await requireRpsScale();
-  const panels = await loadSmallFundPanels(timeframe, poolId);
   if (timeframe === "1d") {
+    const panels = await loadSmallFundPanels("1d", poolId);
+    console.info(`[smallfund] 1d 面板 ${panels.length}只 ${Date.now() - t0}ms`);
+    const t1 = Date.now();
     const prepared = prepareSmallFund(panels, poolId, { kind: "scale", scale });
     assertScaleFresh(prepared.axis, scale);
+    console.info(`[smallfund] 1d 准备 ${prepared.symbols.length}只 ${Date.now() - t1}ms`);
     return prepared;
   }
 
-  // 盘中周期的强度一律取日线值，理由见 DailyRpsTable
+  // 盘中只拉要交易的票；日线全池仍要，RPS 截面按 560 算。
+  const intraWanted = tradeTickers?.length ? tradeTickers : poolTickers(poolId);
+  const panels = await readCsvForTimeframe(timeframe, intraWanted);
+  if (timeframe === "4h") assertFourHourShape(panels);
+  console.info(`[smallfund] ${timeframe} 面板 ${panels.length}/${intraWanted.length}只 ${Date.now() - t0}ms`);
+
+  const t1 = Date.now();
   const dailyPrepared = prepareSmallFund(await loadSmallFundPanels("1d", poolId), poolId, {
     kind: "scale",
     scale,
@@ -219,6 +230,7 @@ async function loadSmallFundUniverse(
   assertScaleFresh(dailyPrepared.axis, scale);
   const daily = dailyRpsTable(dailyPrepared);
   const prepared = prepareSmallFund(panels, poolId, { kind: "daily", daily });
+  console.info(`[smallfund] ${timeframe} 准备 ${prepared.symbols.length}只 ${Date.now() - t1}ms`);
 
   const missing = prepared.symbols.filter((s) => !daily.byTicker.has(s.ticker));
   if (missing.length > 0) {
@@ -234,8 +246,9 @@ export async function loadPreparedUniverse(
   index: IndexKey = DEFAULT_INDEX,
   timeframe: Timeframe = "1d",
   poolId: SmallFundPoolId = DEFAULT_SMALL_FUND_POOL,
+  tradeTickers?: readonly string[],
 ): Promise<PreparedUniverse> {
-  if (index === "SMALLFUND") return loadSmallFundUniverse(timeframe, poolId);
+  if (index === "SMALLFUND") return loadSmallFundUniverse(timeframe, poolId, tradeTickers);
 
   const snapshot = await getSnapshot();
   const sources = new Set<string>(INDEXES[index].sources);
@@ -269,12 +282,16 @@ export function getPreparedUniverse(
   index: IndexKey = DEFAULT_INDEX,
   timeframe: Timeframe = "1d",
   poolId: SmallFundPoolId = DEFAULT_SMALL_FUND_POOL,
+  tradeTickers?: readonly string[],
 ): Promise<PreparedUniverse> {
-  const key = `${index}:${timeframe}:${index === "SMALLFUND" ? poolId : "-"}`;
+  const clip = tradeTickers?.length
+    ? [...tradeTickers].map((t) => t.toUpperCase()).sort().join(",")
+    : "*";
+  const key = `${index}:${timeframe}:${index === "SMALLFUND" ? poolId : "-"}:${clip}`;
   const hit = cached.get(key);
   if (hit) return hit;
 
-  const task = loadPreparedUniverse(index, timeframe, poolId).catch((error) => {
+  const task = loadPreparedUniverse(index, timeframe, poolId, tradeTickers).catch((error) => {
     cached.delete(key);
     throw error;
   });

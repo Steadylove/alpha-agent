@@ -1,458 +1,288 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import {
-  Alert,
-  Badge,
-  Button,
-  Group,
-  Loader,
-  NumberInput,
-  Table,
-  Text,
-  TextInput,
-} from "@mantine/core";
+import { Alert, Badge, Button, Group, Loader, Table, Text } from "@mantine/core";
 
 import { Card, MetricCard } from "@/components/Card";
-import type { FundPlan } from "@/lib/fund/plan";
+import { daysOpenLabel, daysOpenOf, pnlLabel } from "@/lib/discord/bookCopy";
+import {
+  DEFAULT_LOOKBACK_SLOTS,
+  type LookbackFill,
+  type LookbackTf,
+  type LookbackView,
+} from "@/lib/fund/lookbackLogic";
 
-type PositionRow = {
-  symbol: string;
-  entryDate: string;
-  entryPrice: number;
-  shares: number;
-  cost: number;
-  close: number;
-  value: number;
-  floatPnlPct: number;
-  rps: number;
-  entryRps: number;
-  effectiveStop: number;
-  stopDistancePct: number;
-  stopHit: boolean;
+const EXIT: Record<string, string> = {
+  stop: "止损",
+  target: "止盈",
+  veto: "RS闸",
+  rsWeak: "RPS弱",
+  rotate: "置换",
 };
 
+type BookOk = { tf: LookbackTf; name: string; view: LookbackView };
+type BookErr = { tf: LookbackTf; name: string; error: string };
 type Snapshot = {
-  asOf: string;
-  plan: FundPlan;
-  positions: PositionRow[];
-  unresolved: { symbol: string; why: string }[];
-  signalCount: number;
+  epochFrom: string;
+  computedAt: string | null;
+  stale: boolean;
+  fromCache: boolean;
+  books: (BookOk | BookErr)[];
 };
 
-const money = (v: number) =>
-  v.toLocaleString("en-US", { maximumFractionDigits: 0, minimumFractionDigits: 0 });
-
-/** 成交回填：清单给的是建议价与计划金额，真实成交价和实付金额要人来改。 */
-type FillDraft = { price: string; cash: string };
+function stamp(raw: string): string {
+  return raw.replace("T", " ").slice(0, 16);
+}
 
 export function FundBoard() {
-  const [data, setData] = useState<Snapshot | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [from, setFrom] = useState<string | null>(null);
+  const [books, setBooks] = useState<(BookOk | BookErr)[]>([]);
+  const [computedAt, setComputedAt] = useState<string | null>(null);
+  const [stale, setStale] = useState(false);
+  const [busy, setBusy] = useState<"read" | "run" | null>("read");
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [drafts, setDrafts] = useState<Record<string, FillDraft>>({});
-  const [cashAmount, setCashAmount] = useState<number | string>(100000);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const apply = (json: Snapshot) => {
+    setFrom(json.epochFrom);
+    setBooks(json.books ?? []);
+    setComputedAt(json.computedAt);
+    setStale(Boolean(json.stale));
+  };
+
+  const refresh = useCallback(async () => {
     setError(null);
+    setBusy("run");
     try {
-      const res = await fetch("/api/fund/plan");
+      const res = await fetch("/api/fund/live-books", { method: "POST" });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "生成清单失败");
-      setData(json as Snapshot);
-      setDrafts({});
+      if (!res.ok) throw new Error(json.error ?? "跑账本失败");
+      apply(json as Snapshot);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "生成清单失败");
+      setError(e instanceof Error ? e.message : "跑账本失败");
     } finally {
-      setLoading(false);
+      setBusy(null);
     }
   }, []);
+
+  const load = useCallback(async () => {
+    setError(null);
+    setBusy((cur) => cur ?? "read");
+    try {
+      const res = await fetch("/api/fund/live-books");
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "读取账本失败");
+      const snap = json as Snapshot;
+      apply(snap);
+      if ((snap.books ?? []).length === 0) setFrom(snap.epochFrom);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "读取账本失败");
+    } finally {
+      setBusy(null);
+    }
+  }, [refresh]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const post = async (body: Record<string, unknown>, key: string) => {
-    setBusy(key);
-    setError(null);
-    try {
-      const res = await fetch("/api/fund/fill", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "记账失败");
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "记账失败");
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const draftOf = (key: string, price: number, cash: number): FillDraft =>
-    drafts[key] ?? { price: price.toFixed(2), cash: cash.toFixed(0) };
-
-  const setDraft = (key: string, patch: Partial<FillDraft>, price: number, cash: number) =>
-    setDrafts((prev) => ({ ...prev, [key]: { ...draftOf(key, price, cash), ...patch } }));
-
-  if (loading && !data) {
-    return (
-      <Group justify="center" py="xl">
-        <Loader size="sm" />
-        <Text size="sm" c="dimmed">
-          正在读账本、推吊灯、扫信号
-        </Text>
-      </Group>
-    );
-  }
-
-  const plan = data?.plan;
-
   return (
     <div className="space-y-6">
+      <Group justify="space-between" align="flex-end">
+        <Text size="sm" c="dimmed">
+          当前信号池 · 自 {from ?? "—"} 空仓 · 每笔权益 1/{DEFAULT_LOOKBACK_SLOTS}
+          {computedAt ? ` · 缓存 ${computedAt.replace("T", " ").slice(0, 16)}` : ""}
+          {busy === "run" ? " · 正在重算" : ""}
+        </Text>
+        <Button size="xs" variant="light" onClick={() => void refresh()} loading={busy != null}>
+          重算
+        </Button>
+      </Group>
+
       {error ? (
         <Alert color="red" variant="light">
           {error}
         </Alert>
       ) : null}
 
-      {plan ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-          <MetricCard label="权益" value={money(plan.equity)} hint={`截至 ${data.asOf}`} />
-          <MetricCard
-            label="现金"
-            value={money(plan.cash)}
-            hint={`占 ${plan.equity > 0 ? ((plan.cash / plan.equity) * 100).toFixed(0) : "0"}%`}
-          />
-          <MetricCard label="持仓" value={`${data.positions.length}`} hint="只" />
-          <MetricCard
-            label="每笔金额"
-            value={money(plan.slotAmount)}
-            hint="权益的 12.5%"
-          />
-          <MetricCard label="当根信号" value={`${data.signalCount}`} hint="个" />
-        </div>
-      ) : null}
-
-      {data && data.unresolved.length > 0 ? (
-        <Alert color="orange" variant="light" title="有持仓对不上行情">
-          {data.unresolved.map((u) => `${u.symbol}：${u.why}`).join("；")}
-          。这些持仓算不出吊灯位，清单里不会给它们出止损单。
+      {stale ? (
+        <Alert color="orange" variant="light">
+          池或记账起点已经变了，下面还是上次日推的结果。下次日推会覆盖，也可以现在重算。
         </Alert>
       ) : null}
 
-      <Card
-        title={`明日开盘清单 · ${data?.asOf ?? ""}`}
-        action={
-          <Button size="xs" variant="light" onClick={() => void load()} loading={loading}>
-            重算
-          </Button>
-        }
-      >
-        {plan && plan.sells.length === 0 && plan.buys.length === 0 ? (
+      {books.length === 0 && busy === "read" ? (
+        <Group justify="center" py="xl">
+          <Loader size="sm" />
           <Text size="sm" c="dimmed">
-            没有要执行的动作。多数交易日都是这样,不用找事做。
+            正在读日推缓存
           </Text>
-        ) : null}
-
-        {plan && plan.sells.length > 0 ? (
-          <>
-            <Text size="xs" fw={600} c="red.4" mb="xs">
-              卖出
-            </Text>
-            <Table striped highlightOnHover mb="lg">
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>标的</Table.Th>
-                  <Table.Th>原因</Table.Th>
-                  <Table.Th ta="right">份额</Table.Th>
-                  <Table.Th ta="right">估算回收</Table.Th>
-                  <Table.Th>成交价</Table.Th>
-                  <Table.Th>实收</Table.Th>
-                  <Table.Th />
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {plan.sells.map((s) => {
-                  const key = `sell:${s.symbol}`;
-                  const d = draftOf(key, s.estProceeds / s.shares, s.estProceeds);
-                  return (
-                    <Table.Tr key={key}>
-                      <Table.Td fw={600}>{s.symbol}</Table.Td>
-                      <Table.Td>
-                        {s.reason === "stop" ? (
-                          <Badge color="red" variant="light" size="sm">
-                            吊灯 {s.stop?.toFixed(2)}
-                          </Badge>
-                        ) : (
-                          <Badge color="orange" variant="light" size="sm">
-                            置换给 {s.replacedBy}
-                          </Badge>
-                        )}
-                      </Table.Td>
-                      <Table.Td ta="right" ff="monospace">
-                        {s.shares.toFixed(4)}
-                      </Table.Td>
-                      <Table.Td ta="right" ff="monospace">
-                        {money(s.estProceeds)}
-                      </Table.Td>
-                      <Table.Td>
-                        <TextInput
-                          size="xs"
-                          w={90}
-                          value={d.price}
-                          onChange={(e) =>
-                            setDraft(
-                              key,
-                              { price: e.currentTarget.value },
-                              s.estProceeds / s.shares,
-                              s.estProceeds,
-                            )
-                          }
-                        />
-                      </Table.Td>
-                      <Table.Td>
-                        <TextInput
-                          size="xs"
-                          w={100}
-                          value={d.cash}
-                          onChange={(e) =>
-                            setDraft(
-                              key,
-                              { cash: e.currentTarget.value },
-                              s.estProceeds / s.shares,
-                              s.estProceeds,
-                            )
-                          }
-                        />
-                      </Table.Td>
-                      <Table.Td>
-                        <Button
-                          size="xs"
-                          variant="light"
-                          loading={busy === key}
-                          onClick={() =>
-                            void post(
-                              {
-                                kind: "sell",
-                                symbol: s.symbol,
-                                date: data?.asOf,
-                                price: Number(d.price),
-                                proceeds: Number(d.cash),
-                                reason: s.reason,
-                              },
-                              key,
-                            )
-                          }
-                        >
-                          记入
-                        </Button>
-                      </Table.Td>
-                    </Table.Tr>
-                  );
-                })}
-              </Table.Tbody>
-            </Table>
-          </>
-        ) : null}
-
-        {plan && plan.buys.length > 0 ? (
-          <>
-            <Text size="xs" fw={600} c="teal.4" mb="xs">
-              买入
-            </Text>
-            <Table striped highlightOnHover>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>标的</Table.Th>
-                  <Table.Th>信号</Table.Th>
-                  <Table.Th ta="right">RPS</Table.Th>
-                  <Table.Th ta="right">计划投入</Table.Th>
-                  <Table.Th>成交价</Table.Th>
-                  <Table.Th>实付</Table.Th>
-                  <Table.Th />
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {plan.buys.map((b) => {
-                  const key = `buy:${b.symbol}`;
-                  const d = draftOf(key, b.refPrice, b.amount);
-                  return (
-                    <Table.Tr key={key}>
-                      <Table.Td fw={600}>{b.symbol}</Table.Td>
-                      <Table.Td>
-                        <Badge variant="light" size="sm" color={b.sigType === 1 ? "blue" : "grape"}>
-                          {b.sigType === 1 ? "一买" : "二买"}
-                        </Badge>
-                        {b.replaces ? (
-                          <Text span size="xs" c="dimmed" ml={6}>
-                            顶掉 {b.replaces}
-                          </Text>
-                        ) : null}
-                      </Table.Td>
-                      <Table.Td ta="right" ff="monospace">
-                        {b.rps.toFixed(0)}
-                      </Table.Td>
-                      <Table.Td ta="right" ff="monospace">
-                        {money(b.amount)}
-                      </Table.Td>
-                      <Table.Td>
-                        <TextInput
-                          size="xs"
-                          w={90}
-                          value={d.price}
-                          onChange={(e) =>
-                            setDraft(key, { price: e.currentTarget.value }, b.refPrice, b.amount)
-                          }
-                        />
-                      </Table.Td>
-                      <Table.Td>
-                        <TextInput
-                          size="xs"
-                          w={100}
-                          value={d.cash}
-                          onChange={(e) =>
-                            setDraft(key, { cash: e.currentTarget.value }, b.refPrice, b.amount)
-                          }
-                        />
-                      </Table.Td>
-                      <Table.Td>
-                        <Button
-                          size="xs"
-                          variant="light"
-                          color="teal"
-                          loading={busy === key}
-                          onClick={() =>
-                            void post(
-                              {
-                                kind: "buy",
-                                symbol: b.symbol,
-                                date: data?.asOf,
-                                price: Number(d.price),
-                                cost: Number(d.cash),
-                                rps: b.rps,
-                                sigType: b.sigType,
-                                timeframe: "1d",
-                              },
-                              key,
-                            )
-                          }
-                        >
-                          记入
-                        </Button>
-                      </Table.Td>
-                    </Table.Tr>
-                  );
-                })}
-              </Table.Tbody>
-            </Table>
-          </>
-        ) : null}
-
-        {plan && plan.passes.length > 0 ? (
-          <div className="mt-4 space-y-1">
-            <Text size="xs" fw={600} c="dimmed">
-              放弃的信号
-            </Text>
-            {plan.passes.map((p) => (
-              <Text key={p.symbol} size="xs" c="dimmed">
-                {p.symbol}（RPS {p.rps.toFixed(0)}）— {p.why}
-              </Text>
-            ))}
-          </div>
-        ) : null}
-      </Card>
-
-      <Card title="当前持仓">
-        {data && data.positions.length === 0 ? (
-          <Text size="sm" c="dimmed">
-            账本里没有未平仓持仓。
-          </Text>
-        ) : (
-          <Table striped highlightOnHover>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>标的</Table.Th>
-                <Table.Th>开仓日</Table.Th>
-                <Table.Th ta="right">成本价</Table.Th>
-                <Table.Th ta="right">现价</Table.Th>
-                <Table.Th ta="right">浮盈</Table.Th>
-                <Table.Th ta="right">市值</Table.Th>
-                <Table.Th ta="right">吊灯</Table.Th>
-                <Table.Th ta="right">距吊灯</Table.Th>
-                <Table.Th ta="right">RPS</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {data?.positions.map((p) => (
-                <Table.Tr key={p.symbol}>
-                  <Table.Td fw={600}>
-                    {p.symbol}
-                    {p.stopHit ? (
-                      <Badge color="red" variant="filled" size="xs" ml={6}>
-                        该走
-                      </Badge>
-                    ) : null}
-                  </Table.Td>
-                  <Table.Td c="dimmed">{p.entryDate}</Table.Td>
-                  <Table.Td ta="right" ff="monospace">
-                    {p.entryPrice.toFixed(2)}
-                  </Table.Td>
-                  <Table.Td ta="right" ff="monospace">
-                    {p.close.toFixed(2)}
-                  </Table.Td>
-                  <Table.Td
-                    ta="right"
-                    ff="monospace"
-                    c={p.floatPnlPct >= 0 ? "teal.4" : "red.4"}
-                  >
-                    {p.floatPnlPct >= 0 ? "+" : ""}
-                    {p.floatPnlPct.toFixed(1)}%
-                  </Table.Td>
-                  <Table.Td ta="right" ff="monospace">
-                    {money(p.value)}
-                  </Table.Td>
-                  <Table.Td ta="right" ff="monospace">
-                    {p.effectiveStop.toFixed(2)}
-                  </Table.Td>
-                  <Table.Td ta="right" ff="monospace" c={p.stopDistancePct < 3 ? "orange.4" : undefined}>
-                    {p.stopDistancePct.toFixed(1)}%
-                  </Table.Td>
-                  <Table.Td ta="right" ff="monospace">
-                    {p.rps.toFixed(0)}
-                  </Table.Td>
-                </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
-        )}
-      </Card>
-
-      <Card title="注资 / 提取">
-        <Group align="flex-end">
-          <NumberInput
-            label="金额"
-            description="正数注资，负数提取"
-            value={cashAmount}
-            onChange={setCashAmount}
-            w={220}
-            thousandSeparator=","
-          />
-          <Button
-            variant="light"
-            loading={busy === "cash"}
-            onClick={() =>
-              void post({ kind: "cash", amount: Number(cashAmount), date: data?.asOf }, "cash")
-            }
-          >
-            记入账本
-          </Button>
         </Group>
-      </Card>
+      ) : null}
+
+      {books.length === 0 && busy === "run" ? (
+        <Group justify="center" py="xl">
+          <Loader size="sm" />
+          <Text size="sm" c="dimmed">
+            正在重算 4 小时和 2H，大约一两分钟
+          </Text>
+        </Group>
+      ) : null}
+
+      {books.length === 0 && busy == null ? (
+        <Text size="sm" c="dimmed">
+          还没有日推缓存。等下次行情日推，或点重算。
+        </Text>
+      ) : null}
+
+      {books.map((book) =>
+        "error" in book ? (
+          <Alert key={book.tf} color="red" variant="light" title={book.name}>
+            {book.error}
+          </Alert>
+        ) : (
+          <LiveBookCard key={book.tf} name={book.name} view={book.view} />
+        ),
+      )}
     </div>
+  );
+}
+
+function LiveBookCard({ name, view }: { name: string; view: LookbackView }) {
+  const s = view.stats;
+  const fills = [...(view.fills ?? [])].reverse();
+  const last = view.curve.at(-1);
+  const lastBuys = last?.buys ?? [];
+  const lastSells = last?.sells ?? [];
+
+  return (
+    <Card title={`${name} · ${stamp(view.asOf)}`}>
+      <div className="mb-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
+        <MetricCard label="累计" value={view.pnl} valueColor={view.equity >= 1 ? "teal.4" : "red.4"} hint={`自 ${view.since}`} />
+        <MetricCard
+          label={s.ytdYear != null ? `${s.ytdYear} YTD` : "YTD"}
+          value={s.ytdPct == null ? "—" : pnlLabel(s.ytdPct)}
+          valueColor={s.ytdPct == null ? "gray.0" : s.ytdPct >= 0 ? "teal.4" : "red.4"}
+        />
+        <MetricCard label="回撤" value={`${s.dd.toFixed(0)}%`} valueColor="red.4" />
+        <MetricCard label="胜率" value={s.winRatePct == null ? "—" : `${s.winRatePct.toFixed(0)}%`} />
+        <MetricCard label="敞口" value={`${view.exposurePct.toFixed(0)}%`} hint={`均 ${s.avgExposure.toFixed(0)}%`} />
+        <MetricCard label="持仓" value={`${view.rows.length}`} hint={`${s.entries} 笔入场`} />
+      </div>
+
+      {lastBuys.length || lastSells.length ? (
+        <Group gap={6} mb="md">
+          {lastBuys.map((sym) => (
+            <Badge key={`b-${sym}`} size="sm" color="teal" variant="light">
+              当根买 {sym}
+            </Badge>
+          ))}
+          {lastSells.map((sym) => (
+            <Badge key={`s-${sym}`} size="sm" color="red" variant="light">
+              当根卖 {sym}
+            </Badge>
+          ))}
+        </Group>
+      ) : (
+        <Text size="xs" c="dimmed" mb="md">
+          最新一根没有买卖
+        </Text>
+      )}
+
+      <Text size="xs" fw={600} c="dimmed" mb="xs">
+        当前持仓
+      </Text>
+      {view.rows.length === 0 ? (
+        <Text size="sm" c="dimmed" mb="lg">
+          空仓
+        </Text>
+      ) : (
+        <Table striped highlightOnHover mb="lg" fz="sm">
+          <Table.Thead>
+            <Table.Tr>
+              <Table.Th>标的</Table.Th>
+              <Table.Th>开仓</Table.Th>
+              <Table.Th ta="right">持仓</Table.Th>
+              <Table.Th ta="right">开仓价</Table.Th>
+              <Table.Th ta="right">浮盈</Table.Th>
+              <Table.Th ta="right">仓位</Table.Th>
+              <Table.Th ta="right">RPS</Table.Th>
+            </Table.Tr>
+          </Table.Thead>
+          <Table.Tbody>
+            {view.rows.map((row) => (
+              <Table.Tr key={row.symbol}>
+                <Table.Td fw={600}>{row.symbol}</Table.Td>
+                <Table.Td c="dimmed">{row.entryDate ? stamp(row.entryDate) : "—"}</Table.Td>
+                <Table.Td ta="right" ff="monospace">
+                  {daysOpenLabel(daysOpenOf(row.entryDate, view.asOf))}
+                </Table.Td>
+                <Table.Td ta="right" ff="monospace">
+                  {row.entryPrice.toFixed(2)}
+                </Table.Td>
+                <Table.Td ta="right" ff="monospace" c={row.floatPnlPct >= 0 ? "teal.4" : "red.4"}>
+                  {row.floatPnlPct >= 0 ? "+" : ""}
+                  {row.floatPnlPct.toFixed(1)}%
+                </Table.Td>
+                <Table.Td ta="right" ff="monospace">
+                  {row.weightPct.toFixed(1)}%
+                </Table.Td>
+                <Table.Td ta="right" ff="monospace">
+                  {row.rps == null ? "—" : row.rps.toFixed(0)}
+                </Table.Td>
+              </Table.Tr>
+            ))}
+          </Table.Tbody>
+        </Table>
+      )}
+
+      <Text size="xs" fw={600} c="dimmed" mb="xs">
+        成交 {fills.length} 笔
+      </Text>
+      {fills.length === 0 ? (
+        <Text size="sm" c="dimmed">
+          这段窗口没有成交
+        </Text>
+      ) : (
+        <Table striped highlightOnHover fz="sm">
+          <Table.Thead>
+            <Table.Tr>
+              <Table.Th>时间</Table.Th>
+              <Table.Th>方向</Table.Th>
+              <Table.Th>标的</Table.Th>
+              <Table.Th ta="right">价格</Table.Th>
+              <Table.Th ta="right">盈亏</Table.Th>
+              <Table.Th>原因</Table.Th>
+            </Table.Tr>
+          </Table.Thead>
+          <Table.Tbody>
+            {fills.map((fill, i) => (
+              <FillRow key={`${fill.date}-${fill.side}-${fill.symbol}-${i}`} fill={fill} />
+            ))}
+          </Table.Tbody>
+        </Table>
+      )}
+    </Card>
+  );
+}
+
+function FillRow({ fill }: { fill: LookbackFill }) {
+  const buy = fill.side === "buy";
+  return (
+    <Table.Tr>
+      <Table.Td c="dimmed">{stamp(fill.date)}</Table.Td>
+      <Table.Td>
+        <Badge size="sm" color={buy ? "teal" : "red"} variant="light">
+          {buy ? "买" : "卖"}
+        </Badge>
+      </Table.Td>
+      <Table.Td fw={600}>{fill.symbol}</Table.Td>
+      <Table.Td ta="right" ff="monospace">
+        {fill.price.toFixed(2)}
+      </Table.Td>
+      <Table.Td ta="right" ff="monospace" c={fill.pnlPct == null ? undefined : fill.pnlPct >= 0 ? "teal.4" : "red.4"}>
+        {fill.pnlPct == null ? "—" : `${fill.pnlPct >= 0 ? "+" : ""}${fill.pnlPct.toFixed(1)}%`}
+      </Table.Td>
+      <Table.Td c="dimmed">{fill.reason ? (EXIT[fill.reason] ?? fill.reason) : buy ? "开仓" : "—"}</Table.Td>
+    </Table.Tr>
   );
 }

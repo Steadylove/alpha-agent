@@ -41,6 +41,8 @@
     "fund:rotate": "NODE_OPTIONS=--max-old-space-size=6144 npx --yes tsx scripts/fund-rotate.ts",
     "rps:snapshot": "NODE_OPTIONS=--max-old-space-size=6144 npx --yes tsx scripts/build-rps-snapshot.ts",
     "book:push": "NODE_OPTIONS=--max-old-space-size=6144 npx --yes tsx scripts/push-signal-book.ts",
+    "book:compute": "NODE_OPTIONS=--max-old-space-size=6144 npx --yes tsx scripts/compute-live-books.ts",
+    "book:worker:bundle": "npx --yes esbuild scripts/book-worker.ts --bundle --platform=node --format=esm --outfile=deploy/market-http/compute.mjs --alias:@=./src",
     "market:refresh": "npx --yes tsx scripts/refresh-market-csv.ts",
     "market:pack": "npx --yes tsx scripts/market-archive.ts pack",
     "market:unpack": "npx --yes tsx scripts/market-archive.ts unpack",

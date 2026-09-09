@@ -6,9 +6,14 @@ SRC=$(cd "$(dirname "$0")" && pwd)
 DEST=/var/lib/alpha-agent/market-http
 
 mkdir -p "$DEST" /var/lib/alpha-agent/desk
+if [ ! -f "$SRC/compute.mjs" ]; then
+  echo "缺少 compute.mjs，先在仓库跑 npm run book:worker:bundle" >&2
+  exit 1
+fi
 cp "$SRC/docker-compose.yml" "$DEST/docker-compose.yml"
 cp "$SRC/nginx.conf.template" "$DEST/nginx.conf"
 cp "$SRC/desk-http.mjs" "$DEST/desk-http.mjs"
+cp "$SRC/compute.mjs" "$DEST/compute.mjs"
 
 wait_http() {
   local url=$1 name=$2
@@ -30,4 +35,5 @@ cd "$DEST"
 docker compose up -d --force-recreate
 code=$(wait_http "http://127.0.0.1:8787/MANIFEST.json" "行情")
 desk=$(wait_http "http://127.0.0.1:8787/desk/lookback-snapshots.json" "desk")
-echo "行情服务已部署  http://127.0.0.1:8787  自检 ${code}  desk ${desk}"
+book=$(wait_http "http://127.0.0.1:8787/compute/health" "账本")
+echo "行情服务已部署  http://127.0.0.1:8787  自检 ${code}  desk ${desk}  book ${book}"
