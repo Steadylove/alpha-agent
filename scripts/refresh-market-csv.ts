@@ -1,5 +1,7 @@
 import "dotenv/config";
 
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+
 import {
   CSV_1H_DIR,
   CSV_2H_DIR,
@@ -10,6 +12,8 @@ import {
   writeCsvPanel,
   type CsvBar,
 } from "@/lib/backtest/csvPanel";
+import { marketDataRoot, rpsScaleFile, writeManifest } from "@/lib/backtest/marketStore";
+import type { RpsScaleFile } from "@/lib/backtest/rpsScale";
 import { lastSettledSession, mergeNewBars, type OhlcvBar } from "@/lib/backtest/mergeBars";
 import type { PanelBars } from "@/lib/backtest/panel";
 import { tickersForPool } from "@/lib/backtest/smallFundPools";
@@ -26,10 +30,11 @@ import {
 } from "@/lib/data-sources/yahooIntraday";
 
 /**
- * 给本地 CSV 增量补到最近一个已收盘日。不碰数据库。
+ * 给 CSV 增量补到最近一个已收盘日。不碰数据库。
+ * 设 MARKET_DATA_DIR 时写 1d/4h/2h/1h 规范布局（VPS 就是这个）。
  *
  *   npx tsx scripts/refresh-market-csv.ts
- *   npx tsx scripts/refresh-market-csv.ts --audit
+ *   MARKET_DATA_DIR=/var/lib/alpha-agent/market npx tsx scripts/refresh-market-csv.ts
  */
 
 const KNOWN_GAP = new Set(["SKHY", "SPCX"]);
@@ -176,10 +181,35 @@ function toOhlcv(raw: IntradayBar[]): OhlcvBar[] {
   }));
 }
 
+/** 日线比标尺新时，用最后一天切点往后垫，避免 assertScaleFresh 挡入场。完整重算仍走 rps:scale。 */
+function extendRpsScale(until: string) {
+  const path = rpsScaleFile();
+  if (!existsSync(path)) return;
+  const scale = JSON.parse(readFileSync(path, "utf8")) as RpsScaleFile;
+  const aapl = readCsvPanel(CSV_PANEL_DIR, "AAPL");
+  if (!aapl) return;
+  const lastCut = scale.dates.at(-1) ?? "";
+  const extra = aapl.dates.map((d) => d.slice(0, 10)).filter((d) => d > lastCut && d <= until);
+  if (extra.length === 0) return;
+  const lastCuts = scale.cuts.at(-1) ?? [];
+  const lastCount = scale.counts.at(-1) ?? 0;
+  for (const d of extra) {
+    scale.dates.push(d);
+    scale.cuts.push(lastCuts);
+    scale.counts.push(lastCount);
+  }
+  writeFileSync(path, JSON.stringify(scale));
+  console.log(`RPS 标尺垫到 ${extra.at(-1)}（${extra.length} 日，切点沿用 ${lastCut}）`);
+}
+
 async function main() {
   const until = lastSettledSession();
   const wanted = tickersForPool("sf-broad");
-  console.log(`已收盘日 ${until}  扩池 ${wanted.length}  源 ${hasAlpacaCredentials() ? "Alpaca" : "Yahoo"}`);
+  const root = marketDataRoot();
+  console.log(
+    `已收盘日 ${until}  扩池 ${wanted.length}  源 ${hasAlpacaCredentials() ? "Alpaca" : "Yahoo"}` +
+      (root ? `  目录 ${root}` : ""),
+  );
 
   const daily = await refreshDaily(wanted, until);
   const four = await refreshTf("4h", CSV_4H_DIR, wanted, until, (raw) => toOhlcv(aggregateTo4H(raw)));
@@ -195,6 +225,11 @@ async function main() {
   report("4h", four);
   report("2h", two);
   report("1h", one);
+  extendRpsScale(until);
+  if (root) {
+    const man = writeManifest(root);
+    console.log(`清单 ${man.timeframes["1d"]?.files ?? 0} 只日线  ${man.generatedAt}`);
+  }
 }
 
 main().catch((error) => {

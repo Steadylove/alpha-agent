@@ -46,3 +46,4 @@ alpha-market-*.tar.gz
 
 # 行情 CSV / 本地账本在本机或 VPS，不进仓库
 data/
+.market/

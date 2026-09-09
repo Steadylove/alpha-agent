@@ -1,14 +1,11 @@
 name: Daily Quant Jobs
 
 on:
-  # 00:30 UTC = 20:30 America/New_York 前一日，美股收盘后约 4.5 小时，
-  # 日线已定稿。周二至周六对应美股周一至周五的交易日。
-  # 比 daily-screener 的 01:00 UTC 早半小时。账本先推，写库失败不影响 Discord。
+  # 00:30 UTC = 美东前日收盘后。周二至周六对应美股交易日。
   schedule:
     - cron: "30 0 * * 2-6"
   workflow_dispatch:
 
-# 上一轮没跑完时不要并发写库
 concurrency:
   group: daily-quant-jobs
   cancel-in-progress: false
@@ -16,24 +13,18 @@ concurrency:
 jobs:
   run-jobs:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     env:
+      MARKET_DATA_DIR: ${{ github.workspace }}/.market
+      HOST: 108.174.50.53
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      # Actions 不是 production，不设这个 getPrisma 会直接拒连，后面 backfill / jobs:daily 全空转。
       ALLOW_DB: "1"
       FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
-      # SEC 要求可联系到的标识，缺省会退回代码里的占位值
       SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+      ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+      ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+      ALPACA_FEED: sip
     steps:
-      # 账本/GEX 只打 Vercel → VPS 文件，不碰 Postgres。必须放在写库前面：
-      # Neon 没额度或 VPS 库未灌数时，后面几步会挂，不能挡 Discord。
-      - name: Push 4H/2H cash books
-        run: |
-          curl -fsS -m 280 -X POST \
-            "${BOOK_PUSH_URL:-https://alpha-agent-eight.vercel.app/api/jobs/push-signal-book}"
-        env:
-          BOOK_PUSH_URL: ${{ secrets.BOOK_PUSH_URL }}
-
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -46,7 +37,48 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # 近月 GEX 卡：本机算快照，线上只出图。自检不过仍推（文件已写）。
+      - name: SSH key
+        env:
+          KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEY:-}" ]; then
+            echo "缺少 GitHub secret VPS_SSH_KEY" >&2
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+
+      - name: Pull market CSVs from VPS
+        run: |
+          set -euo pipefail
+          mkdir -p "$MARKET_DATA_DIR"
+          rsync -a --info=stats1 \
+            -e "ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes" \
+            "root@${HOST}:/var/lib/alpha-agent/market/" \
+            "$MARKET_DATA_DIR/"
+
+      - name: Refresh CSV to last session
+        run: npm run market:refresh
+
+      - name: Push market CSVs to VPS
+        run: |
+          set -euo pipefail
+          rsync -a --info=stats1 \
+            -e "ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes" \
+            "$MARKET_DATA_DIR/" \
+            "root@${HOST}:/var/lib/alpha-agent/market/"
+
+      # Vercel 读 VPS 文件。必须在行情写回之后。
+      - name: Push 4H/2H cash books
+        run: |
+          curl -fsS -m 280 -X POST \
+            "${BOOK_PUSH_URL:-https://alpha-agent-eight.vercel.app/api/jobs/push-signal-book}"
+        env:
+          BOOK_PUSH_URL: ${{ secrets.BOOK_PUSH_URL }}
+
       - name: Fetch GEX snapshot
         continue-on-error: true
         run: python3 scripts/fetch-gex-snapshot.py
@@ -58,22 +90,9 @@ jobs:
           BOOK_PUSH_URL: ${{ secrets.BOOK_PUSH_URL }}
 
       - name: Generate Prisma client
+        continue-on-error: true
         run: npm run prisma:generate
 
-      # 回测面板：按 lastDate 增量补日线 / 4H / 2H，日线有更新才重算 RPS 标尺。
-      # 有 Alpaca secret 走 30 分钟棒，否则 Yahoo 1H 再聚合。1H 不入库。
-      - name: Refresh backtest panels
-        continue-on-error: true
-        env:
-          ALLOW_DB: "1"
-          BACKTEST_PANEL_REFRESH: "1"
-          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
-          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
-          ALPACA_FEED: sip
-        run: npm run panel:refresh
-
-      # 三个 backfill 都是幂等增量（DailyBar 在 (instrumentId, date) 上唯一），
-      # 重跑只补当日新增。计算任务全部依赖这一步的结果。
       - name: Refresh rotation universe bars
         continue-on-error: true
         run: npm run backfill:rotation
