@@ -31,6 +31,8 @@ function payload(patch: SignalPoolPatch) {
     added: patch.added,
     removed: patch.removed,
     updatedAt: patch.updatedAt || null,
+    revision: patch.revisions?.at(-1)?.id ?? null,
+    effectiveAt: patch.revisions?.at(-1)?.effectiveAt ?? null,
     missingCsv: patch.added.filter((t) => csvMissing(t).length > 0),
   };
 }

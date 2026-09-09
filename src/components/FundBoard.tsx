@@ -27,6 +27,8 @@ const EXIT: Record<string, string> = {
 type BookOk = { tf: LookbackTf; name: string; view: LookbackView; sparkline?: number[] };
 type BookErr = { tf: LookbackTf; name: string; error: string };
 export type FundSnapshot = {
+  twoHourVersion?: string;
+  accounting?: "continuous-v1";
   runId?: string;
   poolKey?: string;
   slots?: number;
@@ -56,22 +58,23 @@ export function FundBoard({
   const computedAt = snapshot?.computedAt;
   const stale = snapshot?.stale;
   const [tf, setTf] = useState<LookbackTf>("4h");
+  const activeTf = books.some((b) => b.tf === tf) ? tf : books[0]?.tf ?? tf;
   const [fillsOpen, setFillsOpen] = useState(false);
   const [chartTarget, setChartTarget] = useState<ChartTarget | null>(null);
   const chartRequest = useMemo(
-    () => ({ champ: tf === "2h" ? "2h-broad" : "4h", index: "SMALLFUND" }), [tf],
+    () => ({ champ: activeTf === "2h" ? "2h-broad" : "4h", index: "SMALLFUND" }), [activeTf],
   );
 
   return (
     <div className="space-y-6">
       <Group justify="space-between" align="flex-end">
         <Text size="sm" c="dimmed">
-          {readOnly ? "历史结果" : "当前账本"} · 自 {from ?? "—"} 空仓 · 每笔投入 {(100 / (snapshot?.slots ?? DEFAULT_LOOKBACK_SLOTS)).toFixed(1)}%
+          {readOnly ? "历史结果" : snapshot?.accounting ? "连续账本" : "当前账本"} · 起点 {from ?? "—"} · 每笔投入 {(100 / (snapshot?.slots ?? DEFAULT_LOOKBACK_SLOTS)).toFixed(1)}%
           {computedAt ? ` · 缓存 ${computedAt.replace("T", " ").slice(0, 16)}` : ""}
-          {busy === "save" ? " · 正在保存配置" : busy === "run" ? " · 正在重算，保留上次结果" : ""}
+          {busy === "save" ? " · 正在保存配置" : busy === "run" ? " · 正在更新账本，保留上次结果" : ""}
           {snapshot?.runId ? ` · 版本 ${snapshot.runId.slice(0, 8)}` : ""}
         </Text>
-        {onRefresh ? <Button size="xs" variant="light" onClick={onRefresh} loading={busy != null}>重算</Button> : null}
+        {onRefresh ? <Button size="xs" variant="light" onClick={onRefresh} loading={busy != null}>更新账本</Button> : null}
       </Group>
 
       {error ? (
@@ -82,7 +85,7 @@ export function FundBoard({
 
       {stale ? (
         <Alert color="orange" variant="light">
-          {snapshot?.staleReason ?? "配置或行情已更新，下面仍是上次保存的结果，请重算。"}
+          {snapshot?.staleReason ?? "配置或行情已更新，下面仍是上次保存的结果，请更新账本。"}
         </Alert>
       ) : null}
 
@@ -99,21 +102,21 @@ export function FundBoard({
         <Group justify="center" py="xl">
           <Loader size="sm" />
           <Text size="sm" c="dimmed">
-            正在重算 4 小时和 2 小时，大约一两分钟
+            正在更新账本 4 小时和 2 小时，大约一两分钟
           </Text>
         </Group>
       ) : null}
 
       {books.length === 0 && busy == null ? (
         <Text size="sm" c="dimmed">
-          还没有日推缓存。等下次行情日推，或点重算。
+          还没有日推缓存。等下次行情日推，或点更新账本。
         </Text>
       ) : null}
 
       {books.length > 0 ? (
         <SegmentedControl
           size="sm"
-          value={tf}
+          value={activeTf}
           onChange={(v) => {
             setTf(v as LookbackTf);
             setFillsOpen(false);
@@ -127,7 +130,7 @@ export function FundBoard({
       ) : null}
 
       {books.map((book) =>
-        book.tf !== tf ? null : "error" in book ? (
+        book.tf !== activeTf ? null : "error" in book ? (
           <Alert key={book.tf} color="red" variant="light" title={liveBookName(book.tf)}>
             {book.error}
           </Alert>
@@ -178,7 +181,7 @@ function LiveBookCard({
     view.curve.length >= 2
       ? "绿买 · 红卖 · 琥珀当天既买又卖。点代码看 K 线。"
       : curve.length >= 2
-        ? "旧缓存只有抽样净值。重算后会带买卖点。"
+        ? "旧缓存只有抽样净值。更新账本后会带买卖点。"
         : null;
 
   return (

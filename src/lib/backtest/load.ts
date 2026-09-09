@@ -1,4 +1,5 @@
-import { CSV_1H_DIR, CSV_2H_DIR, CSV_4H_DIR, CSV_PANEL_DIR, readCsvPanels } from "./csvPanel";
+import { CSV_1H_DIR, CSV_4H_DIR, CSV_PANEL_DIR, readCsvPanels } from "./csvPanel";
+import { twoHourPanelFromHourly } from "./twoHourPanel";
 import { fetchRemoteCsvPanels } from "./marketRemote";
 import { marketBaseUrl } from "./marketStore";
 import {
@@ -157,7 +158,13 @@ function poolTickers(poolId: SmallFundPoolId): readonly string[] {
 }
 
 async function readCsvForTimeframe(timeframe: Timeframe, wanted: readonly string[]): Promise<PanelBars[]> {
-  const tf = timeframe === "1d" || timeframe === "4h" || timeframe === "2h" || timeframe === "1h" ? timeframe : "1d";
+  // 全历史统一重建；永不读旧 2H CSV，部署顺序不会导致新旧分桶混用。
+  if (timeframe === "2h") {
+    const hourly = await readCsvForTimeframe("1h", wanted);
+    if (!coversPool(hourly, wanted)) throw new Error("1H 行情未覆盖所需股票，不能重建标准 2H；请补齐缺失 1H 数据");
+    return hourly.map(twoHourPanelFromHourly);
+  }
+  const tf = timeframe;
   // 配了 VPS 就以那份数据为准，不能把本地旧 CSV 标成远程的新行情版本。
   if (marketBaseUrl()) {
     const remote = await fetchRemoteCsvPanels(tf, wanted);
@@ -167,7 +174,7 @@ async function readCsvForTimeframe(timeframe: Timeframe, wanted: readonly string
     timeframe === "1d"
       ? readCsvPanels(CSV_PANEL_DIR, wanted)
       : readCsvPanels(
-          { "4h": CSV_4H_DIR, "2h": CSV_2H_DIR, "1h": CSV_1H_DIR }[timeframe],
+          { "4h": CSV_4H_DIR, "1h": CSV_1H_DIR }[timeframe],
           wanted,
         ).filter((panel) => panel.ticker !== "SPCX");
   return local;

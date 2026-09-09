@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { TWO_HOUR_VERSION } from "@/lib/backtest/twoHourVersion";
 
 import {
   addSnapshot,
@@ -22,6 +23,13 @@ const base = {
 };
 
 describe("lookback snapshot", () => {
+  it("旧 2H 成绩作废，新标准 2H 与旧 4H 可以保存和读取", () => {
+    const old = { ...base, id: "old-2h", tf: "2h" };
+    const next = { ...old, id: "new-2h", twoHourVersion: TWO_HOUR_VERSION };
+    expect(snapshotListOf([{ ...base, id: "four" }, old, next]).map((s) => s.id)).toEqual(["four", "new-2h"]);
+    expect(() => addSnapshot([], old)).toThrow("旧 2H");
+    expect(addSnapshot([], next)[0].twoHourVersion).toBe(TWO_HOUR_VERSION);
+  });
   it("缺名单或起点就不收", () => {
     expect(snapshotOf({ ...base, members: [] })).toBeNull();
     expect(snapshotOf({ ...base, from: "yesterday" })).toBeNull();

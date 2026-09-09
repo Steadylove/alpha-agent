@@ -111,13 +111,14 @@ function mergeBars(chunk: IntradayBar[]): IntradayBar {
 type Slot = { hour: number; minute: number };
 
 /**
- * 2H 的三个桶，按美东墙钟切：9:30–11:30、11:30–13:30、13:30 之后（含盘后，2.5 小时）。
- * 首桶同时收下盘前，与 `aggregateTo4H` 一致，避免丢 bar。
+ * 标准 2H：9:30 / 11:30 / 13:30 / 15:30，最后半小时单独成根。
+ * 只合成常规时段；短交易日按输入实际结束，不补出不存在的棒。
  */
 const TWO_HOUR_SLOTS: readonly Slot[] = [
   { hour: 9, minute: 30 },
   { hour: 11, minute: 30 },
   { hour: 13, minute: 30 },
+  { hour: 15, minute: 30 },
 ];
 
 /**
@@ -143,7 +144,7 @@ const ONE_HOUR_SLOTS: readonly Slot[] = [
  * 会让它当天之后所有 bar 整体错开一格，跨票时间戳对不上，横截面比较（RPS 门槛、同时刻
  * 决策）随之失真；每天根数也会随票浮动，年化基数跟着错。
  */
-function aggregateBySlots(bars: IntradayBar[], slots: readonly Slot[]): IntradayBar[] {
+function aggregateBySlots(bars: IntradayBar[], slots: readonly Slot[], regularOnly = false): IntradayBar[] {
   const byTradingDay = new Map<string, IntradayBar[]>();
   for (const bar of bars) {
     const day = nyTradingDate(bar.timestamp);
@@ -154,15 +155,13 @@ function aggregateBySlots(bars: IntradayBar[], slots: readonly Slot[]): Intraday
 
   const result: IntradayBar[] = [];
   for (const day of [...byTradingDay.keys()].sort()) {
-    const daysBars = byTradingDay.get(day)!;
+    const daysBars = byTradingDay.get(day)!.slice().sort((a, b) => a.timestamp - b.timestamp);
+    const timed = daysBars.map((b) => ({ bar: b, minute: nyMinutesOf(b.timestamp) }));
     for (const [i, slot] of slots.entries()) {
       const next = slots[i + 1];
-      const upper = next == null ? Infinity : next.hour * 60 + next.minute;
-      const lower = i === 0 ? -Infinity : slot.hour * 60 + slot.minute;
-      const inSlot = daysBars.filter((b) => {
-        const m = nyMinutesOf(b.timestamp);
-        return m >= lower && m < upper;
-      });
+      const upper = next == null ? (regularOnly ? 16 * 60 : Infinity) : next.hour * 60 + next.minute;
+      const lower = i === 0 && !regularOnly ? -Infinity : slot.hour * 60 + slot.minute;
+      const inSlot = timed.filter((b) => b.minute >= lower && b.minute < upper).map((b) => b.bar);
       if (inSlot.length === 0) continue;
       const merged = mergeBars(inSlot);
       merged.timestamp = nyWallClockUnix(day, slot.hour, slot.minute);
@@ -185,7 +184,7 @@ export function aggregateTo1H(intradayBars: IntradayBar[]): IntradayBar[] {
 
 /** 按美东交易日合成 2H。输入可以是 30 分钟棒，也可以是本函数口径下的 1H 棒。 */
 export function aggregateTo2H(intradayBars: IntradayBar[]): IntradayBar[] {
-  return aggregateBySlots(intradayBars, TWO_HOUR_SLOTS);
+  return aggregateBySlots(intradayBars, TWO_HOUR_SLOTS, true);
 }
 
 const SESSION_SPLIT_MINUTES = 13 * 60 + 30;

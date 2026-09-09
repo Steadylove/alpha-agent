@@ -34,10 +34,9 @@ describe("lab timeframe", () => {
     expect(tuned.rpsMin).toBe(90);
     expect(tuned.takeProfitR).toBe(3);
     expect(tuned.stopMult).toBe(8);
-    // 常规时段 6.5 小时实测每天 2 / 3 / 6 根，不是 2 / 4 / 8。
-    // 2H 原按 252×4 算，把年化高估了三分之一
+    // 标准 2H 包含 15:30–16:00 末半小时。
     expect(barsPerYearOf("4h")).toBe(504);
-    expect(barsPerYearOf("2h")).toBe(756);
+    expect(barsPerYearOf("2h")).toBe(1008);
     expect(barsPerYearOf("1h")).toBe(1512);
   });
 

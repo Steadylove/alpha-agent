@@ -1,12 +1,15 @@
+import { poolRevisionsOf, type PoolRevision } from "./poolTimeline";
+
 export type SignalPoolPatch = {
   added: string[];
   removed: string[];
   updatedAt: string;
   /** 有这份就以它为准，默认池以后再扩也不会漏进新票。 */
   members?: string[];
+  revisions?: PoolRevision[];
 };
 
-const TICKER = /^[A-Z][A-Z0-9.]{0,9}$/;
+const TICKER = /^[A-Z][A-Z0-9.-]{0,9}$/;
 
 export function emptySignalPool(): SignalPoolPatch {
   return { added: [], removed: [], updatedAt: "" };
@@ -40,6 +43,7 @@ export function signalPoolOf(raw: unknown): SignalPoolPatch {
     removed: uniqTickers(p.removed),
     updatedAt: typeof p.updatedAt === "string" ? p.updatedAt : "",
     members: Array.isArray(p.members) ? uniqTickers(p.members) : undefined,
+    ...(p.revisions ? { revisions: poolRevisionsOf(p.revisions) } : {}),
   };
 }
 

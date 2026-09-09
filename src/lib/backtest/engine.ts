@@ -32,11 +32,11 @@ import { emaSeries, rsiSeries } from "@/lib/scoring/series";
 import type { PanelBars } from "./panel";
 import { scalePercentile, type RpsScale } from "./rpsScale";
 
-// 按 6.5 小时的常规时段实测：4H 每天 2 根、2H 每天 3 根、1H 每天 6 根。
-// 2H 不是 252×4——最后那段不足两小时并不单独成根，按 4 根算会把年化高估三分之一。
+// 标准 2H 常规时段每天 4 根（含最后半小时），4H 每天 2 根。
+// 1H 的历史年化口径另行校准，本次只废弃旧 2H 口径。
 const TRADING_DAYS_PER_YEAR = 252;
 const FOUR_HOUR_BARS_PER_YEAR = 504;
-const TWO_HOUR_BARS_PER_YEAR = 756;
+const TWO_HOUR_BARS_PER_YEAR = 1008;
 const ONE_HOUR_BARS_PER_YEAR = 1512;
 
 export type Timeframe = "1d" | "4h" | "2h" | "1h";

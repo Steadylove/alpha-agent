@@ -46,6 +46,8 @@ type Pool = {
   removed: string[];
   updatedAt: string | null;
   missingCsv: string[];
+  revision?: string | null;
+  effectiveAt?: string | null;
 };
 
 type ChartChamp = "4h" | "2h-broad";
@@ -328,9 +330,10 @@ export function SignalPoolCard({
         </Text>
       ) : editing ? (
         <Text size="sm" c="dimmed" mb="md" lh={1.6}>
-          修改和载入先保留为草稿；保存并重算后更新两本账本，原结果保留为历史版本。
+          修改和载入先保留为草稿；保存后沿用已有现金、持仓和累计成绩，新名单只影响后续信号。
         </Text>
       ) : null}
+      {!scratch && saved?.effectiveAt ? <Text size="xs" c="dimmed" mb="sm">池版本 {saved.revision?.slice(0, 8)} · 保存于 {new Date(saved.effectiveAt).toLocaleString("zh-CN")} · 此后新开始的 K 线使用新名单</Text> : null}
       {scratch || editing ? (
         <Group align="flex-end" wrap="wrap" gap="sm" mb="md">
           <Select
@@ -478,8 +481,8 @@ export function SignalPoolCard({
               恢复默认
             </Button>
             {scratch ? null : (
-              <Button size="sm" disabled={!dirty || applying || members.length === 0} onClick={() => setConfirmOpen(true)}>
-                保存并重算
+              <Button size="sm" disabled={!dirty || applying} onClick={() => setConfirmOpen(true)}>
+                保存并更新
               </Button>
             )}
           </Group>
@@ -679,12 +682,12 @@ export function SignalPoolCard({
         request={chartRequest}
         onClose={() => setChartTarget(null)}
       />
-      <Modal opened={!scratch && confirmOpen} onClose={() => setConfirmOpen(false)} title="保存并重算账本" centered>
+      <Modal opened={!scratch && confirmOpen} onClose={() => setConfirmOpen(false)} title="保存并更新账本" centered>
         <Text size="sm" lh={1.6}>
-          将池写成 {members.length} 只（默认 {saved?.defaultCount ?? "—"}）。新纳入{" "}
-          {draft?.added.length ?? 0} · 剔除 {draft?.removed.length ?? 0}。
+          将当前 {saved?.members.length ?? 0} 只调整为 {members.length} 只。新增{" "}
+          {members.filter((s) => !saved?.members.includes(s)).length} · 移出 {saved?.members.filter((s) => !members.includes(s)).length ?? 0}。
           {members.length === 0 ? " 池是空的，账本将没有可开仓标的。" : ""}
-          保存后按新名单重新计算整个窗口，当前结果将保留为历史版本。
+          保存后新开始的 K 线使用新名单；保留已有现金、持仓和累计成绩。移出的股票不再新增买入，已有持仓继续按原策略退出。
         </Text>
         <Text size="sm" mt="sm">相对当前名单，新增：{members.filter((s) => !saved?.members.includes(s)).join(", ") || "无"}</Text>
         <ScrollArea mah={140} mt="xs"><Text size="sm">剔除：{saved?.members.filter((s) => !members.includes(s)).join(", ") || "无"}</Text></ScrollArea>
@@ -693,7 +696,7 @@ export function SignalPoolCard({
             取消
           </Button>
           <Button color="orange" loading={busy || applying} onClick={() => void save()}>
-            保存并重算
+            保存并更新
           </Button>
         </Group>
       </Modal>

@@ -13,6 +13,7 @@ import { openTradeRow, parseConfig, parseIndex, parsePoolId, tradeRows } from "@
 import { champOf } from "@/lib/fund/champs";
 import { runChampSymbol } from "@/lib/fund/frozenLab";
 import { emaSeries } from "@/lib/scoring/series";
+import { TWO_HOUR_VERSION } from "@/lib/backtest/twoHourVersion";
 
 /**
  * 单只标的的 K 线与该次回测在它身上的进出场点、止损线、吊灯线。
@@ -109,6 +110,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       symbol,
+      timeframe: config.timeframe,
+      twoHourVersion: config.timeframe === "2h" ? TWO_HOUR_VERSION : undefined,
       splitDate: config.splitDate,
       filters: {
         requireRsi: config.requireRsi,

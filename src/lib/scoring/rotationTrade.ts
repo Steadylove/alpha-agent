@@ -201,6 +201,24 @@ export type StepView = {
   justClosed: ClosedTrade | null;
   /** 本根收盘挂出的开仓单，待下一根开盘成交。组合层据此决定是否放行。 */
   pendingEntry: SignalType;
+  checkpoint?: RotationTradeState;
+};
+
+/** 收盘后的完整状态；日期代替数组下标，行情轴扩展后仍可恢复。 */
+export type RotationTradeState = {
+  sigType: SignalType;
+  entryPrice: number | null;
+  entryDate: string | null;
+  stopLevel: number | null;
+  trailLevel: number | null;
+  highWater: number;
+  maxPnlPct: number;
+  initialRisk: number;
+  pendingEntry: SignalType;
+  pendingEntryAtr: number;
+  pendingEntryRps: number;
+  pendingExit: ExitReason | null;
+  entryRps: number | null;
 };
 
 const trailMultFor = (maxPnlPct: number, base: number) =>
@@ -285,6 +303,7 @@ export function* rotationTradeSteps(
   buy2: boolean[],
   rs: number[],
   params: RotationTradeParams = DEFAULT_TRADE_PARAMS,
+  continuation?: { after?: string; state?: RotationTradeState; decision?: StepDecision; capture?: boolean },
 ): Generator<StepView, void, StepDecision | undefined> {
   const atrRisk = riskAtrSeries(bars);
 
@@ -307,9 +326,19 @@ export function* rotationTradeSteps(
   let pendingExit: ExitReason | null = null;
   let entryRps: number | null = null;
 
-  let decision: StepDecision | undefined;
+  if (continuation?.state) {
+    ({ sigType, entryPrice, stopLevel, trailLevel, highWater, maxPnlPct, initialRisk,
+      pendingEntry, pendingEntryAtr, pendingEntryRps, pendingExit, entryRps } = continuation.state);
+    if (continuation.state.entryDate) {
+      entryIndex = bars.findIndex((b) => b.date === continuation.state!.entryDate);
+      if (entryIndex < 0) throw new Error(`${symbol} 缺少原始开仓 K 线，不能恢复风控状态`);
+    }
+  }
+
+  let decision: StepDecision | undefined = continuation?.decision;
 
   for (let i = 0; i < bars.length; i += 1) {
+    if (continuation?.after && bars[i].date <= continuation.after) continue;
     // 组合层的干预：上一根收盘做的决定，在这一根开盘生效
     if (decision?.rejectEntry) pendingEntry = 0;
     if (decision?.forceExit && sigType !== 0 && pendingExit == null) pendingExit = "rotate";
@@ -448,7 +477,14 @@ export function* rotationTradeSteps(
       exited,
     };
 
-    decision = yield { day, justClosed, pendingEntry };
+    decision = yield {
+      day, justClosed, pendingEntry,
+      ...(continuation?.capture ? { checkpoint: {
+        sigType, entryPrice, entryDate: entryIndex >= 0 ? bars[entryIndex].date : null,
+        stopLevel, trailLevel, highWater, maxPnlPct, initialRisk, pendingEntry,
+        pendingEntryAtr, pendingEntryRps, pendingExit, entryRps,
+      } } : {}),
+    };
   }
 }
 

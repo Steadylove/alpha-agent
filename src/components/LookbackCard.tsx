@@ -1,5 +1,7 @@
 "use client";
 
+import { usableTwoHourResult } from "@/lib/backtest/twoHourVersion";
+
 import { useEffect, useRef, useState } from "react";
 import { Alert, Badge, Button, Group, Select, SegmentedControl, Stack, Table, Text, TextInput } from "@mantine/core";
 
@@ -18,7 +20,7 @@ import { defaultSnapshotName, type LookbackSnapshot } from "@/lib/fund/lookbackS
 const POS = "#089981";
 const NEG = "#f23645";
 
-type Result = LookbackView & { tf: LookbackTf };
+type Result = LookbackView & { tf: LookbackTf; twoHourVersion?: string };
 
 export function LookbackCard({
   members,
@@ -94,6 +96,7 @@ export function LookbackCard({
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "回看失败");
       const next = json as Result;
+      if (!usableTwoHourResult(next.tf, next.twoHourVersion)) throw new Error("计算服务仍返回旧 2H，请完成部署后重试");
       setHoverDate(null);
       setCache((prev) => ({ ...prev, [`${next.tf}|${from}|${nextSlots}`]: next }));
     } catch (e) {
@@ -116,6 +119,7 @@ export function LookbackCard({
           name: snapName,
           members,
           tf: view.tf,
+          twoHourVersion: view.twoHourVersion,
           from,
           slots: slotN,
           asOf: view.asOf,

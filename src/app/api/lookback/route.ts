@@ -6,6 +6,7 @@ import { clampLookbackSlots, DEFAULT_LOOKBACK_SLOTS, isLookbackTf } from "@/lib/
 import { pickLookbackPool } from "@/lib/fund/lookbackPick";
 import { clampPickSize, isLookbackPickTf } from "@/lib/fund/lookbackPickLogic";
 import { tickerListOf } from "@/lib/fund/signalPoolLogic";
+import { TWO_HOUR_VERSION } from "@/lib/backtest/twoHourVersion";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -51,7 +52,7 @@ async function handle(tfRaw: unknown, fromRaw: unknown, membersRaw: unknown, slo
 
   try {
     const view = await runLookback(tf, from, members, slots);
-    return NextResponse.json({ ok: true, tf, slots, ...view });
+    return NextResponse.json({ ok: true, tf, slots, twoHourVersion: tf === "2h" ? TWO_HOUR_VERSION : undefined, ...view });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "回看失败" },

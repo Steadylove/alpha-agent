@@ -51,3 +51,19 @@ it("VPS 文件服务保存并归档，失败不会冒充成功或损坏当前结
   expect(unauthorized.status).toBe(401);
   expect((await fetch(`${base}/book-versions/test-run-1.json`, { method: "PUT", body: "{}" })).status).toBe(404);
 });
+
+it("并发保存股票池时只接受基于最新版本的请求，历史不能被覆盖", async () => {
+  const put = (value: unknown, expected?: string) => fetch(`${base}/signal-pool.json`, {
+    method: "PUT", headers: { authorization: "Bearer test-secret", "content-type": "application/json", ...(expected != null ? { "if-match": JSON.stringify(expected) } : {}) },
+    body: JSON.stringify(value),
+  });
+  const initial = { members: ["AAPL"], updatedAt: "2026-09-09T00:00:00Z", revisions: [{ id: "base", effectiveAt: "", members: ["AAPL"] }] };
+  expect((await put(initial, "")).status).toBe(200);
+  const next = (id: string) => ({ members: [id], updatedAt: "2026-09-10T00:00:00Z", revisions: [...initial.revisions, { id, effectiveAt: "2026-09-10T00:00:00Z", members: [id] }] });
+  const responses = await Promise.all([put(next("NVDA"), initial.updatedAt), put(next("MSFT"), initial.updatedAt)]);
+  expect(responses.map((r) => r.status).sort()).toEqual([200, 409]);
+  expect((await put({ members: ["GOOG"] })).status).toBe(409);
+  const stored = await (await fetch(`${base}/signal-pool.json`)).json();
+  expect(stored.revisions).toHaveLength(2);
+  expect(stored.revisions[0]).toEqual(initial.revisions[0]);
+});

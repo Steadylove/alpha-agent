@@ -61,16 +61,16 @@ export function FundWorkbench() {
         await save();
         saved = true;
       }
-      setSnapshot((prev) => prev ? { ...prev, stale: true, staleReason: "正在按已保存配置重算，完成前保留上次结果。" } : prev);
+      setSnapshot((prev) => prev ? { ...prev, stale: true, staleReason: "正在按已保存配置更新账本，完成前保留上次结果。" } : prev);
       setBusy("run");
       const res = await fetch("/api/fund/live-books", { method: "POST" });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "重算失败");
+      if (!res.ok) throw new Error(json.error ?? "更新账本失败");
       setSnapshot(json as FundSnapshot);
     } catch (e) {
       const reason = e instanceof Error ? e.message : "更新失败";
       const message = saved ? `配置已保存，账本更新未完成：${reason}。上次结果已保留，可重试。`
-        : save ? `未能确认配置保存成功：${reason}。可重试或刷新确认。` : `重算失败：${reason}。上次结果已保留，可重试。`;
+        : save ? `未能确认配置保存成功：${reason}。可重试或刷新确认。` : `更新账本失败：${reason}。上次结果已保留，可重试。`;
       if (saved || !save) setSnapshot((prev) => prev ? { ...prev, stale: true, staleReason: "账本更新未完成，当前展示上次保存的结果。" } : prev);
       setError(message);
       throw new Error(message);

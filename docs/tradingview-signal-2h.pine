@@ -12,14 +12,14 @@
 // 2H 怎么切
 // -----------------------------------------------------------------------------
 //
-// 美股 6.5 小时按美东墙钟切三根：9:30–11:30、11:30–13:30、13:30–16:00
-// （最后一根是 2.5 小时残根）。与仓库 aggregateTo2H 一致。
+// 美股标准 2H 按美东墙钟切四根：9:30–11:30、11:30–13:30、13:30–15:30、15:30–16:00。
+// 最后半小时独立成根，与仓库 aggregateTo2H 的 2h-rth-4bars-v1 一致。
 //
 // 扩池定档是每根都能入场，下一根开盘成交。打开「只在当天最后一根」是旧口径，
 // 信息面板会标偏离。
 //
-// 出场每根都判。三个检查点是美东 11:30 / 13:30 / 16:00（北京 23:30 / 01:30 /
-// 04:00），靠告警推、程序下单，别指望手动盯。
+// 出场每根收盘都判，检查点是美东 11:30 / 13:30 / 15:30 / 16:00。
+// 标签只在收盘确认，成交仍在下一根开盘。
 //
 // -----------------------------------------------------------------------------
 // 这个脚本不负责的事
@@ -38,8 +38,8 @@
 //
 // 1. 图表周期**必须**是 2 小时，且用**常规交易时段**。开了盘前盘后，2H 边界
 //    会挪位，和回测对不上。挂错周期时本脚本不点火，信息面板第一行显红。
-// 2. 图表向左拖到至少 3000 根（2H 每天 3 根，约 4 年）。Vegas 的 EMA676 播种
-//    后还要约 1300 根才收敛；2H 上 2000 根只有两年半，左侧闸门不可信。
+// 2. 图表向左拖到至少 3000 根（2H 每天 4 根，约 3 年）。Vegas 的 EMA676 播种
+//    后还要约 1300 根才收敛；2H 上 2000 根约两年，左侧闸门不可信。
 // 3. 创建告警 →「条件」选本脚本 →「Any alert() function call」。
 //    不要选具体的 plot，alert() 正文是动态拼的 JSON，选别的收不到。
 // 4. 「触发频率」选 Once Per Bar Close。
@@ -50,9 +50,7 @@
 // 业绩预期
 // -----------------------------------------------------------------------------
 //
-// 回测（sf-broad 560，2021-08→2026-08，成本 10bps）：CAGR 28.6%、回撤 21%、
-// MAR 1.35，三段年化 22.8 / 52.4 / 40.9，三段最差 MAR 1.41。中间段偏牛，
-// 比 4H 扩池定档更尖。现任成分全程都在。不要按 195 只那档 35.5% 预期。
+// 原三根口径的回测成绩已作废。参数暂时沿用，标准四根行情下需重新评估。
 //
 // =============================================================================
 
@@ -185,12 +183,12 @@ float es2   = ta.ema(close, 676)
 bool vegasOk = not na(ef1) and not na(ef2) and not na(es1) and not na(es2) and math.min(ef1, ef2) > math.max(es1, es2)
 bool rsiOk   = not na(rsi14) and rsi14 >= minRsi
 
-// 2H 专用：挂错周期就不点火。这套定档只在 120 分钟上标定过。
+// 2H 专用：挂错周期就不点火。沿用旧参数，标准四根口径的效果需要重新评估。
 bool tfOk = timeframe.period == "120"
 
 // 当天最后一根 2H。要求图表用常规交易时段：开了盘前盘后，session 边界会挪位。
-// 半日市只有一根 2H 时，那根既是首根也是末根，照样放行。
-bool dayCloseBar = session.islastbar
+// 常见 13:00 收盘的半日市有两根，第二根不足两小时。
+bool dayCloseBar = session.islastbar_regular
 bool entryWindowOk = not entryAtDayCloseOnly or dayCloseBar
 
 bool gateOk = tfOk and (not requireRsi or rsiOk) and (not requireVegas or vegasOk)
@@ -268,10 +266,10 @@ if sigType == 0 and not pendingExit and entryWindowOk and not na(atrRisk) and at
         pendingAtr   := atrRisk
 
 // 本根是否产生了信号：pendingEntry 要到下一根开盘才消费，故非 0 即本根点火
-bool fire1       = pendingEntry == 1
-bool fire2       = pendingEntry == 2
+bool fire1       = pendingEntry == 1 and barstate.isconfirmed
+bool fire2       = pendingEntry == 2 and barstate.isconfirmed
 bool entrySignal = fire1 or fire2
-bool exitSignal  = pendingExit
+bool exitSignal  = pendingExit and barstate.isconfirmed
 
 // 被入场窗口挡掉的信号：图上标出来，才知道哪些机会是规则主动放弃的。
 bool blockedByWindow = sigType == 0 and not pendingExit and not entryWindowOk and

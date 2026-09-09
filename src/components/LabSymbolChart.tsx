@@ -104,6 +104,8 @@ type Signal = {
 
 type ChartData = {
   symbol: string;
+  timeframe?: string;
+  twoHourVersion?: string;
   splitDate: string;
   filters: {
     requireRsi: boolean;
@@ -466,6 +468,7 @@ export function LabSymbolChart({
           <Text fw={700}>{symbol}</Text>
           {data ? (
             <Text size="xs" c="dimmed" ff="monospace">
+              {data.timeframe ? `${data.timeframe.toUpperCase()}${data.twoHourVersion ? " · 标准四根" : ""} · ` : ""}
               本次回测成交 {data.trades.filter((t) => !t.open).length} 笔
               {data.trades.some((t) => t.open) ? " · 在场 1" : ""} · 全期 {data.bars.time.length} 根
             </Text>

@@ -53,10 +53,10 @@ export async function postComputeLiveBooks(): Promise<unknown> {
   return json;
 }
 
-export async function writeDeskJson(file: string, value: unknown): Promise<void> {
+export async function writeDeskJson(file: string, value: unknown, expectedUpdatedAt?: string): Promise<void> {
   const res = await fetchDesk(file, {
     method: "PUT",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...(expectedUpdatedAt != null ? { "if-match": JSON.stringify(expectedUpdatedAt) } : {}) },
     body: `${JSON.stringify(value, null, 2)}\n`,
   });
   if (!res.ok) {

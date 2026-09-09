@@ -56,7 +56,7 @@ export function BookHistoryCard({ current }: { current: FundSnapshot | null }) {
 
   return (
     <Card title="账本历史" action={<Button size="xs" variant="light" onClick={() => setOpen(true)}>查看版本</Button>}>
-      <Text size="sm" c="dimmed">每次成功计算保留当时的名单、起点、持仓、成交和净值。查看旧版本不会修改当前账本。</Text>
+      <Text size="sm" c="dimmed">每次成功计算保留当时的名单、起点、持仓、成交和净值。旧三根口径的 2H 成绩已作废，不再展示或继承。</Text>
       <Modal opened={open} onClose={() => setOpen(false)} title="账本历史与当前结果对照" size="xl" centered>
         <Select label="历史版本" placeholder={versions.length ? "选择一个版本" : "还没有保存的版本"} searchable clearable value={selected}
           onChange={(id) => void choose(id)}
@@ -74,6 +74,19 @@ export function BookHistoryCard({ current }: { current: FundSnapshot | null }) {
               <Text size="sm">此后纳入：{changes.added.join(", ") || "无"}</Text>
               <Text size="sm" mt="xs">此后剔除：{changes.removed.join(", ") || "无"}</Text>
             </ScrollArea>
+            {book.poolHistory ? <details>
+              <summary className="cursor-pointer text-sm">截至该版本的池子变更记录</summary>
+              {book.poolHistory.map((revision, i) => {
+                const before = book.poolHistory?.[i - 1]?.members ?? [];
+                const added = revision.members.filter((m) => !before.includes(m));
+                const removed = before.filter((m) => !revision.members.includes(m));
+                return <Text size="xs" mt="xs" key={revision.id}>
+                  {revision.effectiveAt ? new Date(revision.effectiveAt).toLocaleString("zh-CN") : "初始名单"} · {revision.members.length} 只
+                  {i > 0 ? ` · 纳入 ${added.join(", ") || "无"} · 移出 ${removed.join(", ") || "无"}` : ""}
+                </Text>;
+              })}
+              <Text size="xs" mt="xs" c="dimmed">变更仅作用于保存后新开始的 K 线，原有持仓继续管理退出。</Text>
+            </details> : null}
             <Table fz="xs">
               <Table.Thead><Table.Tr><Table.Th>周期</Table.Th><Table.Th>历史 / 当前截至</Table.Th><Table.Th>累计收益</Table.Th><Table.Th>回撤</Table.Th><Table.Th>持仓数</Table.Th></Table.Tr></Table.Thead>
               <Table.Tbody>{book.books.map((old) => {

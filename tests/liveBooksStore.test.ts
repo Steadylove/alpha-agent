@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bookVersionId, listLiveBookVersions, readLiveBooks, readLiveBookVersion, writeLiveBooks } from "@/lib/fund/liveBooksStore";
-import { bookCache } from "./liveBooksFixtures";
+import { bookCache, continuousCache } from "./liveBooksFixtures";
 
 let dir: string;
 let file: string;
@@ -17,6 +17,18 @@ afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); rmSync(dir, { recur
 function remote() { vi.stubEnv("LIVE_BOOKS_PATH", ""); vi.stubEnv("MARKET_DATA_BASE_URL", "http://books.test"); }
 
 describe("账本持久化", () => {
+  it("连续账本的现金、股数、风控和池版本经归档读回不会丢失", async () => {
+    const current = continuousCache();
+    await writeLiveBooks(current);
+    expect(await readLiveBooks()).toEqual(current);
+    expect(await readLiveBookVersion(current.runId!)).toEqual(current);
+    const corrupt = JSON.parse(readFileSync(file, "utf8"));
+    corrupt.books[0].checkpoint.cash = null;
+    writeFileSync(file, JSON.stringify(corrupt));
+    await expect(readLiveBooks()).rejects.toThrow("恢复状态无效");
+    expect(await readLiveBookVersion(current.runId!)).toEqual(current);
+  });
+
   it("同一进程在文件更新后读到新结果，旧版本完整保留", async () => {
     const first = bookCache();
     await writeLiveBooks(first);

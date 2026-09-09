@@ -29,12 +29,18 @@ describe("行情与策略版本", () => {
   });
 
   it("没有清单的本地 CSV 更新也会改变版本", async () => {
-    mkdirSync(path.join(dir, "2h"));
-    const file = path.join(dir, "2h", "AAPL.csv");
+    mkdirSync(path.join(dir, "1h"));
+    const file = path.join(dir, "1h", "AAPL.csv");
     writeFileSync(file, "old\n");
     const before = await liveMarketRevision();
     writeFileSync(file, "updated data\n");
     expect((await liveMarketRevision()).marketRevision).not.toBe(before.marketRevision);
+  });
+
+  it("2H 以 1H 末棒为源，短交易日映射到 11:30 而不是沿用旧 2H", async () => {
+    writeFileSync(path.join(dir, "MANIFEST.json"), JSON.stringify({ generatedAt: "2026-09-09T00:00:00Z",
+      timeframes: { "2h": { asOf: "2026-09-08T17:30" }, "1h": { asOf: "2026-11-27T17:30" } } }));
+    expect((await liveMarketRevision()).asOf["2h"]).toBe("2026-11-27T16:30");
   });
 
   it("同步标记存在时禁止计算半套新行情", async () => {

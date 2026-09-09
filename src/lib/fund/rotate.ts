@@ -13,6 +13,7 @@ import {
   type ClosedTrade,
   type StepDecision,
   type StepView,
+  type RotationTradeState,
 } from "@/lib/scoring/rotationTrade";
 
 /** `none` = 满仓就放弃；`weakest`/`random` 只差挑谁当受害者。 */
@@ -32,6 +33,12 @@ export type RotateOpts = {
   exitWindow?: "all" | "dayClose";
   /** 搜参用：只留年化/回撤/开仓，不建账本和持仓明细。 */
   statsOnly?: boolean;
+  /** 当前账本才开启；回测保留原来的整段计算方式。 */
+  continuation?: { checkpoint?: RotateCheckpoint; capture?: boolean };
+  /** 连续账本缺少后续报价时保留持仓，不能凭最后一根报价虚构卖出。 */
+  retainMissing?: boolean;
+  /** 挂单在成交前也核对池子；被移出后取消尚未成交的买单。 */
+  fillGate?: (ticker: string, date: string) => boolean;
 };
 
 export type RotateResult = {
@@ -51,6 +58,7 @@ export type RotateResult = {
   holdings: HoldingDay[];
   trades: ClosedTrade[];
   missedBuys: { date: string; symbol: string; price: number }[];
+  checkpoint?: RotateCheckpoint;
 };
 
 function statsOf(equity: number[], bpy: number) {
@@ -67,7 +75,7 @@ function statsOf(equity: number[], bpy: number) {
   return { cagr, dd, mar: dd > 0 ? cagr / dd : 0 };
 }
 
-type Slot = {
+export type Slot = {
   shares: number;
   cost: number;
   eqAtEntry: number;
@@ -75,6 +83,20 @@ type Slot = {
   entryPrice: number;
   sigType: 1 | 2;
   entryRps: number;
+};
+
+export type RotateCheckpoint = {
+  version: 1;
+  asOf: string;
+  cash: number;
+  lastEq: number;
+  seed: number;
+  slots: Record<string, Slot>;
+  legs: Record<string, { state: RotationTradeState; lastClose: number; lastRps: number }>;
+  orders: { symbol: string; amount: number }[];
+  decisions: Record<string, StepDecision>;
+  dailyEquity: { date: string; v: number }[];
+  totals: { entries: number; rotations: number; missed: number; holdingSum: number; exposureSum: number; exits: number; wins: number; bars: number };
 };
 
 /**
@@ -85,11 +107,14 @@ export function runRotate(uni: PreparedUniverse, config: BacktestConfig, opts: R
   const { lo, hi } = windowBounds(uni.axis, config);
   const cost = opts.costBps / 10_000;
   const statsOnly = opts.statsOnly === true;
+  const resume = opts.continuation?.checkpoint;
+  const capture = opts.continuation?.capture === true;
   const isDayClose = uni.axis.map(
     (a, i) => i + 1 >= uni.axis.length || uni.axis[i + 1].slice(0, 10) !== a.slice(0, 10),
   );
 
   const legs = uni.symbols.map((sym, idx) => {
+    const previous = resume?.legs[sym.ticker];
     const inp = prepareSymbolInputs(uni.axis, sym, config, lo, hi);
     if (opts.dailyEntry) {
       const days = opts.dailyEntry.get(sym.ticker);
@@ -99,6 +124,10 @@ export function runRotate(uni: PreparedUniverse, config: BacktestConfig, opts: R
         inp.buy2[k] = false;
       }
     }
+    // 下一根是否还允许执行旧买单，在生成器第一次 next 前确定。
+    const firstNew = sym.axisIndex.findIndex((d) => !resume || uni.axis[d] > resume.asOf);
+    const decision = { ...resume?.decisions[sym.ticker] };
+    if (resume && firstNew >= 0 && opts.fillGate && !opts.fillGate(sym.ticker, uni.axis[sym.axisIndex[firstNew]])) decision.rejectEntry = true;
     return {
       idx,
       sym,
@@ -114,12 +143,14 @@ export function runRotate(uni: PreparedUniverse, config: BacktestConfig, opts: R
             ? { exitGate: (k: number) => isDayClose[sym.axisIndex[k]] }
             : {}),
         },
+        capture || resume ? { after: resume?.asOf, state: previous?.state, decision, capture } : undefined,
       ),
-      cursor: 0,
-      local: -1,
+      cursor: resume ? (firstNew < 0 ? sym.axisIndex.length : firstNew) : 0,
+      local: resume ? (firstNew < 0 ? sym.axisIndex.length : firstNew) - 1 : -1,
       view: null as StepView | null,
-      lastClose: 0,
-      lastRps: 0,
+      state: previous?.state,
+      lastClose: previous?.lastClose ?? 0,
+      lastRps: previous?.lastRps ?? 0,
     };
   });
 
@@ -127,38 +158,57 @@ export function runRotate(uni: PreparedUniverse, config: BacktestConfig, opts: R
     .map((leg) => ({ leg, end: leg.sym.axisIndex[leg.sym.axisIndex.length - 1] }))
     .filter(({ end }) => end < hi - 1);
 
-  let cash = 1;
+  let cash = resume?.cash ?? 1;
   const slots = new Map<number, Slot>();
+  const indices = new Map(legs.map((leg) => [leg.sym.ticker, leg.idx]));
+  for (const [symbol, slot] of Object.entries(resume?.slots ?? {})) {
+    const idx = indices.get(symbol);
+    if (idx == null) throw new Error(`${symbol} 缺少持仓行情，不能继续记账`);
+    slots.set(idx, { ...slot });
+  }
   const lotPnl: { symbol: string; pct: number }[] = [];
   const trades: ClosedTrade[] = [];
-  let orders: { idx: number; amount: number }[] = [];
+  let orders: { idx: number; amount: number }[] = (resume?.orders ?? []).map((o) => ({ idx: indices.get(o.symbol)!, amount: o.amount })).filter((o) => o.idx != null);
   const decisions = new Map<number, StepDecision>();
+  for (const [symbol, decision] of Object.entries(resume?.decisions ?? {})) {
+    const idx = indices.get(symbol);
+    if (idx != null) decisions.set(idx, { ...decision });
+  }
 
   const equity: number[] = [];
   const curve: { date: string; v: number }[] = [];
   const holdCounts: number[] = [];
   const book: DayBook[] = [];
   const holdings: HoldingDay[] = [];
-  let entries = 0;
-  let rotations = 0;
-  let missed = 0;
-  let holdingSum = 0;
-  let exposureSum = 0;
-  let exits = 0;
+  let entries = resume?.totals.entries ?? 0;
+  let rotations = resume?.totals.rotations ?? 0;
+  let missed = resume?.totals.missed ?? 0;
+  let holdingSum = resume?.totals.holdingSum ?? 0;
+  let exposureSum = resume?.totals.exposureSum ?? 0;
+  let exits = resume?.totals.exits ?? 0;
+  let wins = resume?.totals.wins ?? 0;
   const missedBuys: { date: string; symbol: string; price: number }[] = [];
 
-  let lastEq = 1;
-  let seed = opts.seed ?? 12345;
+  let lastEq = resume?.lastEq ?? 1;
+  let seed = resume?.seed ?? opts.seed ?? 12345;
   const rnd = () => {
     seed = (seed * 1103515245 + 12345) % 2147483648;
     return seed / 2147483648;
   };
 
   for (let d = 0; d < hi; d += 1) {
+    if (resume && uni.axis[d] <= resume.asOf) continue;
+    const processed = new Set<number>();
     for (const leg of legs) {
       if (leg.cursor < leg.sym.axisIndex.length && leg.sym.axisIndex[leg.cursor] === d) {
+        if (opts.fillGate && !opts.fillGate(leg.sym.ticker, uni.axis[d])) {
+          decisions.set(leg.idx, { ...decisions.get(leg.idx), rejectEntry: true });
+        }
         const r = leg.gen.next(decisions.get(leg.idx));
+        processed.add(leg.idx);
+        if (capture) decisions.delete(leg.idx);
         leg.view = r.done ? null : r.value;
+        leg.state = leg.view?.checkpoint ?? leg.state;
         leg.local = leg.cursor;
         leg.cursor += 1;
         leg.lastClose = leg.sym.close[leg.local];
@@ -167,7 +217,7 @@ export function runRotate(uni: PreparedUniverse, config: BacktestConfig, opts: R
         leg.view = null;
       }
     }
-    decisions.clear();
+    if (!capture) decisions.clear();
     if (d < lo) continue;
 
     const sells: string[] = [];
@@ -177,6 +227,7 @@ export function runRotate(uni: PreparedUniverse, config: BacktestConfig, opts: R
       const proceeds = slot.shares * price * (1 - cost);
       cash += proceeds;
       exits += 1;
+      if (proceeds > slot.cost) wins += 1;
       if (!statsOnly && slot.eqAtEntry > 0) {
         lotPnl.push({
           symbol: legs[idx].sym.ticker,
@@ -195,6 +246,7 @@ export function runRotate(uni: PreparedUniverse, config: BacktestConfig, opts: R
     }
 
     for (const { leg, end } of staleLegs) {
+      if (opts.retainMissing) continue;
       if (d <= end) continue;
       if (!slots.has(leg.idx)) continue;
       closeSlot(leg.idx, leg.lastClose, null);
@@ -222,7 +274,7 @@ export function runRotate(uni: PreparedUniverse, config: BacktestConfig, opts: R
       entries += 1;
       if (!statsOnly) buys.push(leg.sym.ticker);
     }
-    orders = [];
+    orders = capture ? orders.filter((o) => !processed.has(o.idx)) : [];
 
     let held = 0;
     for (const [idx, slot] of slots) held += slot.shares * legs[idx].lastClose;
@@ -290,7 +342,7 @@ export function runRotate(uni: PreparedUniverse, config: BacktestConfig, opts: R
     }
 
     const slotAmount = eq * (opts.slotPctOf ? opts.slotPctOf(date) : opts.slotPct);
-    let free = cash;
+    let free = cash - (capture ? orders.reduce((sum, o) => sum + o.amount, 0) : 0);
     const doomed = new Set<number>();
 
     for (const cand of fresh) {
@@ -336,8 +388,9 @@ export function runRotate(uni: PreparedUniverse, config: BacktestConfig, opts: R
     }
   }
 
-  const n = Math.max(1, equity.length);
-  const byDay = new Map<string, number>();
+  const bars = (resume?.totals.bars ?? 0) + equity.length;
+  const n = Math.max(1, bars);
+  const byDay = new Map<string, number>((resume?.dailyEquity ?? []).map((p) => [p.date, p.v]));
   for (const pt of curve) byDay.set(pt.date.slice(0, 10), pt.v);
   const dailyEq = [...byDay.keys()].sort().map((k) => byDay.get(k)!);
   const s = statsOf(dailyEq, 252);
@@ -357,5 +410,14 @@ export function runRotate(uni: PreparedUniverse, config: BacktestConfig, opts: R
     holdings,
     trades,
     missedBuys,
+    ...(capture ? { checkpoint: {
+      version: 1 as const, asOf: curve.at(-1)?.date ?? resume?.asOf ?? "", cash, lastEq, seed,
+      slots: Object.fromEntries([...slots].map(([idx, slot]) => [legs[idx].sym.ticker, slot])),
+      legs: Object.fromEntries(legs.filter((leg) => leg.state && (slots.has(leg.idx) || orders.some((o) => o.idx === leg.idx))).map((leg) => [leg.sym.ticker, { state: leg.state!, lastClose: leg.lastClose, lastRps: leg.lastRps }])),
+      orders: orders.map((o) => ({ symbol: legs[o.idx].sym.ticker, amount: o.amount })),
+      decisions: Object.fromEntries([...decisions].filter(([idx]) => slots.has(idx) || orders.some((o) => o.idx === idx)).map(([idx, decision]) => [legs[idx].sym.ticker, decision])),
+      dailyEquity: [...byDay].map(([date, v]) => ({ date, v })),
+      totals: { entries, rotations, missed, holdingSum, exposureSum, exits, wins, bars },
+    } } : {}),
   };
 }

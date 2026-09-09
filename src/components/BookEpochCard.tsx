@@ -63,7 +63,7 @@ export function BookEpochCard({ onApply, applying = false }: { onApply?: ApplyBo
         <Popover.Target>
           <UnstyledButton disabled={applying} onClick={() => setOpen((v) => !v)}>
             <Text size="xs" c="dimmed">
-              改起点
+              新建一期
             </Text>
           </UnstyledButton>
         </Popover.Target>
@@ -74,21 +74,21 @@ export function BookEpochCard({ onApply, applying = false }: { onApply?: ApplyBo
             </Alert>
           ) : null}
           <Group align="flex-end" gap="sm">
-            <DayPicker label="新起点" value={from} onChange={setFrom} withinPortal={false} />
+            <DayPicker label="新一期起点" value={from} onChange={setFrom} withinPortal={false} />
             <Button size="xs" variant="subtle" color="gray" disabled={!from || from === epoch?.from || applying} onClick={() => setConfirmOpen(true)}>
               查看变更
             </Button>
           </Group>
         </Popover.Dropdown>
       </Popover>
-      <Modal opened={confirmOpen} onClose={() => setConfirmOpen(false)} title="改记账起点" centered>
-        <Text size="sm">记账起点从 {epoch?.from ?? "—"} 改为 {from || "—"}。保存后从新起点空仓重算 4 小时和 2 小时账本，原结果保留为历史版本。</Text>
+      <Modal opened={confirmOpen} onClose={() => setConfirmOpen(false)} title="新建一期账本" centered>
+        <Text size="sm">当前账本自 {epoch?.from ?? "—"} 开始。新一期从 {from || "—"} 空仓、初始净值 1 开始计算，不继承当前持仓和收益；当前账本保留为历史版本。仅调整股票池无需新建一期。</Text>
         <Group justify="flex-end" mt="md">
           <Button variant="default" onClick={() => setConfirmOpen(false)}>
             取消
           </Button>
           <Button color="orange" loading={busy || applying} onClick={() => void reset()}>
-            保存并重算
+            新建并计算
           </Button>
         </Group>
       </Modal>

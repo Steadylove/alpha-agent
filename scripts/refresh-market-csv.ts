@@ -15,6 +15,7 @@ import {
 } from "@/lib/backtest/csvPanel";
 import { marketDataRoot, rpsScaleFile, writeManifest } from "@/lib/backtest/marketStore";
 import type { RpsScaleFile } from "@/lib/backtest/rpsScale";
+import { rebuildTwoHourCsv } from "@/lib/backtest/rebuildTwoHour";
 import { assertFourHourShape } from "@/lib/backtest/intradayShape";
 import { lastSettledSession, mergeNewBars, type OhlcvBar } from "@/lib/backtest/mergeBars";
 import type { PanelBars } from "@/lib/backtest/panel";
@@ -28,7 +29,6 @@ import { ROTATION_UNIVERSE } from "@/lib/scoring/rotationUniverse";
 import { SECTOR_UNIVERSE } from "@/lib/scoring/sectorUniverse";
 import {
   aggregateTo1H,
-  aggregateTo2H,
   aggregateTo4H,
   barTimeISO,
   fetchYahoo1HBars,
@@ -278,10 +278,13 @@ async function main() {
   const macro = await refreshMacro(until);
   const tfWanted = wanted.filter((t) => !MACRO_CBOE.includes(t as CboeVolIndex) && t !== "DXY");
   const four = await refreshTf("4h", CSV_4H_DIR, tfWanted, until, (raw) => toOhlcv(aggregateTo4H(raw)));
-  const two = await refreshTf("2h", CSV_2H_DIR, tfWanted, until, (raw) => toOhlcv(aggregateTo2H(raw)));
   const one = await refreshTf("1h", CSV_1H_DIR, tfWanted, until, (raw) => toOhlcv(aggregateTo1H(raw)));
 
   if (AUDIT_ONLY) return;
+  if (one.failed.length) throw new Error(`1H 同步失败，停止发布 2H：${one.failed.join("；")}`);
+  // 每次从完整 1H 重建，旧目录即使已经更新到今天也会被替换。
+  const rebuilt = rebuildTwoHourCsv(CSV_1H_DIR, CSV_2H_DIR, tfWanted);
+  const two = { updated: rebuilt.length, failed: [] as string[] };
   const report = (name: string, r: { updated: number; failed: string[] }) => {
     console.log(`\n补 ${name}: 写入 ${r.updated}  失败 ${r.failed.length}`);
     if (r.failed.length) console.log(`  ${r.failed.slice(0, 15).join(" | ")}`);

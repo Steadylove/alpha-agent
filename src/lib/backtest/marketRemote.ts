@@ -2,6 +2,7 @@ import { parseCsvText, readCsvPanel } from "./csvPanel";
 import type { MarketTimeframe } from "./marketStore";
 import { csvDir, marketBaseUrl } from "./marketStore";
 import type { PanelBars } from "./panel";
+import { twoHourPanelFromHourly } from "./twoHourPanel";
 
 const CONCURRENCY = 24;
 
@@ -25,6 +26,10 @@ export async function loadMarketPanel(
   timeframe: MarketTimeframe,
   ticker: string,
 ): Promise<PanelBars | null> {
+  if (timeframe === "2h") {
+    const hourly = await loadMarketPanel("1h", ticker);
+    return hourly ? twoHourPanelFromHourly(hourly) : null;
+  }
   if (marketBaseUrl()) {
     return fetchRemoteCsvPanel(timeframe, ticker);
   }
@@ -35,6 +40,10 @@ export async function fetchRemoteCsvPanel(
   timeframe: MarketTimeframe,
   ticker: string,
 ): Promise<PanelBars | null> {
+  if (timeframe === "2h") {
+    const hourly = await fetchRemoteCsvPanel("1h", ticker);
+    return hourly ? twoHourPanelFromHourly(hourly) : null;
+  }
   const text = await fetchMarketText(`${timeframe}/${ticker}.csv`);
   if (!text) return null;
   return parseCsvText(ticker, text);

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { peekLiveBooks, refreshLiveBooks } from "@/lib/fund/liveBooks";
 import { readBookEpoch } from "@/lib/fund/bookEpoch";
 import { listLiveBookVersions, readLiveBookVersion, isBookVersionId } from "@/lib/fund/liveBooksStore";
+import { withoutObsoleteTwoHour } from "@/lib/fund/liveBooksLogic";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -10,12 +11,12 @@ export const maxDuration = 300;
 export async function GET(request: Request) {
   try {
     const params = new URL(request.url).searchParams;
-    if (params.get("history") === "1") return NextResponse.json({ versions: await listLiveBookVersions() });
+    if (params.get("history") === "1") return NextResponse.json({ versions: (await listLiveBookVersions()).map(withoutObsoleteTwoHour) });
     const version = params.get("version");
     if (version) {
       if (!isBookVersionId(version)) return NextResponse.json({ error: "版本号无效" }, { status: 400 });
       const book = await readLiveBookVersion(version);
-      return book ? NextResponse.json(book) : NextResponse.json({ error: "找不到该版本" }, { status: 404 });
+      return book ? NextResponse.json(withoutObsoleteTwoHour(book)) : NextResponse.json({ error: "找不到该版本" }, { status: 404 });
     }
     const cached = await peekLiveBooks();
     if (cached) return NextResponse.json({ ok: true, ...cached });

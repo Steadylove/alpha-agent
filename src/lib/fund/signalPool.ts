@@ -7,6 +7,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { writeJsonAtomic } from "@/lib/files/atomicJson";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 
 import type { PreparedUniverse } from "@/lib/backtest/engine";
 import { tickersForPool } from "@/lib/backtest/smallFundPools";
@@ -66,9 +67,23 @@ export async function readSignalPool(): Promise<SignalPoolPatch> {
 }
 
 export async function writeSignalPool(patch: SignalPoolPatch, now = new Date()): Promise<SignalPoolPatch> {
-  const next: SignalPoolPatch = { ...patch, updatedAt: now.toISOString() };
-  if (!usesRemoteStore()) return writeLocal(next);
-  await writeDeskJson(REMOTE_FILE, next);
+  const remote = usesRemoteStore();
+  const previous = remote ? await readSignalPool() : readLocal();
+  const base = defaultSignalPoolTickers();
+  const before = applySignalPool(base, previous);
+  const members = applySignalPool(base, patch);
+  if (JSON.stringify(before) === JSON.stringify(members)) return previous;
+  const at = now.toISOString();
+  if (previous.updatedAt && Date.parse(at) < Date.parse(previous.updatedAt)) throw new Error("保存时间早于现有版本，请校准服务器时间");
+  const next: SignalPoolPatch = {
+    ...patch, members, updatedAt: at,
+    revisions: [
+      ...(previous.revisions ?? [{ id: "baseline", effectiveAt: "", members: before }]),
+      { id: randomUUID(), effectiveAt: at, members },
+    ],
+  };
+  if (!remote) return writeLocal(next);
+  await writeDeskJson(REMOTE_FILE, next, previous.updatedAt);
   return next;
 }
 

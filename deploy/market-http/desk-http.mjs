@@ -152,6 +152,20 @@ createServer((req, res) => {
         return;
       }
       try {
+        if (name === "signal-pool.json") {
+          const previous = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
+          const next = JSON.parse(raw);
+          if (req.headers["if-match"] != null && req.headers["if-match"] !== JSON.stringify(previous.updatedAt || "")) {
+            deny(res, 409, "股票池已被其他操作更新，请刷新后重试");
+            return;
+          }
+          if (previous.revisions && (req.headers["if-match"] == null || !Array.isArray(next.revisions) ||
+            next.revisions.length !== previous.revisions.length + 1 ||
+            JSON.stringify(next.revisions.slice(0, -1)) !== JSON.stringify(previous.revisions))) {
+            deny(res, 409, "不能覆盖股票池历史版本，请刷新后重试");
+            return;
+          }
+        }
         if (name === "live-books.json") {
           const book = JSON.parse(raw);
           if (!book.runId || !book.computedAt || !Array.isArray(book.books) || book.books.length !== 2) {

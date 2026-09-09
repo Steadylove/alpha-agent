@@ -6,13 +6,16 @@ import { fetchMarketText } from "@/lib/backtest/marketRemote";
 import { csvDir, marketBaseUrl, marketDataRoot, rpsScaleFile } from "@/lib/backtest/marketStore";
 import { champOf } from "./champs";
 import { DEFAULT_LOOKBACK_SLOTS } from "./lookbackLogic";
+import { TWO_HOUR_VERSION } from "@/lib/backtest/twoHourVersion";
+import { twoHourAsOf } from "@/lib/backtest/twoHourPanel";
 
 // 修改交易/信号算法时递增；参数变动由下面的配置哈希自动识别。
-export const LIVE_BOOK_ENGINE_VERSION = 2;
+export const LIVE_BOOK_ENGINE_VERSION = 4;
 
 export function liveStrategyKey(): string {
   return createHash("sha256").update(JSON.stringify({
     engine: LIVE_BOOK_ENGINE_VERSION,
+    twoHourVersion: TWO_HOUR_VERSION,
     strategies: ["4h", "2h-broad"].map((id) => {
       const c = champOf(id);
       return { id, poolId: c.poolId, config: c.config, opts: { ...c.opts, slotPct: 1 / DEFAULT_LOOKBACK_SLOTS } };
@@ -38,7 +41,7 @@ export async function liveMarketRevision(): Promise<{ marketRevision: string; as
     if (!parsed.generatedAt || !Number.isFinite(Date.parse(parsed.generatedAt))) {
       throw new Error("行情版本清单无效");
     }
-    for (const tf of ["4h", "2h"] as const) {
+    for (const tf of ["4h", "1h"] as const) {
       const asOf = parsed.timeframes?.[tf]?.asOf;
       if (asOf != null && (typeof asOf !== "string" || !Number.isFinite(Date.parse(asOf)))) {
         throw new Error("行情版本清单的截至时间无效");
@@ -46,11 +49,12 @@ export async function liveMarketRevision(): Promise<{ marketRevision: string; as
     }
     return {
       marketRevision: createHash("sha256").update(manifest.trim()).digest("hex"),
-      asOf: { "4h": parsed.timeframes?.["4h"]?.asOf, "2h": parsed.timeframes?.["2h"]?.asOf },
+      // 2H 现在由 1H 全历史重建；旧 2H 文件的截至时间不再有意义。
+      asOf: { "4h": parsed.timeframes?.["4h"]?.asOf, "2h": twoHourAsOf(parsed.timeframes?.["1h"]?.asOf) },
     };
   }
   const files = [rpsScaleFile()];
-  for (const tf of ["1d", "4h", "2h"] as const) {
+  for (const tf of ["1d", "4h", "1h"] as const) {
     const dir = csvDir(tf);
     if (existsSync(dir)) files.push(...readdirSync(dir).filter((f) => f.endsWith(".csv")).map((f) => path.join(dir, f)));
   }

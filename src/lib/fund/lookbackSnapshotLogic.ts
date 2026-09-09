@@ -1,5 +1,6 @@
 import { clampLookbackSlots, DEFAULT_LOOKBACK_SLOTS, isLookbackTf, type LookbackTf } from "./lookbackLogic";
 import { tickerListOf } from "./signalPoolLogic";
+import { usableTwoHourResult } from "@/lib/backtest/twoHourVersion";
 
 export type LookbackSnapshot = {
   id: string;
@@ -7,6 +8,7 @@ export type LookbackSnapshot = {
   savedAt: string;
   members: string[];
   tf: LookbackTf;
+  twoHourVersion?: string;
   from: string;
   slots: number;
   asOf: string;
@@ -53,6 +55,7 @@ export function snapshotOf(raw: unknown): LookbackSnapshot | null {
     savedAt: typeof p.savedAt === "string" ? p.savedAt : "",
     members,
     tf: p.tf,
+    ...(typeof p.twoHourVersion === "string" ? { twoHourVersion: p.twoHourVersion } : {}),
     from: p.from,
     slots,
     asOf: typeof p.asOf === "string" ? p.asOf : "",
@@ -71,7 +74,7 @@ export function snapshotListOf(raw: unknown): LookbackSnapshot[] {
   const seen = new Set<string>();
   for (const item of raw) {
     const snap = snapshotOf(item);
-    if (!snap || seen.has(snap.id)) continue;
+    if (!snap || !usableTwoHourResult(snap.tf, snap.twoHourVersion) || seen.has(snap.id)) continue;
     seen.add(snap.id);
     out.push(snap);
   }
@@ -89,6 +92,7 @@ export function addSnapshot(
     savedAt: now.toISOString(),
   });
   if (!snap) throw new Error("名单、起点和回看成绩不完整");
+  if (!usableTwoHourResult(snap.tf, snap.twoHourVersion)) throw new Error("旧 2H 回看成绩已作废，请重新计算后保存");
   return [snap, ...list.filter((s) => s.id !== snap.id)].slice(0, MAX_SNAPS);
 }
 

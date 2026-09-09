@@ -1,14 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { bookCache, bookView } from "./liveBooksFixtures";
+import { continuousCache as bookCache, bookView, bookCheckpoint } from "./liveBooksFixtures";
 
 const mocks = vi.hoisted(() => ({
   epoch: vi.fn(), members: vi.fn(), market: vi.fn(), strategy: vi.fn(), run: vi.fn(),
   read: vi.fn(), write: vi.fn(), remoteUrl: vi.fn(), remoteRun: vi.fn(), clear: vi.fn(), clearRps: vi.fn(),
 }));
 vi.mock("@/lib/fund/bookEpoch", () => ({ readBookEpoch: mocks.epoch }));
-vi.mock("@/lib/fund/signalPool", () => ({ readSignalPoolMembers: mocks.members }));
+vi.mock("@/lib/fund/signalPool", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/fund/signalPool")>(), readSignalPool: mocks.members }));
 vi.mock("@/lib/fund/liveBooksRevision", () => ({ liveMarketRevision: mocks.market, liveStrategyKey: mocks.strategy }));
-vi.mock("@/lib/fund/lookback", () => ({ runLookback: mocks.run }));
+vi.mock("@/lib/fund/liveBookContinuation", () => ({ runContinuousBook: mocks.run }));
 vi.mock("@/lib/fund/liveBooksStore", () => ({ readLiveBooks: mocks.read, writeLiveBooks: mocks.write, listLiveBookVersions: vi.fn(), readLiveBookVersion: vi.fn(), isBookVersionId: vi.fn() }));
 vi.mock("@/lib/fund/deskRemote", () => ({ computeLiveBooksUrl: mocks.remoteUrl, postComputeLiveBooks: mocks.remoteRun }));
 vi.mock("@/lib/backtest/load", () => ({ invalidateSmallFundCache: mocks.clear }));
@@ -19,16 +19,30 @@ import { POST } from "@/app/api/fund/live-books/route";
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.epoch.mockResolvedValue({ from: "2026-01-01" });
-  mocks.members.mockResolvedValue(["AAPL", "NVDA"]);
+  mocks.members.mockResolvedValue({ members: ["AAPL", "NVDA"], added: [], removed: [], updatedAt: "" });
   mocks.market.mockResolvedValue({ marketRevision: "market-1", asOf: { "4h": "2026-09-08T17:30", "2h": "2026-09-08T17:30" } });
   mocks.strategy.mockReturnValue("strategy-1");
-  mocks.run.mockResolvedValue(bookView());
+  mocks.run.mockResolvedValue({ view: bookCache().books[0].view, checkpoint: bookCheckpoint() });
   mocks.read.mockResolvedValue(bookCache());
   mocks.write.mockResolvedValue(undefined);
   mocks.remoteUrl.mockReturnValue(null);
 });
 
 describe("账本计算与缓存一致性", () => {
+  it("旧 2H 从起点重建，4H 状态继续；新 2H 下一次更新不再重置", async () => {
+    const old = bookCache({ twoHourVersion: undefined });
+    mocks.read.mockResolvedValue(old);
+    const shown = await peekLiveBooks();
+    expect(shown?.books.map((b) => b.tf)).toEqual(["4h"]);
+    expect(shown?.staleReason).toContain("旧 2H");
+    const rebuilt = await refreshLiveBooks();
+    expect(mocks.run).toHaveBeenNthCalledWith(1, expect.objectContaining({ tf: "4h", previous: old.books[0] }));
+    expect(mocks.run).toHaveBeenNthCalledWith(2, expect.objectContaining({ tf: "2h", previous: undefined, priorMembers: undefined }));
+    mocks.read.mockResolvedValue(rebuilt);
+    await refreshLiveBooks();
+    expect(mocks.run).toHaveBeenNthCalledWith(4, expect.objectContaining({ tf: "2h", previous: rebuilt.books[1] }));
+  });
+
   it("行情、策略、起点、仓位或名单变化后标为过期，旧结构也只能只读展示", async () => {
     expect((await peekLiveBooks())?.stale).toBe(false);
     for (const over of [{ marketRevision: "old" }, { strategyKey: "old" }, { epochFrom: "2025-01-01" }, { slots: 8 }, { poolKey: "AAPL" }, { runId: undefined }]) {
@@ -52,19 +66,19 @@ describe("账本计算与缓存一致性", () => {
     const second = await refreshLiveBooks();
     expect(mocks.clear).toHaveBeenCalledTimes(2);
     expect(mocks.clearRps).toHaveBeenCalledTimes(2);
-    expect(mocks.run).toHaveBeenCalledWith("4h", "2026-01-01", ["AAPL", "NVDA"], 10);
-    expect(mocks.run).toHaveBeenCalledWith("2h", "2026-01-01", ["AAPL", "NVDA"], 10);
+    expect(mocks.run).toHaveBeenCalledWith(expect.objectContaining({ tf: "4h", from: "2026-01-01", members: ["AAPL", "NVDA"], slots: 10, previous: expect.any(Object) }));
+    expect(mocks.run).toHaveBeenCalledWith(expect.objectContaining({ tf: "2h", from: "2026-01-01", members: ["AAPL", "NVDA"], slots: 10, previous: expect.any(Object) }));
     expect(first.runId).not.toBe(second.runId);
     expect(mocks.write).toHaveBeenCalledTimes(2);
   });
 
   it("计算期间配置变更不允许把旧结果标成新配置保存", async () => {
     mocks.run.mockImplementationOnce(async () => {
-      mocks.members.mockResolvedValue(["AAPL"]);
-      return bookView();
+      mocks.members.mockResolvedValue({ members: ["AAPL"], added: [], removed: [], updatedAt: "" });
+      return { view: bookView(), checkpoint: bookCheckpoint() };
     });
     await expect(refreshLiveBooks()).rejects.toThrow("计算期间");
-    expect(mocks.run).toHaveBeenLastCalledWith("2h", "2026-01-01", ["AAPL", "NVDA"], 10);
+    expect(mocks.run).toHaveBeenLastCalledWith(expect.objectContaining({ tf: "2h", from: "2026-01-01", members: ["AAPL", "NVDA"], slots: 10 }));
     expect(mocks.write).not.toHaveBeenCalled();
   });
 
@@ -88,6 +102,27 @@ describe("账本计算与缓存一致性", () => {
     expect(one).toBe(two);
     await Promise.all([one, two]);
     expect(mocks.write).toHaveBeenCalledTimes(1);
+  });
+
+  it("同一天显式新建一期也不继承旧持仓，普通更新则继承", async () => {
+    mocks.epoch.mockResolvedValue({ from: "2026-01-01", resetAt: "2026-09-09T08:00:00Z" });
+    await refreshLiveBooks();
+    expect(mocks.run).toHaveBeenCalledWith(expect.objectContaining({ previous: undefined, priorMembers: undefined }));
+  });
+
+  it("缺一个周期的旧账本不能悄悄从零覆盖", async () => {
+    mocks.read.mockResolvedValue(bookCache({ books: [bookCache().books[0]] }));
+    await expect(refreshLiveBooks()).rejects.toThrow("缺少一个周期");
+    expect(mocks.write).not.toHaveBeenCalled();
+  });
+
+  it("已废弃的旧 2H 缺失也能重建，但缺失 4H 仍禁止覆盖", async () => {
+    const old = bookCache({ twoHourVersion: undefined, books: [bookCache().books[0]] });
+    mocks.read.mockResolvedValue(old);
+    await refreshLiveBooks();
+    expect(mocks.run).toHaveBeenLastCalledWith(expect.objectContaining({ tf: "2h", previous: undefined }));
+    mocks.read.mockResolvedValue({ ...old, books: [bookCache().books[1]] });
+    await expect(refreshLiveBooks()).rejects.toThrow("缺少一个周期");
   });
 
   it("远程返回成功但没有持久化相同版本时不能显示成功", async () => {

@@ -31,6 +31,7 @@ describe("signal pool", () => {
     expect(normalizeTicker("nvda")).toBe("NVDA");
     expect(normalizeTicker("NASDAQ:NVDA")).toBe("NVDA");
     expect(normalizeTicker("BRK.B")).toBe("BRK.B");
+    expect(normalizeTicker("BRK-B")).toBe("BRK-B");
     expect(normalizeTicker("??")).toBeNull();
   });
 
