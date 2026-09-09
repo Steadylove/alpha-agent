@@ -106,9 +106,6 @@ export function readRpsScale(): RpsScale | null {
 }
 
 export async function requireRpsScale(): Promise<RpsScale> {
-  const local = readRpsScale();
-  if (local) return local;
-
   const { marketBaseUrl } = await import("./marketStore");
   if (marketBaseUrl()) {
     const { fetchMarketText } = await import("./marketRemote");
@@ -119,17 +116,10 @@ export async function requireRpsScale(): Promise<RpsScale> {
     }
   }
 
-  const { remoteDbEnabled } = await import("@/lib/db/remote");
-  if (remoteDbEnabled() && process.env.DATABASE_URL) {
-    const { getPrisma } = await import("@/lib/db/prisma");
-    const row = await getPrisma().rpsScale.findUnique({ where: { id: "spx" } });
-    if (row?.payload && typeof row.payload === "object") {
-      cached = parseScaleFile(row.payload as RpsScaleFile);
-      return cached;
-    }
-  }
+  const local = readRpsScale();
+  if (local) return local;
 
   throw new Error(
-    `RPS 标尺缺失：${RPS_SCALE_PATH}。跑 npm run rps:scale 生成（需要标普面板缓存）。`,
+    `RPS 标尺缺失：${RPS_SCALE_PATH}。从 VPS 拉 rps/rps-scale-spx.json，或跑 npm run rps:scale。`,
   );
 }

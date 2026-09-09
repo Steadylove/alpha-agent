@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 
 import { CSV_4H_DIR, CSV_PANEL_DIR, hasCsvPanel } from "@/lib/backtest/csvPanel";
-import { smallFundSource } from "@/lib/backtest/load";
 import {
   defaultSignalPoolTickers,
   editSignalPool,
@@ -15,7 +14,6 @@ import {
 export const dynamic = "force-dynamic";
 
 function csvMissing(ticker: string): string[] {
-  if (smallFundSource() === "db") return [];
   const missing: string[] = [];
   if (!hasCsvPanel(CSV_PANEL_DIR, ticker)) missing.push("1d");
   if (!hasCsvPanel(CSV_4H_DIR, ticker)) missing.push("4h");

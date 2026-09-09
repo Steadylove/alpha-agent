@@ -18,8 +18,12 @@ import { lastSettledSession, mergeNewBars, type OhlcvBar } from "@/lib/backtest/
 import type { PanelBars } from "@/lib/backtest/panel";
 import { tickersForPool } from "@/lib/backtest/smallFundPools";
 import { fetchAlpaca30MBars, hasAlpacaCredentials } from "@/lib/data-sources/alpaca";
+import { fetchCboeVolIndexHistory, type CboeVolIndex } from "@/lib/data-sources/cboe";
 import { fetchStooqDailyBars } from "@/lib/data-sources/stooq";
 import { fetchYahooDailyBars } from "@/lib/data-sources/yahoo";
+import { MPR_SYMBOLS } from "@/lib/scoring/mpr";
+import { ROTATION_UNIVERSE } from "@/lib/scoring/rotationUniverse";
+import { SECTOR_UNIVERSE } from "@/lib/scoring/sectorUniverse";
 import {
   aggregateTo1H,
   aggregateTo2H,
@@ -38,6 +42,15 @@ import {
  */
 
 const KNOWN_GAP = new Set(["SKHY", "SPCX"]);
+const MACRO_YAHOO: { symbol: string; fetchSymbol?: string }[] = [
+  { symbol: "SPY" },
+  { symbol: "RSP" },
+  { symbol: "TLT" },
+  { symbol: "DXY", fetchSymbol: "DX-Y.NYB" },
+  { symbol: "HYG" },
+  { symbol: "IEI" },
+];
+const MACRO_CBOE: CboeVolIndex[] = ["VIX", "VIX9D", "VIX3M"];
 const CONCURRENCY = Number(process.env.BACKFILL_CONCURRENCY ?? 6);
 const AUDIT_ONLY = process.argv.includes("--audit");
 
@@ -202,19 +215,63 @@ function extendRpsScale(until: string) {
   console.log(`RPS 标尺垫到 ${extra.at(-1)}（${extra.length} 日，切点沿用 ${lastCut}）`);
 }
 
+async function refreshMacro(until: string) {
+  const failed: string[] = [];
+  let updated = 0;
+  for (const target of MACRO_YAHOO) {
+    try {
+      const existing = readCsvPanel(CSV_PANEL_DIR, target.symbol);
+      const incoming = await fetchYahooDailyBars(target.fetchSymbol ?? target.symbol, { years: 2 });
+      const merged = mergeNewBars(existing ? toBars(existing) : [], incoming, until);
+      if (!existing || merged.length !== existing.dates.length) {
+        writeBars(CSV_PANEL_DIR, target.symbol, merged);
+        updated += 1;
+      }
+    } catch (error) {
+      failed.push(`${target.symbol}: ${error instanceof Error ? error.message : error}`);
+    }
+  }
+  for (const symbol of MACRO_CBOE) {
+    try {
+      const existing = readCsvPanel(CSV_PANEL_DIR, symbol);
+      const incoming = await fetchCboeVolIndexHistory(symbol);
+      const merged = mergeNewBars(existing ? toBars(existing) : [], incoming, until);
+      if (!existing || merged.length !== existing.dates.length) {
+        writeBars(CSV_PANEL_DIR, symbol, merged);
+        updated += 1;
+      }
+    } catch (error) {
+      failed.push(`${symbol}: ${error instanceof Error ? error.message : error}`);
+    }
+  }
+  return { updated, failed };
+}
+
 async function main() {
   const until = lastSettledSession();
-  const wanted = tickersForPool("sf-broad");
+  const wanted = [
+    ...new Set([
+      ...tickersForPool("sf-broad"),
+      ...ROTATION_UNIVERSE.map((t) => t.symbol),
+      ...SECTOR_UNIVERSE.map((s) => s.symbol),
+      ...MPR_SYMBOLS,
+    ]),
+  ];
   const root = marketDataRoot();
   console.log(
     `已收盘日 ${until}  扩池 ${wanted.length}  源 ${hasAlpacaCredentials() ? "Alpaca" : "Yahoo"}` +
       (root ? `  目录 ${root}` : ""),
   );
 
-  const daily = await refreshDaily(wanted, until);
-  const four = await refreshTf("4h", CSV_4H_DIR, wanted, until, (raw) => toOhlcv(aggregateTo4H(raw)));
-  const two = await refreshTf("2h", CSV_2H_DIR, wanted, until, (raw) => toOhlcv(aggregateTo2H(raw)));
-  const one = await refreshTf("1h", CSV_1H_DIR, wanted, until, (raw) => toOhlcv(aggregateTo1H(raw)));
+  const daily = await refreshDaily(
+    wanted.filter((t) => !MACRO_CBOE.includes(t as CboeVolIndex) && t !== "DXY"),
+    until,
+  );
+  const macro = await refreshMacro(until);
+  const tfWanted = wanted.filter((t) => !MACRO_CBOE.includes(t as CboeVolIndex) && t !== "DXY");
+  const four = await refreshTf("4h", CSV_4H_DIR, tfWanted, until, (raw) => toOhlcv(aggregateTo4H(raw)));
+  const two = await refreshTf("2h", CSV_2H_DIR, tfWanted, until, (raw) => toOhlcv(aggregateTo2H(raw)));
+  const one = await refreshTf("1h", CSV_1H_DIR, tfWanted, until, (raw) => toOhlcv(aggregateTo1H(raw)));
 
   if (AUDIT_ONLY) return;
   const report = (name: string, r: { updated: number; failed: string[] }) => {
@@ -222,6 +279,7 @@ async function main() {
     if (r.failed.length) console.log(`  ${r.failed.slice(0, 15).join(" | ")}`);
   };
   report("1d", daily);
+  report("macro", macro);
   report("4h", four);
   report("2h", two);
   report("1h", one);

@@ -1,6 +1,9 @@
 import { fetchFmpValuationInputs } from "@/lib/data-sources/fmp";
 import { fetchYahoo1HBars, aggregateTo4H } from "@/lib/data-sources/yahooIntraday";
-import { getPrisma } from "@/lib/db/prisma";
+import type { MprData } from "@/lib/dashboard/mpr";
+import type { ShortInterestSnapshot } from "@/lib/jobs/shortInterest";
+import { loadDailyBars } from "@/lib/vps/loadDailyBars";
+import { readSnapshot, writeSnapshot } from "@/lib/vps/snapshot";
 import { computeMomentumGates, fourHourAlpha } from "@/lib/scoring/momentumGates";
 import { relativeRsSeries } from "@/lib/scoring/relativeRs";
 import { ROTATION_UNIVERSE } from "@/lib/scoring/rotationUniverse";
@@ -21,6 +24,36 @@ import { computeValuation, shortTermTarget } from "@/lib/scoring/valuation12m";
 const BENCHMARK_SYMBOL = "SPY";
 const MIN_BARS = 900;
 const FUNDAMENTALS_TTL_DAYS = 7;
+
+export type StockValuationRow = {
+  symbol: string;
+  close: number;
+  primaryTarget: number;
+  upsidePct: number;
+  mode: string;
+  consensusSmoothed: boolean;
+  archetype: string;
+  currentPe: number | null;
+  calculatedPe: number | null;
+  marketCapB: number | null;
+  isDipActive: boolean;
+  shortTermTarget: number;
+  squeezeTier: string;
+  isInLongDowntrend: boolean;
+  isHyperMomentum: boolean;
+  tfAlpha: number | null;
+};
+
+export type StockValuationSnapshot = {
+  date: string;
+  pathId: number;
+  rows: StockValuationRow[];
+};
+
+export type FundamentalsCache = {
+  fetchedAt: string;
+  bySymbol: Record<string, CachedFundamentals>;
+};
 
 export type StockValuationJobResult = {
   latestDate: string | null;
@@ -53,29 +86,24 @@ type CachedFundamentals = {
 async function loadFundamentals(
   symbols: string[],
 ): Promise<{ bySymbol: Map<string, CachedFundamentals>; refreshed: number; missing: string[] }> {
-  const prisma = getPrisma();
-  const cached = await prisma.stockFundamentals.findMany({
-    where: { symbol: { in: symbols } },
-  });
+  const cache = (await readSnapshot<FundamentalsCache>("fundamentals")) ?? {
+    fetchedAt: "",
+    bySymbol: {},
+  };
   const bySymbol = new Map<string, CachedFundamentals>();
-  const cacheRow = new Map(cached.map((c) => [c.symbol, c]));
-
-  const staleBefore = new Date(Date.now() - FUNDAMENTALS_TTL_DAYS * 24 * 60 * 60 * 1000);
+  const staleBefore = Date.now() - FUNDAMENTALS_TTL_DAYS * 24 * 60 * 60 * 1000;
   let refreshed = 0;
   const missing: string[] = [];
+  const next: Record<string, CachedFundamentals> = { ...cache.bySymbol };
 
   for (const symbol of symbols) {
-    const row = cacheRow.get(symbol);
-    const isFresh = row != null && row.fetchedAt > staleBefore;
+    const row = cache.bySymbol[symbol];
+    const isFresh = row != null && Date.parse(cache.fetchedAt) > staleBefore;
 
     if (!isFresh) {
       const fetched = await fetchFmpValuationInputs(symbol);
       if (fetched) {
-        await prisma.stockFundamentals.upsert({
-          where: { symbol },
-          update: { ...fetched, fetchedAt: new Date() },
-          create: { ...fetched, fetchedAt: new Date() },
-        });
+        next[symbol] = fetched;
         bySymbol.set(symbol, fetched);
         refreshed += 1;
         continue;
@@ -84,6 +112,10 @@ async function loadFundamentals(
 
     if (row) bySymbol.set(symbol, row);
     else missing.push(symbol);
+  }
+
+  if (refreshed > 0) {
+    writeSnapshot("fundamentals", { fetchedAt: new Date().toISOString(), bySymbol: next });
   }
 
   return { bySymbol, refreshed, missing };
@@ -119,55 +151,16 @@ async function loadFourHourAlpha(
 }
 
 async function loadBars(symbols: string[]): Promise<Map<string, ValuationBar[]>> {
-  const prisma = getPrisma();
-  const instruments = await prisma.instrument.findMany({
-    where: { symbol: { in: symbols } },
-    select: { id: true, symbol: true },
-  });
-
-  const rows = await prisma.dailyBar.findMany({
-    where: { instrumentId: { in: instruments.map((i) => i.id) } },
-    orderBy: { date: "asc" },
-    select: {
-      instrumentId: true,
-      date: true,
-      high: true,
-      low: true,
-      close: true,
-      volume: true,
-    },
-  });
-
-  const symbolById = new Map(instruments.map((i) => [i.id, i.symbol]));
-  const bySymbol = new Map<string, ValuationBar[]>();
-  for (const row of rows) {
-    const symbol = symbolById.get(row.instrumentId);
-    if (!symbol) continue;
-    const list = bySymbol.get(symbol) ?? [];
-    list.push({
-      date: row.date.toISOString().slice(0, 10),
-      high: row.high,
-      low: row.low,
-      close: row.close,
-      volume: Number(row.volume ?? 0),
-    });
-    bySymbol.set(symbol, list);
-  }
-  return bySymbol;
+  return loadDailyBars(symbols);
 }
 
 export async function runStockValuationJob(): Promise<StockValuationJobResult> {
-  const prisma = getPrisma();
-  const startedAt = new Date();
-  let rowsWritten = 0;
-
-  try {
     const symbols = ROTATION_UNIVERSE.map((t) => t.symbol);
     const bySymbol = await loadBars([...symbols, BENCHMARK_SYMBOL]);
 
     const benchBars = bySymbol.get(BENCHMARK_SYMBOL);
     if (!benchBars || benchBars.length < MIN_BARS) {
-      throw new Error(`基准 ${BENCHMARK_SYMBOL} 数据不足，请先执行 npm run backfill:rotation`);
+      throw new Error(`基准 ${BENCHMARK_SYMBOL} 数据不足，先把日线 CSV 写到 VPS`);
     }
     const benchByDate = new Map(benchBars.map((b) => [b.date, b.close]));
 
@@ -178,23 +171,14 @@ export async function runStockValuationJob(): Promise<StockValuationJobResult> {
       loadFourHourAlpha(eligible),
     ]);
 
-    // 空头持仓由 short-interest 任务双月刷新，这里只读缓存；缺失即退回 Pine 的 na 分支
-    const shortRows = await prisma.shortInterest.findMany({
-      where: { symbol: { in: eligible } },
-      orderBy: { settlementDate: "desc" },
-      select: { symbol: true, sharesShort: true, sharesOutstanding: true },
-    });
-    const shortBySymbol = new Map<string, { sharesShort: number; sharesOutstanding: number | null }>();
-    for (const r of shortRows) {
-      if (!shortBySymbol.has(r.symbol)) shortBySymbol.set(r.symbol, r);
-    }
+    const shorts = await readSnapshot<ShortInterestSnapshot>("short-interest");
+    const shortBySymbol = new Map(
+      (shorts?.rows ?? []).map((r) => [r.symbol, r] as const),
+    );
 
-    const latestPhase = await prisma.macroPhaseState.findFirst({
-      orderBy: { date: "desc" },
-      select: { pathId: true, fsmState: true },
-    });
-    const pathId = latestPhase?.pathId ?? 0;
-    const fsmState = latestPhase?.fsmState ?? 1;
+    const mpr = await readSnapshot<MprData>("mpr");
+    const pathId = mpr?.latest?.pathId ?? 0;
+    const fsmState = mpr?.latest?.fsmState ?? 1;
 
     const rows: {
       date: Date;
@@ -296,56 +280,22 @@ export async function runStockValuationJob(): Promise<StockValuationJobResult> {
       });
     }
 
-    if (rows.length === 0) {
-      throw new Error("无可用标的，请先执行 npm run backfill:rotation");
+    if (rows.length === 0 || !latestDate) {
+      throw new Error("无可用标的，先把日线 CSV 写到 VPS");
     }
 
-    await prisma.$transaction(
-      [
-        prisma.stockValuation.deleteMany({ where: { date: rows[0].date } }),
-        prisma.stockValuation.createMany({ data: rows }),
-      ],
-      { timeout: 60_000 },
-    );
-    rowsWritten = rows.length;
+    writeSnapshot("valuation", {
+      date: latestDate,
+      pathId,
+      rows: rows.map(({ date: _date, ...row }) => row),
+    } satisfies StockValuationSnapshot);
 
-    const finishedAt = new Date();
-    const result: StockValuationJobResult = {
+    return {
       latestDate,
       symbolsEvaluated: rows.length,
       fundamentalsRefreshed: fundamentals.refreshed,
       fundamentalsMissing: fundamentals.missing,
       fourHourMissing: fourHour.missing,
-      rowsWritten,
+      rowsWritten: rows.length,
     };
-
-    await prisma.jobRun.create({
-      data: {
-        name: "stock-valuation",
-        status: "SUCCESS",
-        startedAt,
-        finishedAt,
-        durationMs: finishedAt.getTime() - startedAt.getTime(),
-        recordsWritten: rowsWritten,
-        details: { ...result },
-      },
-    });
-
-    return result;
-  } catch (error) {
-    const finishedAt = new Date();
-    await prisma.jobRun.create({
-      data: {
-        name: "stock-valuation",
-        status: "FAILED",
-        startedAt,
-        finishedAt,
-        durationMs: finishedAt.getTime() - startedAt.getTime(),
-        recordsWritten: rowsWritten,
-        error: error instanceof Error ? error.message : String(error),
-        details: {},
-      },
-    });
-    throw error;
-  }
 }

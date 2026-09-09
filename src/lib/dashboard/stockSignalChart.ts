@@ -1,5 +1,4 @@
 import { loadMarketPanel } from "@/lib/backtest/marketRemote";
-import { hasDatabase } from "@/lib/db/remote";
 import { ROTATION_UNIVERSE } from "@/lib/scoring/rotationUniverse";
 import { computeLogMacdSeries } from "@/lib/scoring/logMacd";
 import { emaSeries } from "@/lib/scoring/series";
@@ -90,35 +89,14 @@ type BarRow = { date: string; open: number; high: number; low: number; close: nu
 
 async function loadSignalBars(symbol: string): Promise<BarRow[] | null> {
   const panel = await loadMarketPanel("1d", symbol);
-  if (panel && panel.dates.length >= 200) {
-    return panel.dates.map((date, i) => ({
-      date: date.slice(0, 10),
-      open: panel.open?.[i] ?? panel.close[i],
-      high: panel.high[i],
-      low: panel.low[i],
-      close: panel.close[i],
-      volume: panel.volume?.[i] ?? 0,
-    }));
-  }
-
-  if (!hasDatabase()) return null;
-  const { getPrisma } = await import("@/lib/db/prisma");
-  const prisma = getPrisma();
-  const instrument = await prisma.instrument.findUnique({ where: { symbol } });
-  if (!instrument) return null;
-  const rows = await prisma.dailyBar.findMany({
-    where: { instrumentId: instrument.id },
-    orderBy: { date: "asc" },
-    select: { date: true, open: true, high: true, low: true, close: true, volume: true },
-  });
-  if (rows.length < 200) return null;
-  return rows.map((r) => ({
-    date: r.date.toISOString().slice(0, 10),
-    open: r.open,
-    high: r.high,
-    low: r.low,
-    close: r.close,
-    volume: Number(r.volume ?? 0),
+  if (!panel || panel.dates.length < 200) return null;
+  return panel.dates.map((date, i) => ({
+    date: date.slice(0, 10),
+    open: panel.open?.[i] ?? panel.close[i],
+    high: panel.high[i],
+    low: panel.low[i],
+    close: panel.close[i],
+    volume: panel.volume?.[i] ?? 0,
   }));
 }
 

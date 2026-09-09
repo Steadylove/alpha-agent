@@ -30,9 +30,7 @@ export function getPrisma() {
   }
 
   if (!remoteDbEnabled()) {
-    throw new Error(
-      "本地默认不连 Neon，把额度留给线上。需要访问远程库时在命令前加 ALLOW_DB=1。",
-    );
+    throw new Error("运行时已停用 Postgres。行情和看板读 VPS 文件，不再连库。");
   }
 
   if (!process.env.DATABASE_URL) {

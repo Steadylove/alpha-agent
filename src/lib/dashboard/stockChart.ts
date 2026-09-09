@@ -6,8 +6,6 @@ import {
   fetchYahoo1HBars,
   type IntradayBar,
 } from "@/lib/data-sources/yahooIntraday";
-import { getPrisma } from "@/lib/db/prisma";
-import { hasDatabase } from "@/lib/db/remote";
 import { simpleMovingAverage } from "@/lib/scoring/indicators";
 import { computeExecutionPlan } from "@/lib/scoring/execution";
 import type { Playbook } from "@/lib/scoring/rpsPlaybooks";
@@ -112,31 +110,23 @@ function wrap(
   };
 }
 
-/** 读 DB 里存的日线，附带 SMA，再用最新分数重算 execution plan */
+/** 读 VPS / 本地 CSV 日线，附带 SMA，再用最新分数重算 execution plan */
 export async function getStockChartData(
   symbol: string,
   stockScore: StockScore | null,
 ): Promise<StockChartData | null> {
-  if (!hasDatabase()) return null;
-  const prisma = getPrisma();
-  const instrument = await prisma.instrument.findUnique({ where: { symbol } });
-  if (!instrument) return null;
+  const panel = await loadMarketPanel("1d", symbol).catch(() => null);
+  if (!panel || panel.dates.length === 0) return null;
 
-  const rows = await prisma.dailyBar.findMany({
-    where: { instrumentId: instrument.id },
-    orderBy: { date: "asc" },
-  });
-  if (rows.length === 0) return null;
-
-  const rawBars: DailyBar[] = rows.map((row) => ({
+  const rawBars: DailyBar[] = panel.dates.map((date, i) => ({
     symbol,
-    date: row.date.toISOString().slice(0, 10),
-    open: row.open,
-    high: row.high,
-    low: row.low,
-    close: row.close,
-    volume: Number(row.volume),
-    source: row.source,
+    date: date.slice(0, 10),
+    open: panel.open?.[i] ?? panel.close[i],
+    high: panel.high[i],
+    low: panel.low[i],
+    close: panel.close[i],
+    volume: panel.volume?.[i] ?? 0,
+    source: "vps",
   }));
 
   const bars = withMas(
@@ -192,7 +182,7 @@ function intradayToChart(
 
 /**
  * Screener 图表：支持 1d / 4h / 1h。
- * 先走行情库（本地 CSV 或 VPS），不够再 Neon / Yahoo。
+ * 先走 VPS / 本地 CSV，没有再 Yahoo。
  */
 export async function getStockChartDataWithFallback(
   symbol: string,
@@ -207,10 +197,6 @@ export async function getStockChartDataWithFallback(
   }
 
   if (interval === "1d") {
-    const fromDb = await getStockChartData(symbol, null).catch(() => null);
-    if (fromDb && fromDb.bars.length >= 30) {
-      return { ...fromDb, playbook, latestMas: latestMasFrom(fromDb.bars) };
-    }
     const yahooBars = await fetchYahooDailyBars(symbol);
     if (yahooBars.length === 0) return null;
     return dailyToChart(symbol, yahooBars, playbook);

@@ -11,12 +11,11 @@ import {
   type Timeframe,
 } from "./engine";
 import { requireRpsScale, type RpsScale } from "./rpsScale";
-import { unpackPanel, unpackTimedPanel, type PanelBars } from "./panel";
+import { unpackPanel, type PanelBars } from "./panel";
 import {
   PANEL_CACHE_PATH,
   readSnapshot,
   snapshotSize,
-  writeSnapshot,
   type PanelSnapshot,
 } from "./panelCache";
 import { readLiveBook } from "./liveBook";
@@ -26,8 +25,6 @@ import {
   tickersForPool,
   type SmallFundPoolId,
 } from "./smallFundPools";
-import { SMALL_FUND_UNIVERSE } from "./smallFundUniverse";
-
 /**
  * 可选的标的池。`sources` 是 IndexMembership.index 里要取的指数，多于一个即并集。
  *
@@ -56,101 +53,27 @@ const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)}MB`;
  * 所以整个快照与选哪个池无关——一份缓存服务三个池子。
  */
 export async function fetchSnapshot(): Promise<PanelSnapshot> {
-  const { getPrisma } = await import("@/lib/db/prisma");
-  const prisma = getPrisma();
-
-  const [panels, membership] = await Promise.all([
-    prisma.backtestPanel.findMany({
-      select: {
-        ticker: true,
-        days: true,
-        high: true,
-        low: true,
-        close: true,
-        volume: true,
-        open: true,
-      },
-    }),
-    prisma.indexMembership.findMany({
-      where: { hasBars: true },
-      select: { ticker: true, index: true, startDate: true, endDate: true },
-    }),
-  ]);
-
-  return { fetchedAt: new Date().toISOString(), panels, membership };
+  throw new Error("已停用数据库拉面板。行情读 VPS CSV（MARKET_DATA_BASE_URL）。");
 }
 
-/**
- * 优先读本地缓存，未命中才走数据库并落盘。
- *
- * 置 `BACKTEST_PANEL_REFRESH=1` 可强制重新拉取，日线回填之后用它刷新。
- */
+/** 标普/纳指实验室只认本地面板缓存，不再回落数据库。 */
 async function getSnapshot(): Promise<PanelSnapshot> {
-  if (process.env.BACKTEST_PANEL_REFRESH !== "1") {
-    const hit = readSnapshot(PANEL_CACHE_PATH);
-    if (hit) {
-      console.log(
-        `[panel] 缓存命中 ${mb(snapshotSize(PANEL_CACHE_PATH))}` +
-          ` 拉取于 ${hit.fetchedAt.slice(0, 16).replace("T", " ")}，未访问数据库`,
-      );
-      return hit;
-    }
-  }
-
-  /*
-   * 部署环境不许回落数据库。
-   *
-   * 那里文件系统只读，落盘必然失败，于是每个新实例冷启动都要重新下载完整面板
-   * （72MB）。Neon 免费档 5GB/月按这个用法约 70 次冷启动就见底，实测确实被打满，
-   * 连带把仪表盘的额度一起吃掉。面板必须作为构建产物随部署带上。
-   */
-  if (process.env.VERCEL) {
-    throw new Error(
-      `面板缓存缺失：${PANEL_CACHE_PATH}。` +
-        "部署环境不从数据库拉面板（每次冷启动 72MB 会打满配额），" +
-        "请把快照作为构建产物打进函数包。",
+  const hit = readSnapshot(PANEL_CACHE_PATH);
+  if (hit) {
+    console.log(
+      `[panel] 缓存命中 ${mb(snapshotSize(PANEL_CACHE_PATH))}` +
+        ` 拉取于 ${hit.fetchedAt.slice(0, 16).replace("T", " ")}`,
     );
+    return hit;
   }
-
-  const { remoteDbEnabled } = await import("@/lib/db/remote");
-  if (!remoteDbEnabled()) {
-    throw new Error(
-      `本地面板缓存缺失：${PANEL_CACHE_PATH}。` +
-        "默认不连 Neon。跑 npm run panel:cache 重建，或 ALLOW_DB=1 才从库拉。",
-    );
-  }
-
-  const t0 = Date.now();
-  const fresh = await fetchSnapshot();
-
-  // 空面板一律当失败：读降级（见 lib/db/degrade）会把配额耗尽变成空数组，
-  // 而 getPreparedUniverse 会把解析成功的结果一直缓存下去——
-  // 不在这里拦住，实验室就会静默显示一个 0 只标的的空池，且直到实例回收都不恢复。
-  if (fresh.panels.length === 0) {
-    throw new Error("数据库返回空面板：数据源不可用或配额耗尽，未落盘。");
-  }
-
-  const written = writeSnapshot(PANEL_CACHE_PATH, fresh);
-  console.log(
-    `[panel] 从数据库拉取 ${fresh.panels.length} 只 ${Date.now() - t0}ms` +
-      `，${written ? `已写入缓存 ${mb(snapshotSize(PANEL_CACHE_PATH))}` : "缓存写入失败（目录只读），本次不落盘"}`,
+  throw new Error(
+    `面板缓存缺失：${PANEL_CACHE_PATH}。标普/纳指实验室需要这份缓存；Small Fund 走 VPS CSV。`,
   );
-  return fresh;
 }
 
-/**
- * Small Fund 数据源。
- *
- * - `db`：日线 BacktestPanel，盘中 BacktestTfPanel。
- * - `csv`：本地目录，或 `MARKET_DATA_BASE_URL` 指向的行情机。默认。
- * - `auto`：CSV 覆盖当前池才用 CSV，否则回落数据库。
- */
-export type SmallFundSource = "csv" | "db" | "auto";
+export type SmallFundSource = "csv";
 
 export function smallFundSource(): SmallFundSource {
-  const raw = (process.env.SMALLFUND_SOURCE ?? "").toLowerCase();
-  if (raw === "db" || raw === "auto" || raw === "csv") return raw;
-  // 默认走 CSV（本地目录或 MARKET_DATA_BASE_URL），不再默认连 Neon。
   return "csv";
 }
 
@@ -224,67 +147,6 @@ function dailyRpsTable(daily: PreparedUniverse): DailyRpsTable {
   return { dates: daily.axis, byTicker };
 }
 
-async function loadSmallFundFromDb(poolId: SmallFundPoolId = DEFAULT_SMALL_FUND_POOL): Promise<PanelBars[]> {
-  const { getPrisma } = await import("@/lib/db/prisma");
-  const prisma = getPrisma();
-  const wanted = [...poolTickers(poolId)];
-  const t0 = Date.now();
-  const rows = await prisma.backtestPanel.findMany({
-    where: { ticker: { in: wanted } },
-    select: {
-      ticker: true,
-      days: true,
-      high: true,
-      low: true,
-      close: true,
-      volume: true,
-      open: true,
-    },
-  });
-  console.log(`[smallfund] 1d 数据库 ${rows.length}/${wanted.length} 只  ${Date.now() - t0}ms`);
-  return rows.map((row) => unpackPanel(row));
-}
-
-const tfSnapshots = new Map<string, Promise<PanelBars[]>>();
-
-async function loadTfFromDb(timeframe: Exclude<Timeframe, "1d">): Promise<PanelBars[]> {
-  const hit = tfSnapshots.get(timeframe);
-  if (hit) return hit;
-
-  const task = (async () => {
-    const { getPrisma } = await import("@/lib/db/prisma");
-    const prisma = getPrisma();
-    const t0 = Date.now();
-    const rows = await prisma.backtestTfPanel.findMany({
-      where: { timeframe },
-      select: {
-        ticker: true,
-        times: true,
-        high: true,
-        low: true,
-        close: true,
-        volume: true,
-        open: true,
-      },
-    });
-    const panels = rows.map((row) => unpackTimedPanel(row));
-    console.log(`[smallfund] ${timeframe.toUpperCase()} 数据库 ${panels.length} 只  ${Date.now() - t0}ms`);
-    return panels;
-  })();
-
-  tfSnapshots.set(timeframe, task);
-  task.catch(() => tfSnapshots.delete(timeframe));
-  return task;
-}
-
-async function loadSmallFundTfFromDb(
-  timeframe: Exclude<Timeframe, "1d">,
-  poolId: SmallFundPoolId,
-): Promise<PanelBars[]> {
-  const wanted = new Set(poolTickers(poolId));
-  return (await loadTfFromDb(timeframe)).filter((p) => wanted.has(p.ticker));
-}
-
 const smallFundPanels = new Map<string, Promise<PanelBars[]>>();
 
 function poolTickers(poolId: SmallFundPoolId): readonly string[] {
@@ -293,6 +155,11 @@ function poolTickers(poolId: SmallFundPoolId): readonly string[] {
 
 async function readCsvForTimeframe(timeframe: Timeframe, wanted: readonly string[]): Promise<PanelBars[]> {
   const tf = timeframe === "1d" || timeframe === "4h" || timeframe === "2h" || timeframe === "1h" ? timeframe : "1d";
+  if (marketBaseUrl()) {
+    const remote = await fetchRemoteCsvPanels(tf, wanted);
+    const panels = tf === "1d" ? remote : remote.filter((panel) => panel.ticker !== "SPCX");
+    if (coversPool(panels, wanted)) return panels;
+  }
   const local =
     timeframe === "1d"
       ? readCsvPanels(CSV_PANEL_DIR, wanted)
@@ -300,20 +167,7 @@ async function readCsvForTimeframe(timeframe: Timeframe, wanted: readonly string
           { "4h": CSV_4H_DIR, "2h": CSV_2H_DIR, "1h": CSV_1H_DIR }[timeframe],
           wanted,
         ).filter((panel) => panel.ticker !== "SPCX");
-  if (coversPool(local, wanted)) return local;
-  if (marketBaseUrl()) {
-    const remote = await fetchRemoteCsvPanels(tf, wanted);
-    return tf === "1d" ? remote : remote.filter((panel) => panel.ticker !== "SPCX");
-  }
   return local;
-}
-
-async function loadSmallFundFromSource(
-  timeframe: Timeframe,
-  poolId: SmallFundPoolId,
-): Promise<PanelBars[]> {
-  if (timeframe === "1d") return loadSmallFundFromDb(poolId);
-  return loadSmallFundTfFromDb(timeframe, poolId);
 }
 
 async function loadSmallFundPanels(
@@ -326,38 +180,15 @@ async function loadSmallFundPanels(
 
   const task = (async () => {
     const wanted = poolTickers(poolId);
-    const source = smallFundSource();
     const label = timeframe === "1d" ? "CSV" : timeframe.toUpperCase();
-
-    if (source !== "db") {
-      const csv = await readCsvForTimeframe(timeframe, wanted);
-      if (coversPool(csv, wanted)) {
-        console.log(`[smallfund] ${label} ${csv.length} 只  pool=${poolId}`);
-        return csv;
-      }
-      if (source === "csv") {
-        throw new Error(
-          `Small Fund ${label} CSV 未覆盖当前池（${csv.length}/${wanted.length}）。` +
-            `先抓齐 CSV，或给 Vercel 配 MARKET_DATA_BASE_URL 指向行情机。`,
-        );
-      }
-    }
-
-    const db = await loadSmallFundFromSource(timeframe, poolId);
-    if (coversPool(db, wanted)) {
-      console.log(`[smallfund] ${timeframe} 数据库 ${db.length} 只  pool=${poolId}`);
-      return db;
-    }
     const csv = await readCsvForTimeframe(timeframe, wanted);
     if (coversPool(csv, wanted)) {
-      console.warn(
-        `[smallfund] ${timeframe} 数据库未覆盖（${db.length}/${wanted.length}），回落 CSV ${csv.length} 只`,
-      );
+      console.log(`[smallfund] ${label} ${csv.length} 只  pool=${poolId}`);
       return csv;
     }
     throw new Error(
-      `Small Fund ${timeframe} 数据库未覆盖当前池（${db.length}/${wanted.length}）。` +
-        `跑 npm run smallfund:import。`,
+      `Small Fund ${label} 未覆盖当前池（${csv.length}/${wanted.length}）。` +
+        `先同步 VPS CSV，或给 Vercel 配 MARKET_DATA_BASE_URL。`,
     );
   })();
 
@@ -455,5 +286,4 @@ export function invalidateSmallFundCache(): void {
     if (key.startsWith("SMALLFUND:")) cached.delete(key);
   }
   smallFundPanels.clear();
-  tfSnapshots.clear();
 }

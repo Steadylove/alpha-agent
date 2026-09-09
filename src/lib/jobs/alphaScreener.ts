@@ -1,8 +1,8 @@
 import { fetchFmpProfile } from "@/lib/data-sources/fmp";
 import { fetchSp500Universe } from "@/lib/data-sources/sp500";
 import { fetchManyDailyBars } from "@/lib/data-sources/marketData";
-import { getPrisma } from "@/lib/db/prisma";
 import { stockUniverse as fallbackUniverse } from "@/lib/fixtures/universe";
+import { writeSnapshot } from "@/lib/vps/snapshot";
 import { buildZhBlurb, formatIndustryLabel } from "@/lib/i18n/gicsZh";
 import { percentChange, percentileRank } from "@/lib/scoring/indicators";
 import { BASE_RPS_THRESHOLD, passesBaseRps, type RpsQuad } from "@/lib/scoring/rpsPlaybooks";
@@ -229,31 +229,9 @@ export async function runAlphaScreenerJob(
     dailyFetchErrors: Object.keys(dailyErrors).length,
   };
 
-  const dateKey = generatedAt.toISOString().slice(0, 10);
-  const prisma = getPrisma();
-  await prisma.alphaScreenerRun.upsert({
-    where: { date: new Date(`${dateKey}T00:00:00.000Z`) },
-    update: {
-      universeSize: result.universeSize,
-      targetCount: result.elite.length,
-      dailyFetchErrors: result.dailyFetchErrors,
-      buckets: {
-        baseThreshold: result.baseThreshold,
-        elite: result.elite,
-        newHighs: result.newHighs,
-      },
-    },
-    create: {
-      date: new Date(`${dateKey}T00:00:00.000Z`),
-      universeSize: result.universeSize,
-      targetCount: result.elite.length,
-      dailyFetchErrors: result.dailyFetchErrors,
-      buckets: {
-        baseThreshold: result.baseThreshold,
-        elite: result.elite,
-        newHighs: result.newHighs,
-      },
-    },
+  writeSnapshot("screener", {
+    date: generatedAt.toISOString().slice(0, 10),
+    ...result,
   });
 
   return result;

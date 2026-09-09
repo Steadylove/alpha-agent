@@ -20,46 +20,20 @@ describe("远程库开关", () => {
     restore("SMALLFUND_SOURCE", prev.SMALLFUND_SOURCE);
   });
 
-  it("本地默认不连", () => {
-    delete process.env.ALLOW_DB;
-    delete process.env.VERCEL;
-    setEnv("NODE_ENV", "development");
-    process.env.DATABASE_URL = "postgresql://neon.example/db";
+  it("任何环境都不连库", () => {
+    process.env.ALLOW_DB = "1";
+    process.env.VERCEL = "1";
+    setEnv("NODE_ENV", "production");
+    process.env.DATABASE_URL = "postgresql://example/db";
     expect(remoteDbEnabled()).toBe(false);
     expect(hasDatabase()).toBe(false);
   });
 
-  it("ALLOW_DB=1 才放开本地", () => {
-    process.env.ALLOW_DB = "1";
-    setEnv("NODE_ENV", "development");
-    delete process.env.VERCEL;
-    process.env.DATABASE_URL = "postgresql://neon.example/db";
-    expect(remoteDbEnabled()).toBe(true);
-    expect(hasDatabase()).toBe(true);
-  });
-
-  it("生产或 Vercel 默认连", () => {
-    delete process.env.ALLOW_DB;
-    setEnv("NODE_ENV", "production");
-    delete process.env.VERCEL;
-    process.env.DATABASE_URL = "postgresql://neon.example/db";
-    expect(remoteDbEnabled()).toBe(true);
-
-    setEnv("NODE_ENV", "development");
-    process.env.VERCEL = "1";
-    expect(remoteDbEnabled()).toBe(true);
-  });
-
-  it("本地 Small Fund 默认读 CSV，不回落数据库", () => {
+  it("Small Fund 只读 CSV / VPS", () => {
     delete process.env.SMALLFUND_SOURCE;
-    delete process.env.ALLOW_DB;
-    delete process.env.VERCEL;
-    setEnv("NODE_ENV", "development");
     expect(smallFundSource()).toBe("csv");
-  });
 
-  it("生产 Small Fund 也默认读 CSV，不回落 Neon", () => {
-    delete process.env.SMALLFUND_SOURCE;
+    process.env.SMALLFUND_SOURCE = "db";
     setEnv("NODE_ENV", "production");
     expect(smallFundSource()).toBe("csv");
   });

@@ -70,37 +70,12 @@ export async function buildAndStoreRpsScale(): Promise<RpsScaleBuildResult> {
   writeFileSync(RPS_SCALE_PATH, JSON.stringify(file));
   clearRpsScaleCache();
 
-  const { remoteDbEnabled } = await import("@/lib/db/remote");
-  let wroteDb = false;
-  if (remoteDbEnabled() && process.env.DATABASE_URL) {
-    const { getPrisma } = await import("@/lib/db/prisma");
-    const prisma = getPrisma();
-    await prisma.rpsScale.upsert({
-      where: { id: "spx" },
-      create: {
-        id: "spx",
-        generatedAt: new Date(file.generatedAt),
-        index: file.index,
-        buckets: file.buckets,
-        payload: file,
-      },
-      update: {
-        generatedAt: new Date(file.generatedAt),
-        index: file.index,
-        buckets: file.buckets,
-        payload: file,
-      },
-    });
-    wroteDb = true;
-  }
-
   const median = [...counts].sort((a, b) => a - b)[counts.length >> 1];
   console.log(
     `[rps-scale] ${dates.length} 个交易日 ${dates[0]} → ${dates[dates.length - 1]}  ` +
       `每日样本中位 ${median} 只  ${SCALE_BUCKETS} 个切点  ` +
-      `写入 ${RPS_SCALE_PATH}` +
-      (wroteDb ? " 并已写入数据库" : ""),
+      `写入 ${RPS_SCALE_PATH}`,
   );
 
-  return { from: dates[0]!, to: dates[dates.length - 1]!, days: dates.length, wroteDb };
+  return { from: dates[0]!, to: dates[dates.length - 1]!, days: dates.length, wroteDb: false };
 }

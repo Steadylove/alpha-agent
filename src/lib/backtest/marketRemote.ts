@@ -20,15 +20,16 @@ export async function fetchMarketText(relPath: string): Promise<string> {
   return response.text();
 }
 
-/** 单票：本地有文件用本地，否则走行情机。前端图和 Lab 都走这里。 */
+/** 单票：配了行情机就走 VPS，否则读本地 CSV。 */
 export async function loadMarketPanel(
   timeframe: MarketTimeframe,
   ticker: string,
 ): Promise<PanelBars | null> {
-  const local = readCsvPanel(csvDir(timeframe), ticker);
-  if (local) return local;
-  if (!marketBaseUrl()) return null;
-  return fetchRemoteCsvPanel(timeframe, ticker);
+  if (marketBaseUrl()) {
+    const remote = await fetchRemoteCsvPanel(timeframe, ticker);
+    if (remote) return remote;
+  }
+  return readCsvPanel(csvDir(timeframe), ticker);
 }
 
 export async function fetchRemoteCsvPanel(

@@ -1,4 +1,4 @@
-import { getPrisma } from "@/lib/db/prisma";
+import type { StockPanelData, StockPanelRow } from "@/lib/dashboard/stockPanel";
 import { computeDipZone } from "@/lib/scoring/dipZone";
 import { computeLogMacdSeries } from "@/lib/scoring/logMacd";
 import { inShortTermDowntrend, mprAlphaRsSeries } from "@/lib/scoring/mprAlphaRs";
@@ -12,7 +12,6 @@ import {
 import {
   type SectorClockId,
   SECTOR_UNIVERSE,
-  mapSectorToClock,
 } from "@/lib/scoring/sectorUniverse";
 import { atrSeries, emaSeries, smaOfNullable } from "@/lib/scoring/series";
 import { computeStockRegimeSeries } from "@/lib/scoring/stockRegime";
@@ -21,6 +20,11 @@ import { loadEarlyBreakevenDates } from "@/lib/jobs/earlyBreakeven";
 import { DEFAULT_STOCK_RISK_PARAMS, computeStockRisk } from "@/lib/scoring/stockRisk";
 import { computeStockStageSeries, dipStageOf, institutionalVwap } from "@/lib/scoring/stockStage";
 import { computeTacticalGuide } from "@/lib/scoring/tacticalGuide";
+import { loadDailyBars } from "@/lib/vps/loadDailyBars";
+import { readSnapshot, writeSnapshot } from "@/lib/vps/snapshot";
+import type { MprData } from "@/lib/dashboard/mpr";
+import type { StockValuationSnapshot } from "@/lib/jobs/stockValuation";
+import type { ShortInterestSnapshot } from "@/lib/jobs/shortInterest";
 
 /**
  * 每日重算个股深度面板：趋势打分、形态阶段、Hurst / VCP / 资金态、低吸支撑带、
@@ -55,60 +59,19 @@ type PanelBar = {
 };
 
 async function loadBars(symbols: string[]): Promise<Map<string, PanelBar[]>> {
-  const prisma = getPrisma();
-  const instruments = await prisma.instrument.findMany({
-    where: { symbol: { in: symbols } },
-    select: { id: true, symbol: true },
-  });
-
-  const rows = await prisma.dailyBar.findMany({
-    where: { instrumentId: { in: instruments.map((i) => i.id) } },
-    orderBy: { date: "asc" },
-    select: {
-      instrumentId: true,
-      date: true,
-      open: true,
-      high: true,
-      low: true,
-      close: true,
-      volume: true,
-    },
-  });
-
-  const symbolById = new Map(instruments.map((i) => [i.id, i.symbol]));
-  const bySymbol = new Map<string, PanelBar[]>();
-  for (const row of rows) {
-    const symbol = symbolById.get(row.instrumentId);
-    if (!symbol) continue;
-    const list = bySymbol.get(symbol) ?? [];
-    list.push({
-      date: row.date.toISOString().slice(0, 10),
-      open: row.open,
-      high: row.high,
-      low: row.low,
-      close: row.close,
-      volume: Number(row.volume ?? 0),
-    });
-    bySymbol.set(symbol, list);
-  }
-  return bySymbol;
+  return loadDailyBars(symbols);
 }
 
 const toDate = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
 
 export async function runStockPanelJob(): Promise<StockPanelJobResult> {
-  const prisma = getPrisma();
-  const startedAt = new Date();
-  let rowsWritten = 0;
-
-  try {
-    const symbols = ROTATION_UNIVERSE.map((t) => t.symbol);
+  const symbols = ROTATION_UNIVERSE.map((t) => t.symbol);
     const sectorSymbols = SECTOR_UNIVERSE.map((s) => s.symbol);
     const bySymbol = await loadBars([...symbols, ...sectorSymbols, BENCHMARK_SYMBOL]);
 
     const benchBars = bySymbol.get(BENCHMARK_SYMBOL);
     if (!benchBars || benchBars.length < MIN_BARS) {
-      throw new Error(`基准 ${BENCHMARK_SYMBOL} 数据不足，请先执行 npm run backfill:rotation`);
+      throw new Error(`基准 ${BENCHMARK_SYMBOL} 数据不足，先把日线 CSV 写到 VPS`);
     }
     const benchByDate = new Map(benchBars.map((b) => [b.date, b.close]));
 
@@ -118,10 +81,8 @@ export async function runStockPanelJob(): Promise<StockPanelJobResult> {
       : null;
 
     // 低吸带的 Path 4 冻结取自 MPR。缺当日 Path 时按 0 处理（不冻结）。
-    const phases = await prisma.macroPhaseState.findMany({ select: { date: true, pathId: true } });
-    const pathByDate = new Map(
-      phases.map((p) => [p.date.toISOString().slice(0, 10), p.pathId]),
-    );
+    const mpr = await readSnapshot<MprData>("mpr");
+    const pathByDate = new Map((mpr?.history ?? []).map((p) => [p.date, p.pathId]));
 
     // SLS 时钟跑在基准的交易日轴上；ETF 未上市的日期填 null，Pine 会把它记 0 分
     const sectorCloses = {} as Record<SectorClockId, (number | null)[]>;
@@ -137,16 +98,7 @@ export async function runStockPanelJob(): Promise<StockPanelJobResult> {
       benchBars.map((b, i) => [b.date, clockSeries[i]]),
     );
 
-    const instruments = await prisma.instrument.findMany({
-      where: { symbol: { in: symbols } },
-      select: { symbol: true, sector: true, type: true },
-    });
-    // ETF 没有 GICS 行业归属（FMP 一律返回 Financial Services），不参与行业时钟排名
-    const clockIdBySymbol = new Map<string, SectorClockId>(
-      instruments
-        .filter((i) => i.type !== "ETF" && i.sector)
-        .map((i) => [i.symbol, mapSectorToClock(i.sector)]),
-    );
+    const clockIdBySymbol = new Map<string, SectorClockId>();
 
     const rows: {
       date: Date;
@@ -322,7 +274,7 @@ export async function runStockPanelJob(): Promise<StockPanelJobResult> {
     }
 
     if (rows.length === 0) {
-      throw new Error("无可用标的，请先执行 npm run backfill:rotation");
+      throw new Error("无可用标的，先把日线 CSV 写到 VPS");
     }
 
     const sectorRows: {
@@ -352,63 +304,150 @@ export async function runStockPanelJob(): Promise<StockPanelJobResult> {
       }
     }
 
-    // 先删后插：逐条 upsert 在 Neon 上会撞事务超时，这里只有四条语句。
-    const windowStart = rows.reduce((min, r) => (r.date < min ? r.date : min), rows[0].date);
-    const sectorWindowStart = sectorRows.reduce(
-      (min, r) => (r.date < min ? r.date : min),
-      sectorRows[0].date,
+    const latestRows = rows.filter((r) => r.date.toISOString().slice(0, 10) === latestDate);
+    const latestClock = sectorRows.filter((r) => r.date.toISOString().slice(0, 10) === latestDate);
+    const valuations = await readSnapshot<StockValuationSnapshot>("valuation");
+    const shorts = await readSnapshot<ShortInterestSnapshot>("short-interest");
+    writeSnapshot(
+      "stock-panel",
+      assembleStockPanelSnapshot({
+        latestDate,
+        pathId: mpr?.latest?.pathId ?? null,
+        rows: latestRows,
+        sectorClock: latestClock,
+        skipped,
+        valuations,
+        shorts,
+      }),
     );
-    await prisma.$transaction(
-      [
-        prisma.stockPanelState.deleteMany({ where: { date: { gte: windowStart } } }),
-        prisma.stockPanelState.createMany({ data: rows }),
-        prisma.sectorClockState.deleteMany({ where: { date: { gte: sectorWindowStart } } }),
-        prisma.sectorClockState.createMany({ data: sectorRows }),
-      ],
-      // 六千余行 × 40 列，Neon 上要八九秒，默认 5s 不够
-      { timeout: 60_000 },
-    );
-    rowsWritten = rows.length;
-
-    const finishedAt = new Date();
-    await prisma.jobRun.create({
-      data: {
-        name: "stock-panel",
-        status: "SUCCESS",
-        startedAt,
-        finishedAt,
-        durationMs: finishedAt.getTime() - startedAt.getTime(),
-        recordsWritten: rowsWritten + sectorRows.length,
-        details: {
-          latestDate,
-          symbolsEvaluated: symbols.length - skipped.length,
-          symbolsSkipped: skipped,
-          sectorRowsWritten: sectorRows.length,
-        },
-      },
-    });
 
     return {
       latestDate,
       symbolsEvaluated: symbols.length - skipped.length,
       symbolsSkipped: skipped,
-      rowsWritten,
+      rowsWritten: rows.length,
       sectorRowsWritten: sectorRows.length,
     };
-  } catch (error) {
-    const finishedAt = new Date();
-    await prisma.jobRun.create({
-      data: {
-        name: "stock-panel",
-        status: "FAILED",
-        startedAt,
-        finishedAt,
-        durationMs: finishedAt.getTime() - startedAt.getTime(),
-        recordsWritten: rowsWritten,
-        error: error instanceof Error ? error.message : String(error),
-        details: {},
-      },
-    });
-    throw error;
-  }
+}
+
+function assembleStockPanelSnapshot(input: {
+  latestDate: string | null;
+  pathId: number | null;
+  rows: Array<{
+    symbol: string;
+    close: number;
+    rs: number;
+    rsAccelerating: boolean;
+    mprAlphaRs: number;
+    inShortDowntrend: boolean;
+    trendScore: number;
+    stage: string;
+    baseTier: string;
+    baseDays: number;
+    distFrom52wHigh: number;
+    squeezeRatio: number;
+    hurstReturn: number;
+    hurstReturnRegime: string;
+    hurstPrice: number;
+    volatilityPattern: string;
+    volumeRatio: number;
+    moneyFlow: string;
+    dipKind: string;
+    dipQuality: string | null;
+    dipLow: number | null;
+    dipHigh: number | null;
+    dipResistance: number | null;
+    sectorId: string | null;
+    sectorRank: number | null;
+    sectorStatus: string | null;
+    buy1Signal: boolean;
+    buy2Signal: boolean;
+    smoothedRsi: number | null;
+    buy1Entry: number | null;
+    buy1Stop: number | null;
+    buy1Trail: number | null;
+    buy1Locked: boolean;
+    buy2Entry: number | null;
+    buy2Stop: number | null;
+    buy2Trail: number | null;
+    buy2Locked: boolean;
+    tacticalAction: string;
+    tacticalTone: string;
+    tacticalLayer: string;
+  }>;
+  sectorClock: Array<{
+    sectorId: string;
+    symbol: string;
+    sls: number;
+    mom21: number;
+    rank: number;
+    isTop3: boolean;
+    isBottoming: boolean;
+  }>;
+  skipped: string[];
+  valuations: StockValuationSnapshot | null;
+  shorts: ShortInterestSnapshot | null;
+}): StockPanelData {
+  const nameBySymbol = new Map(ROTATION_UNIVERSE.map((t) => [t.symbol, t.name]));
+  const sectorNameById = new Map(SECTOR_UNIVERSE.map((s) => [s.id as string, s.name]));
+  const valuationBySymbol = new Map((input.valuations?.rows ?? []).map((v) => [v.symbol, v]));
+  const shortBySymbol = new Map((input.shorts?.rows ?? []).map((r) => [r.symbol, r]));
+
+  const panelRows: StockPanelRow[] = input.rows
+    .map((s) => {
+      const v = valuationBySymbol.get(s.symbol);
+      const si = shortBySymbol.get(s.symbol);
+      return {
+        ...s,
+        name: nameBySymbol.get(s.symbol) ?? s.symbol,
+        sectorName: s.sectorId ? (sectorNameById.get(s.sectorId) ?? null) : null,
+        valuation: v
+          ? {
+              primaryTarget: v.primaryTarget,
+              upsidePct: v.upsidePct,
+              mode: v.mode,
+              archetype: v.archetype,
+              consensusSmoothed: v.consensusSmoothed,
+              currentPe: v.currentPe,
+              calculatedPe: v.calculatedPe,
+              marketCapB: v.marketCapB,
+              isDipActive: v.isDipActive,
+              shortTermTarget: v.shortTermTarget,
+              squeezeTier: v.squeezeTier,
+              shortInterestPct:
+                si?.sharesOutstanding != null && si.sharesOutstanding > 0
+                  ? (si.sharesShort / si.sharesOutstanding) * 100
+                  : null,
+              shortInterestDate: si?.settlementDate ?? null,
+              isInLongDowntrend: v.isInLongDowntrend,
+              isHyperMomentum: v.isHyperMomentum,
+            }
+          : null,
+      };
+    })
+    .sort((a, b) => b.rs - a.rs);
+
+  const STAGE_ORDER = ["A", "B", "W", "E", "D", "C"];
+  return {
+    latestDate: input.latestDate,
+    valuationDate: input.valuations?.date ?? null,
+    pathId: input.pathId,
+    rows: panelRows,
+    stageCounts: STAGE_ORDER.map((stage) => ({
+      stage,
+      count: panelRows.filter((r) => r.stage === stage).length,
+    })).filter((s) => s.count > 0),
+    sectorClock: input.sectorClock.map((c) => ({
+      sectorId: c.sectorId,
+      symbol: c.symbol,
+      name: sectorNameById.get(c.sectorId) ?? c.sectorId,
+      sls: c.sls,
+      mom21: c.mom21,
+      rank: c.rank,
+      isTop3: c.isTop3,
+      isBottoming: c.isBottoming,
+    })),
+    skippedSymbols: input.skipped,
+    universeSize: ROTATION_UNIVERSE.length,
+  };
 }

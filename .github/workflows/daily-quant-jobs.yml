@@ -17,13 +17,11 @@ jobs:
     env:
       MARKET_DATA_DIR: ${{ github.workspace }}/.market
       HOST: 108.174.50.53
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      ALLOW_DB: "1"
-      FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
-      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
       ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
       ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
       ALPACA_FEED: sip
+      FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -63,7 +61,21 @@ jobs:
       - name: Refresh CSV to last session
         run: npm run market:refresh
 
-      - name: Push market CSVs to VPS
+      - name: Compute snapshots onto VPS files
+        continue-on-error: true
+        run: npm run jobs:daily
+
+      - name: Fetch GEX snapshot
+        continue-on-error: true
+        run: python3 scripts/fetch-gex-snapshot.py
+
+      - name: Copy GEX onto market snapshots
+        if: hashFiles('.cache/gex/latest.json') != ''
+        run: |
+          mkdir -p "$MARKET_DATA_DIR/snapshots"
+          cp .cache/gex/latest.json "$MARKET_DATA_DIR/snapshots/gex.json"
+
+      - name: Push market files to VPS
         run: |
           set -euo pipefail
           rsync -a --info=stats1 \
@@ -79,32 +91,8 @@ jobs:
         env:
           BOOK_PUSH_URL: ${{ secrets.BOOK_PUSH_URL }}
 
-      - name: Fetch GEX snapshot
-        continue-on-error: true
-        run: python3 scripts/fetch-gex-snapshot.py
-
       - name: Push GEX card
         if: hashFiles('.cache/gex/latest.json') != ''
         run: npx --yes tsx scripts/push-gex-card.ts
         env:
           BOOK_PUSH_URL: ${{ secrets.BOOK_PUSH_URL }}
-
-      - name: Generate Prisma client
-        continue-on-error: true
-        run: npm run prisma:generate
-
-      - name: Refresh rotation universe bars
-        continue-on-error: true
-        run: npm run backfill:rotation
-
-      - name: Refresh sector ETF bars
-        continue-on-error: true
-        run: npm run backfill:sectors
-
-      - name: Refresh macro series
-        continue-on-error: true
-        run: npm run backfill:macro
-
-      - name: Run quant job chain
-        continue-on-error: true
-        run: npm run jobs:daily

@@ -1,6 +1,7 @@
 import { COMMERCIAL_SPEC } from "@/lib/config/commercialSpec";
-import { getPrisma } from "@/lib/db/prisma";
+import type { RotationData, RotationHolding } from "@/lib/dashboard/rotation";
 import { loadEarlyBreakevenDates } from "@/lib/jobs/earlyBreakeven";
+import { PATH_EXPOSURE, macroExposurePct } from "@/lib/scoring/macroExposure";
 import { computeLogMacdSeries } from "@/lib/scoring/logMacd";
 import { percentileRsBySymbol } from "@/lib/scoring/percentileRs";
 import { rotationRsSeries } from "@/lib/scoring/rotationRs";
@@ -11,6 +12,9 @@ import {
   type TradeBar,
 } from "@/lib/scoring/rotationTrade";
 import { ROTATION_UNIVERSE } from "@/lib/scoring/rotationUniverse";
+import { loadDailyBars } from "@/lib/vps/loadDailyBars";
+import { readSnapshot, writeSnapshot } from "@/lib/vps/snapshot";
+import type { MprData } from "@/lib/dashboard/mpr";
 
 /**
  * 每日重算 40 只标的的轮动信号与持仓状态，落库到 RotationState / RotationTrade。
@@ -46,35 +50,8 @@ type SignalBar = TradeBar & { open: number };
 type Loaded = { symbol: string; bars: SignalBar[] };
 
 async function loadBars(): Promise<{ loaded: Loaded[]; skipped: string[] }> {
-  const prisma = getPrisma();
   const symbols = ROTATION_UNIVERSE.map((t) => t.symbol);
-  const instruments = await prisma.instrument.findMany({
-    where: { symbol: { in: symbols } },
-    select: { id: true, symbol: true },
-  });
-
-  const bars = await prisma.dailyBar.findMany({
-    where: { instrumentId: { in: instruments.map((i) => i.id) } },
-    orderBy: { date: "asc" },
-    select: { instrumentId: true, date: true, open: true, high: true, low: true, close: true },
-  });
-
-  const bySymbol = new Map<string, SignalBar[]>();
-  const symbolById = new Map(instruments.map((i) => [i.id, i.symbol]));
-  for (const bar of bars) {
-    const symbol = symbolById.get(bar.instrumentId);
-    if (!symbol) continue;
-    const list = bySymbol.get(symbol) ?? [];
-    list.push({
-      date: bar.date.toISOString().slice(0, 10),
-      open: bar.open,
-      high: bar.high,
-      low: bar.low,
-      close: bar.close,
-    });
-    bySymbol.set(symbol, list);
-  }
-
+  const bySymbol = await loadDailyBars(symbols);
   const loaded: Loaded[] = [];
   const skipped: string[] = [];
   for (const symbol of symbols) {
@@ -85,22 +62,15 @@ async function loadBars(): Promise<{ loaded: Loaded[]; skipped: string[] }> {
     }
     loaded.push({ symbol, bars: list });
   }
-
   return { loaded, skipped };
 }
 
 const toDate = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
 
 export async function runRotationRadarJob(): Promise<RotationRadarJobResult> {
-  const prisma = getPrisma();
-  const startedAt = new Date();
-  let stateRowsWritten = 0;
-  let tradeRowsWritten = 0;
-
-  try {
-    const { loaded, skipped } = await loadBars();
+  const { loaded, skipped } = await loadBars();
     if (loaded.length === 0) {
-      throw new Error("无可用标的，请先执行 npm run backfill:rotation");
+      throw new Error("无可用标的，先把轮动池日线 CSV 写到 VPS");
     }
 
     // 各标的的最新交易日可能不同（停牌、上市时间），以全池最大值为准
@@ -188,53 +158,18 @@ export async function runRotationRadarJob(): Promise<RotationRadarJobResult> {
       }
     }
 
-    // 先删后插：逐条 upsert 在 Neon 上会撞事务超时，这里只有两条语句。
-    const windowStart = stateRows.reduce(
-      (min, r) => (r.date < min ? r.date : min),
-      stateRows[0].date,
+    const mpr = await readSnapshot<MprData>("mpr");
+    const pathId = mpr?.latest?.pathId ?? null;
+    writeSnapshot(
+      "rotation",
+      assembleRotationSnapshot({
+        latestDate,
+        stateRows,
+        trades: allTrades,
+        skipped,
+        pathId,
+      }),
     );
-    await prisma.$transaction([
-      prisma.rotationState.deleteMany({ where: { date: { gte: windowStart } } }),
-      prisma.rotationState.createMany({ data: stateRows }),
-    ]);
-    stateRowsWritten = stateRows.length;
-
-    const tradeRows = allTrades.map((t) => ({
-      symbol: t.symbol,
-      sigType: t.sigType,
-      entryDate: toDate(t.entryDate),
-      entryPrice: t.entryPrice,
-      exitDate: toDate(t.exitDate),
-      exitPrice: t.exitPrice,
-      pnlPct: t.pnlPct,
-      barsHeld: t.barsHeld,
-    }));
-    await prisma.$transaction([
-      prisma.rotationTrade.deleteMany({}),
-      prisma.rotationTrade.createMany({ data: tradeRows }),
-    ]);
-    tradeRowsWritten = tradeRows.length;
-
-    const finishedAt = new Date();
-    await prisma.jobRun.create({
-      data: {
-        name: "rotation-radar",
-        status: "SUCCESS",
-        startedAt,
-        finishedAt,
-        durationMs: finishedAt.getTime() - startedAt.getTime(),
-        recordsRead: loaded.reduce((sum, l) => sum + l.bars.length, 0),
-        recordsWritten: stateRowsWritten + tradeRowsWritten,
-        details: {
-          latestDate,
-          symbolsEvaluated: loaded.length,
-          symbolsSkipped: skipped,
-          activePositions,
-          firedToday,
-          exitedToday,
-        },
-      },
-    });
 
     return {
       latestDate,
@@ -243,23 +178,155 @@ export async function runRotationRadarJob(): Promise<RotationRadarJobResult> {
       activePositions,
       firedToday,
       exitedToday,
-      stateRowsWritten,
-      tradeRowsWritten,
+      stateRowsWritten: stateRows.length,
+      tradeRowsWritten: allTrades.length,
     };
-  } catch (error) {
-    const finishedAt = new Date();
-    await prisma.jobRun.create({
-      data: {
-        name: "rotation-radar",
-        status: "FAILED",
-        startedAt,
-        finishedAt,
-        durationMs: finishedAt.getTime() - startedAt.getTime(),
-        recordsWritten: stateRowsWritten + tradeRowsWritten,
-        error: error instanceof Error ? error.message : String(error),
-        details: {},
-      },
-    });
-    throw error;
+}
+
+const AVG_SLOTS = 8;
+const RECENT_SIGNAL_DAYS = 30;
+
+function assembleRotationSnapshot(input: {
+  latestDate: string;
+  stateRows: {
+    date: Date;
+    symbol: string;
+    close: number;
+    rs: number;
+    sigType: number;
+    buy1: boolean;
+    buy2: boolean;
+    entryPrice: number | null;
+    effectiveStop: number | null;
+    floatPnlPct: number;
+    maxPnlPct: number;
+    breakevenLocked: boolean;
+  }[];
+  trades: ClosedTrade[];
+  skipped: string[];
+  pathId: number | null;
+}): RotationData {
+  const latestDate = new Date(`${input.latestDate}T00:00:00.000Z`);
+  const yearStart = new Date(Date.UTC(latestDate.getUTCFullYear(), 0, 1));
+  const since = new Date(latestDate);
+  since.setUTCDate(since.getUTCDate() - RECENT_SIGNAL_DAYS);
+
+  const rows = input.stateRows.filter((r) => r.date.getTime() === latestDate.getTime());
+  const closedThisYear = input.trades.filter((t) => toDate(t.exitDate) >= yearStart);
+  const signalRows = input.stateRows
+    .filter((r) => r.date >= since && (r.buy1 || r.buy2))
+    .sort((a, b) => b.date.getTime() - a.date.getTime());
+
+  const active = rows.filter((r) => r.sigType > 0);
+  const activeRsSum = active.reduce((sum, r) => sum + r.rs, 0);
+  const exposureScale =
+    COMMERCIAL_SPEC.macroExposureScaling && input.pathId != null
+      ? macroExposurePct(input.pathId) / 100
+      : 1;
+
+  const toHolding = (row: (typeof rows)[number]): RotationHolding => {
+    const weightPct =
+      row.sigType > 0 && activeRsSum > 0 ? (row.rs / activeRsSum) * 100 * exposureScale : 0;
+    return {
+      symbol: row.symbol,
+      close: row.close,
+      rs: row.rs,
+      sigType: row.sigType,
+      entryPrice: row.entryPrice,
+      effectiveStop: row.effectiveStop,
+      floatPnlPct: row.floatPnlPct,
+      maxPnlPct: row.maxPnlPct,
+      breakevenLocked: row.breakevenLocked,
+      weightPct,
+      navContribPct: row.floatPnlPct * (weightPct / 100),
+    };
+  };
+
+  const all = rows.map(toHolding).sort((a, b) => b.rs - a.rs);
+  const holdings = all.filter((h) => h.sigType > 0).sort((a, b) => b.weightPct - a.weightPct);
+  const closedPnlSum = closedThisYear.reduce((sum, t) => sum + t.pnlPct, 0);
+  const wins = closedThisYear.filter((t) => t.pnlPct > 0).length;
+  const openNavPct = holdings.reduce((sum, h) => sum + h.navContribPct, 0);
+  const closedNavPct = closedPnlSum / AVG_SLOTS;
+  const ytdStates = input.stateRows
+    .filter((r) => r.date >= yearStart)
+    .map((r) => ({ date: r.date, rs: r.rs, sigType: r.sigType, floatPnlPct: r.floatPnlPct }))
+    .sort((a, b) => a.date.getTime() - b.date.getTime());
+  const { navCurve, maxDrawdownPct } = buildNavCurve(
+    ytdStates,
+    closedThisYear.map((t) => ({ exitDate: toDate(t.exitDate), pnlPct: t.pnlPct })),
+  );
+
+  return {
+    latestDate: input.latestDate,
+    holdings,
+    all,
+    recentSignals: signalRows.map((r) => ({
+      date: r.date.toISOString().slice(0, 10),
+      symbol: r.symbol,
+      sigType: r.buy1 ? 1 : 2,
+      rs: r.rs,
+      close: r.close,
+    })),
+    navCurve,
+    maxDrawdownPct,
+    stats: {
+      closedPnlSum,
+      closedNavPct,
+      openNavPct,
+      totalNavPct: closedNavPct + openNavPct,
+      trades: closedThisYear.length,
+      wins,
+      winRatePct: closedThisYear.length > 0 ? (wins / closedThisYear.length) * 100 : 0,
+    },
+    universeSize: ROTATION_UNIVERSE.length,
+    skippedSymbols: input.skipped,
+    macroExposure:
+      input.pathId == null
+        ? null
+        : { pathId: input.pathId, ...(PATH_EXPOSURE[input.pathId] ?? PATH_EXPOSURE[4]) },
+  };
+}
+
+function buildNavCurve(
+  states: { date: Date; rs: number; sigType: number; floatPnlPct: number }[],
+  closedTrades: { exitDate: Date; pnlPct: number }[],
+): { navCurve: RotationData["navCurve"]; maxDrawdownPct: number } {
+  if (states.length === 0) return { navCurve: [], maxDrawdownPct: 0 };
+
+  const byDate = new Map<number, typeof states>();
+  for (const s of states) {
+    const key = s.date.getTime();
+    const bucket = byDate.get(key);
+    if (bucket) bucket.push(s);
+    else byDate.set(key, [s]);
   }
+
+  const exits = [...closedTrades].sort((a, b) => a.exitDate.getTime() - b.exitDate.getTime());
+  let exitIdx = 0;
+  let closedCum = 0;
+  let peak = 0;
+  let maxDrawdownPct = 0;
+  const navCurve: RotationData["navCurve"] = [];
+
+  for (const key of [...byDate.keys()].sort((a, b) => a - b)) {
+    while (exitIdx < exits.length && exits[exitIdx].exitDate.getTime() < key) {
+      closedCum += exits[exitIdx].pnlPct;
+      exitIdx += 1;
+    }
+    const day = byDate.get(key)!;
+    const active = day.filter((s) => s.sigType > 0);
+    const openSum = active.reduce((sum, s) => sum + s.floatPnlPct, 0);
+    const navPct = (closedCum + openSum) / AVG_SLOTS;
+    peak = Math.max(peak, navPct);
+    const drawdownPct = navPct - peak;
+    maxDrawdownPct = Math.min(maxDrawdownPct, drawdownPct);
+    navCurve.push({
+      date: new Date(key).toISOString().slice(0, 10),
+      navPct,
+      drawdownPct,
+      holdings: active.length,
+    });
+  }
+  return { navCurve, maxDrawdownPct };
 }

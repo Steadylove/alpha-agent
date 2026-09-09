@@ -1,7 +1,9 @@
 "use client";
 
 import { MantineProvider, createTheme } from "@mantine/core";
+import "@mantine/core/styles.css";
 import { DatesProvider } from "@mantine/dates";
+import "@mantine/dates/styles.css";
 import "dayjs/locale/zh-cn";
 import type { ReactNode } from "react";
 
