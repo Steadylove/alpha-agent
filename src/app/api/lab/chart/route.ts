@@ -45,7 +45,7 @@ export async function POST(request: Request) {
   const poolId = champ?.poolId ?? parsePoolId(body);
 
   try {
-    const universe = await getPreparedUniverse(index, config.timeframe, poolId);
+    const universe = await getPreparedUniverse(index, config.timeframe, poolId, [symbol]);
     const ran = champ
       ? runChampSymbol(universe, champ, symbol)
       : null;

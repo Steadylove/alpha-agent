@@ -10,6 +10,7 @@ import {
   Group,
   Modal,
   NumberInput,
+  Paper,
   ScrollArea,
   SegmentedControl,
   Select,
@@ -19,6 +20,7 @@ import {
   UnstyledButton,
 } from "@mantine/core";
 
+import { BookEpochCard } from "@/components/BookEpochCard";
 import { Card } from "@/components/Card";
 import { DayPicker } from "@/components/DayPicker";
 import { LabSymbolChart, type ChartTarget } from "@/components/LabSymbolChart";
@@ -82,7 +84,6 @@ export function SignalPoolCard({
   const [pickFrom, setPickFrom] = useState("2026-01-01");
   const [snapshots, setSnapshots] = useState<LookbackSnapshot[]>([]);
   const [snapId, setSnapId] = useState<string | null>(null);
-  const [snapRename, setSnapRename] = useState("");
   const [pickTo, setPickTo] = useState("");
   const [pickN, setPickN] = useState<number | string>(10);
   const [pickTf, setPickTf] = useState<LookbackPickTf>("4h");
@@ -219,23 +220,6 @@ export function SignalPoolCard({
     }
   };
 
-  const renameSnap = async () => {
-    if (!pickedSnap) return;
-    setError(null);
-    try {
-      const res = await fetch("/api/lookback-snapshots", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "rename", id: pickedSnap.id, name: snapRename }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "改名失败");
-      setSnapshots(json.snapshots ?? []);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "改名失败");
-    }
-  };
-
   useEffect(() => {
     if (!restoreToken || !restoreMembers?.length || !saved) return;
     applyRecommend(restoreMembers);
@@ -307,83 +291,89 @@ export function SignalPoolCard({
     });
   };
 
-  return (
-    <Card
-      title={scratch ? "临时回看池" : "记账池"}
-      action={
-        <Group gap={8}>
-          {dirty ? (
-            <Badge size="sm" color="orange" variant="light">
-              {scratch ? "仅本页" : "未保存"}
-            </Badge>
-          ) : null}
+  const liveOpen = scratch || editing || listOpen;
+  const bar = (
+    <Group justify="space-between" wrap="wrap" gap="xs">
+      <Group gap={6} wrap="wrap">
+        <Text size="sm" fw={600} c="gray.2">
+          {scratch ? "临时回看池" : "记账池"}
+        </Text>
+        <Text size="sm" c="dimmed">
+          {saved ? `${members.length} 只` : "—"}
+          {draft && draft.removed.length > 0 ? ` · 已剔除 ${draft.removed.length}` : ""}
+        </Text>
+        {scratch ? null : <BookEpochCard />}
+      </Group>
+      <Group gap={8} wrap="nowrap">
+        {dirty ? (
+          <Badge size="sm" color="orange" variant="light">
+            {scratch ? "仅本页" : "未保存"}
+          </Badge>
+        ) : null}
+        {scratch ? (
           <Text size="xs" c="dimmed" ff="monospace">
             {saved ? `${members.length} / ${saved.defaultCount}` : ""}
           </Text>
-          <Button
-            size="compact-sm"
-            variant={editing ? "default" : "light"}
-            onClick={() => {
-              setEditing((v) => !v);
-              if (!editing) setListOpen(true);
-            }}
-          >
-            {editing ? "退出编辑" : "编辑"}
-          </Button>
-        </Group>
-      }
-    >
-      <Text size="sm" c="dimmed" mb="md" lh={1.6}>
-        {scratch
-          ? "从当前正在跑的池复制一份，只给这次回看用。查找按全池实际持仓贡献取前 N。推荐是 2026 年单票满仓排序后再按 12.5% 账本挑只数最好的一组，事后才知道。不写 Discord。"
-          : `默认标普∪纳指扩池 ${saved?.defaultCount ?? "—"} 只。载入已存池会立刻写入，刷新还在。只改两本现金账本，Discord 买/卖仍按 TV 信号 + RPS 转发。点代码看策略图。`}
-      </Text>
-      <Group align="flex-end" wrap="wrap" gap="sm" mb="md">
-        <Select
-          size="sm"
-          label="已存股票池"
-          placeholder={snapshots.length ? "选一份载入" : "还没有快照"}
-          data={snapshots.map((s) => ({
-            value: s.id,
-            label: `${s.name} · ${s.members.length}只`,
-          }))}
-          value={snapId}
-          onChange={(id) => {
-            setSnapId(id);
-            const snap = snapshots.find((s) => s.id === id);
-            setSnapRename(snap?.name ?? "");
+        ) : (
+          <UnstyledButton onClick={() => setListOpen((v) => !v)}>
+            <Text size="xs" c="dimmed">
+              {listOpen ? "收起名单" : "名单"}
+            </Text>
+          </UnstyledButton>
+        )}
+        <Button
+          size="compact-xs"
+          variant={editing ? "default" : "subtle"}
+          onClick={() => {
+            setEditing((v) => !v);
+            if (!editing) setListOpen(true);
           }}
-          searchable
-          clearable
-          w={280}
-        />
-        <Button
-          size="sm"
-          variant="light"
-          disabled={!pickedSnap}
-          loading={busy && !scratch}
-          onClick={() => void loadSnap()}
         >
-          载入
-        </Button>
-        <TextInput
-          size="sm"
-          label="改名"
-          placeholder="新名字"
-          value={snapRename}
-          onChange={(e) => setSnapRename(e.currentTarget.value)}
-          disabled={!pickedSnap}
-          w={180}
-        />
-        <Button
-          size="sm"
-          variant="default"
-          disabled={!pickedSnap || !snapRename.trim()}
-          onClick={() => void renameSnap()}
-        >
-          保存名字
+          {editing ? "退出编辑" : "编辑"}
         </Button>
       </Group>
+    </Group>
+  );
+
+  const inner = (
+    <>
+      {scratch ? (
+        <Text size="sm" c="dimmed" mb="md" lh={1.6}>
+          从当前正在跑的池复制一份，只给这次回看用。查找按全池实际持仓贡献取前 N。推荐是 2026
+          年单票满仓排序后再按 12.5% 账本挑只数最好的一组，事后才知道。不写 Discord。
+        </Text>
+      ) : editing ? (
+        <Text size="sm" c="dimmed" mb="md" lh={1.6}>
+          改名单或载入已存池会立刻影响两本账本。Discord 买/卖仍按 TV 信号转发。
+        </Text>
+      ) : null}
+      {scratch || editing ? (
+        <Group align="flex-end" wrap="wrap" gap="sm" mb="md">
+          <Select
+            size="sm"
+            label="已存股票池"
+            placeholder={snapshots.length ? "选一份载入" : "还没有快照"}
+            data={snapshots.map((s) => ({
+              value: s.id,
+              label: `${s.name} · ${s.members.length}只`,
+            }))}
+            value={snapId}
+            onChange={setSnapId}
+            searchable
+            clearable
+            w={280}
+          />
+          <Button
+            size="sm"
+            variant="light"
+            disabled={!pickedSnap}
+            loading={busy && !scratch}
+            onClick={() => void loadSnap()}
+          >
+            载入
+          </Button>
+        </Group>
+      ) : null}
       {scratch ? (
         <Group align="flex-end" wrap="wrap" gap="sm" mb="md">
           <DayPicker label="起点" value={pickFrom} onChange={setPickFrom} />
@@ -438,7 +428,7 @@ export function SignalPoolCard({
           {error}
         </Alert>
       ) : null}
-      {saved && saved.missingCsv.length > 0 ? (
+      {liveOpen && saved && saved.missingCsv.length > 0 ? (
         <Text size="xs" c="orange.4" mb="sm">
           已纳入但缺行情：{saved.missingCsv.join(", ")}。
           {scratch ? "回看也进不了这些票。" : "信号仍会转发，账本要等 CSV 齐了才进。"}
@@ -511,7 +501,7 @@ export function SignalPoolCard({
           </Group>
         </>
       ) : null}
-      {draft && draft.removed.length > 0 && draft.removed.length <= 12 ? (
+      {liveOpen && draft && draft.removed.length > 0 && draft.removed.length <= 12 ? (
         <ChipRow label="已剔除">
           {draft.removed.map((s) => (
             <Badge
@@ -542,7 +532,7 @@ export function SignalPoolCard({
           ))}
         </ChipRow>
       ) : null}
-      {draft && draft.added.length > 0 ? (
+      {liveOpen && draft && draft.added.length > 0 ? (
         <ChipRow label="新纳入">
           {draft.added.map((s) => (
             <Badge
@@ -573,7 +563,7 @@ export function SignalPoolCard({
           ))}
         </ChipRow>
       ) : null}
-      {saved ? (
+      {saved && liveOpen ? (
         <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-sunken)]">
           <UnstyledButton
             onClick={() => setListOpen((v) => !v)}
@@ -721,7 +711,22 @@ export function SignalPoolCard({
           </Button>
         </Group>
       </Modal>
-    </Card>
+    </>
+  );
+
+  if (scratch) {
+    return (
+      <Card title={bar}>
+        {inner}
+      </Card>
+    );
+  }
+
+  return (
+    <Paper px="md" py="sm" className="lift">
+      {bar}
+      {liveOpen ? <div className="mt-3">{inner}</div> : inner}
+    </Paper>
   );
 }
 

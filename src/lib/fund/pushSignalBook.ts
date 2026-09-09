@@ -6,7 +6,7 @@ import { runLookback } from "@/lib/fund/lookback";
 import { type LookbackTf, type LookbackView } from "@/lib/fund/lookbackLogic";
 import { readLookbackSnapshots } from "@/lib/fund/lookbackSnapshots";
 import { peekLiveBooks, saveLiveBooks } from "@/lib/fund/liveBooks";
-import type { LiveBookOk } from "@/lib/fund/liveBooksLogic";
+import { liveBookName, type LiveBookOk } from "@/lib/fund/liveBooksLogic";
 import { STRATEGY_TITLE } from "@/lib/discord/brand";
 import { sparklineValues, type CashBookView } from "@/lib/discord/bookCopy";
 
@@ -41,15 +41,17 @@ function liveCard(
   test: boolean,
   sparkline?: number[],
 ): BuiltBook {
+  const tf: LookbackTf = champ.config.timeframe === "2h" ? "2h" : "4h";
+  const name = liveBookName(tf);
   const s = view.stats;
   return {
     filename: `book-${champ.id}.png`,
-    content: bookCaption(champ.name, test),
-    summary: `${champ.name} 记账自 ${view.since.slice(0, 10)} 截至 ${view.asOf} ${view.rows.length}只`,
+    content: bookCaption(name, test),
+    summary: `${name} 记账自 ${view.since.slice(0, 10)} 截至 ${view.asOf} ${view.rows.length}只`,
     input: {
       asOf: view.asOf,
       since: view.since,
-      label: champ.name,
+      label: name,
       rows: view.rows,
       equity: view.equity,
       ytdPct: s.ytdPct ?? undefined,
@@ -157,7 +159,7 @@ export async function buildSignalBooks(opts: PushSignalBookOpts = {}): Promise<B
     out.push(built.book);
     live.push({
       tf: champ.config.timeframe === "2h" ? "2h" : "4h",
-      name: champ.name,
+      name: liveBookName(champ.config.timeframe === "2h" ? "2h" : "4h"),
       view: built.view,
     });
   }

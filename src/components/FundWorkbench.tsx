@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { SegmentedControl } from "@mantine/core";
 
-import { BookEpochCard } from "@/components/BookEpochCard";
 import { FundBoard } from "@/components/FundBoard";
 import { LookbackCard } from "@/components/LookbackCard";
 import { SignalPoolCard } from "@/components/SignalPoolCard";
@@ -29,7 +28,6 @@ export function FundWorkbench() {
       />
       <div className={tab === "live" ? "space-y-6" : "hidden"}>
         <SignalPoolCard />
-        <BookEpochCard />
         <FundBoard />
       </div>
       <div className={tab === "lookback" ? "space-y-6" : "hidden"}>

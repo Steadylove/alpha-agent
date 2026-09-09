@@ -1,13 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Alert, Badge, Button, Group, Loader, Table, Text } from "@mantine/core";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Alert, Badge, Button, Group, Loader, SegmentedControl, Table, Text, UnstyledButton } from "@mantine/core";
 
 import { Card, MetricCard } from "@/components/Card";
+import { LabSymbolChart, type ChartTarget } from "@/components/LabSymbolChart";
+import { curveFromSparkline, LookbackEquityChart } from "@/components/LookbackEquityChart";
 import { daysOpenLabel, daysOpenOf, pnlLabel } from "@/lib/discord/bookCopy";
+import { liveBookName } from "@/lib/fund/liveBooksLogic";
 import {
   DEFAULT_LOOKBACK_SLOTS,
   type LookbackFill,
+  type LookbackPoint,
   type LookbackTf,
   type LookbackView,
 } from "@/lib/fund/lookbackLogic";
@@ -20,7 +24,7 @@ const EXIT: Record<string, string> = {
   rotate: "置换",
 };
 
-type BookOk = { tf: LookbackTf; name: string; view: LookbackView };
+type BookOk = { tf: LookbackTf; name: string; view: LookbackView; sparkline?: number[] };
 type BookErr = { tf: LookbackTf; name: string; error: string };
 type Snapshot = {
   epochFrom: string;
@@ -41,6 +45,13 @@ export function FundBoard() {
   const [stale, setStale] = useState(false);
   const [busy, setBusy] = useState<"read" | "run" | null>("read");
   const [error, setError] = useState<string | null>(null);
+  const [tf, setTf] = useState<LookbackTf>("4h");
+  const [fillsOpen, setFillsOpen] = useState(false);
+  const [chartTarget, setChartTarget] = useState<ChartTarget | null>(null);
+  const chartRequest = useMemo(
+    () => ({ champ: tf === "2h" ? "2h-broad" : "4h", index: "SMALLFUND" }),
+    [tf],
+  );
 
   const apply = (json: Snapshot) => {
     setFrom(json.epochFrom);
@@ -123,7 +134,7 @@ export function FundBoard() {
         <Group justify="center" py="xl">
           <Loader size="sm" />
           <Text size="sm" c="dimmed">
-            正在重算 4 小时和 2H，大约一两分钟
+            正在重算 4 小时和 2 小时，大约一两分钟
           </Text>
         </Group>
       ) : null}
@@ -134,25 +145,73 @@ export function FundBoard() {
         </Text>
       ) : null}
 
+      {books.length > 0 ? (
+        <SegmentedControl
+          size="sm"
+          value={tf}
+          onChange={(v) => {
+            setTf(v as LookbackTf);
+            setFillsOpen(false);
+            setChartTarget(null);
+          }}
+          data={books.map((book) => ({
+            value: book.tf,
+            label: liveBookName(book.tf),
+          }))}
+        />
+      ) : null}
+
       {books.map((book) =>
-        "error" in book ? (
-          <Alert key={book.tf} color="red" variant="light" title={book.name}>
+        book.tf !== tf ? null : "error" in book ? (
+          <Alert key={book.tf} color="red" variant="light" title={liveBookName(book.tf)}>
             {book.error}
           </Alert>
         ) : (
-          <LiveBookCard key={book.tf} name={book.name} view={book.view} />
+          <LiveBookCard
+            key={book.tf}
+            name={liveBookName(book.tf)}
+            view={book.view}
+            sparkline={book.sparkline}
+            fillsOpen={fillsOpen}
+            onToggleFills={() => setFillsOpen((v) => !v)}
+            onOpenChart={(symbol, entryDate) => setChartTarget({ symbol, entryDate: entryDate ?? "" })}
+          />
         ),
       )}
+
+      <LabSymbolChart target={chartTarget} request={chartRequest} onClose={() => setChartTarget(null)} />
     </div>
   );
 }
 
-function LiveBookCard({ name, view }: { name: string; view: LookbackView }) {
+function LiveBookCard({
+  name,
+  view,
+  sparkline,
+  fillsOpen,
+  onToggleFills,
+  onOpenChart,
+}: {
+  name: string;
+  view: LookbackView;
+  sparkline?: number[];
+  fillsOpen: boolean;
+  onToggleFills: () => void;
+  onOpenChart: (symbol: string, entryDate?: string | null) => void;
+}) {
   const s = view.stats;
   const fills = [...(view.fills ?? [])].reverse();
   const last = view.curve.at(-1);
   const lastBuys = last?.buys ?? [];
   const lastSells = last?.sells ?? [];
+  const curve: LookbackPoint[] =
+    view.curve.length >= 2 ? view.curve : curveFromSparkline(sparkline ?? [], view.since, view.asOf);
+  const curveHint =
+    view.curve.length >= 2
+      ? "绿买 · 红卖 · 琥珀当天既买又卖。点代码看 K 线。"
+      : curve.length >= 2
+        ? "旧缓存只有抽样净值。重算后会带买卖点。"
+        : null;
 
   return (
     <Card title={`${name} · ${stamp(view.asOf)}`}>
@@ -169,17 +228,27 @@ function LiveBookCard({ name, view }: { name: string; view: LookbackView }) {
         <MetricCard label="持仓" value={`${view.rows.length}`} hint={`${s.entries} 笔入场`} />
       </div>
 
+      {curve.length >= 2 ? (
+        <div className="mb-4">
+          <LookbackEquityChart curve={curve} hint={curveHint} />
+        </div>
+      ) : null}
+
       {lastBuys.length || lastSells.length ? (
         <Group gap={6} mb="md">
           {lastBuys.map((sym) => (
-            <Badge key={`b-${sym}`} size="sm" color="teal" variant="light">
-              当根买 {sym}
-            </Badge>
+            <UnstyledButton key={`b-${sym}`} onClick={() => onOpenChart(sym, last?.date)}>
+              <Badge size="sm" color="teal" variant="light">
+                当根买 {sym}
+              </Badge>
+            </UnstyledButton>
           ))}
           {lastSells.map((sym) => (
-            <Badge key={`s-${sym}`} size="sm" color="red" variant="light">
-              当根卖 {sym}
-            </Badge>
+            <UnstyledButton key={`s-${sym}`} onClick={() => onOpenChart(sym, last?.date)}>
+              <Badge size="sm" color="red" variant="light">
+                当根卖 {sym}
+              </Badge>
+            </UnstyledButton>
           ))}
         </Group>
       ) : (
@@ -210,8 +279,14 @@ function LiveBookCard({ name, view }: { name: string; view: LookbackView }) {
           </Table.Thead>
           <Table.Tbody>
             {view.rows.map((row) => (
-              <Table.Tr key={row.symbol}>
-                <Table.Td fw={600}>{row.symbol}</Table.Td>
+              <Table.Tr
+                key={row.symbol}
+                className="cursor-pointer"
+                onClick={() => onOpenChart(row.symbol, row.entryDate)}
+              >
+                <Table.Td fw={600}>
+                  <TickerLink symbol={row.symbol} />
+                </Table.Td>
                 <Table.Td c="dimmed">{row.entryDate ? stamp(row.entryDate) : "—"}</Table.Td>
                 <Table.Td ta="right" ff="monospace">
                   {daysOpenLabel(daysOpenOf(row.entryDate, view.asOf))}
@@ -235,47 +310,63 @@ function LiveBookCard({ name, view }: { name: string; view: LookbackView }) {
         </Table>
       )}
 
-      <Text size="xs" fw={600} c="dimmed" mb="xs">
-        成交 {fills.length} 笔
-      </Text>
-      {fills.length === 0 ? (
-        <Text size="sm" c="dimmed">
-          这段窗口没有成交
+      <UnstyledButton onClick={onToggleFills} mb="xs">
+        <Text size="xs" fw={600} c="dimmed">
+          成交 {fills.length} 笔 {fillsOpen ? "▾" : "▸"}
         </Text>
-      ) : (
-        <Table striped highlightOnHover fz="sm">
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>时间</Table.Th>
-              <Table.Th>方向</Table.Th>
-              <Table.Th>标的</Table.Th>
-              <Table.Th ta="right">价格</Table.Th>
-              <Table.Th ta="right">盈亏</Table.Th>
-              <Table.Th>原因</Table.Th>
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {fills.map((fill, i) => (
-              <FillRow key={`${fill.date}-${fill.side}-${fill.symbol}-${i}`} fill={fill} />
-            ))}
-          </Table.Tbody>
-        </Table>
-      )}
+      </UnstyledButton>
+      {fillsOpen ? (
+        fills.length === 0 ? (
+          <Text size="sm" c="dimmed">
+            这段窗口没有成交
+          </Text>
+        ) : (
+          <Table striped highlightOnHover fz="sm">
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>时间</Table.Th>
+                <Table.Th>方向</Table.Th>
+                <Table.Th>标的</Table.Th>
+                <Table.Th ta="right">价格</Table.Th>
+                <Table.Th ta="right">盈亏</Table.Th>
+                <Table.Th>原因</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {fills.map((fill, i) => (
+                <FillRow
+                  key={`${fill.date}-${fill.side}-${fill.symbol}-${i}`}
+                  fill={fill}
+                  onOpenChart={onOpenChart}
+                />
+              ))}
+            </Table.Tbody>
+          </Table>
+        )
+      ) : null}
     </Card>
   );
 }
 
-function FillRow({ fill }: { fill: LookbackFill }) {
+function FillRow({
+  fill,
+  onOpenChart,
+}: {
+  fill: LookbackFill;
+  onOpenChart: (symbol: string, entryDate?: string | null) => void;
+}) {
   const buy = fill.side === "buy";
   return (
-    <Table.Tr>
+    <Table.Tr className="cursor-pointer" onClick={() => onOpenChart(fill.symbol, fill.date)}>
       <Table.Td c="dimmed">{stamp(fill.date)}</Table.Td>
       <Table.Td>
         <Badge size="sm" color={buy ? "teal" : "red"} variant="light">
           {buy ? "买" : "卖"}
         </Badge>
       </Table.Td>
-      <Table.Td fw={600}>{fill.symbol}</Table.Td>
+      <Table.Td fw={600}>
+        <TickerLink symbol={fill.symbol} />
+      </Table.Td>
       <Table.Td ta="right" ff="monospace">
         {fill.price.toFixed(2)}
       </Table.Td>
@@ -284,5 +375,13 @@ function FillRow({ fill }: { fill: LookbackFill }) {
       </Table.Td>
       <Table.Td c="dimmed">{fill.reason ? (EXIT[fill.reason] ?? fill.reason) : buy ? "开仓" : "—"}</Table.Td>
     </Table.Tr>
+  );
+}
+
+function TickerLink({ symbol }: { symbol: string }) {
+  return (
+    <span className="font-mono font-semibold underline decoration-zinc-600 underline-offset-2 hover:text-zinc-100">
+      {symbol}
+    </span>
   );
 }

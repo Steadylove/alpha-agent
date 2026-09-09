@@ -2,8 +2,12 @@ import { DEFAULT_LOOKBACK_SLOTS, isLookbackTf, type LookbackTf, type LookbackVie
 
 export const LIVE_BOOKS: { tf: LookbackTf; name: string }[] = [
   { tf: "4h", name: "4 小时" },
-  { tf: "2h", name: "2H 扩池" },
+  { tf: "2h", name: "2 小时" },
 ];
+
+export function liveBookName(tf: LookbackTf): string {
+  return LIVE_BOOKS.find((book) => book.tf === tf)?.name ?? tf;
+}
 
 export type LiveBookOk = { tf: LookbackTf; name: string; view: LookbackView; sparkline?: number[] };
 
@@ -19,12 +23,20 @@ export function livePoolKey(members: readonly string[]): string {
   return [...members].map((t) => t.toUpperCase()).sort().join(",");
 }
 
-/** 页面只用期末持仓、成交和最后一根买卖，不存整条每日曲线。 */
+/** 落盘留整条净值，去掉每日持仓明细和错过点。 */
 export function slimLookbackView(view: LookbackView): LookbackView {
-  const last = view.curve.at(-1);
+  const last = view.curve.length - 1;
   return {
     ...view,
-    curve: last ? [{ ...last, rows: view.rows }] : [],
+    curve: view.curve.map((p, i) => ({
+      date: p.date,
+      equity: p.equity,
+      exposurePct: p.exposurePct,
+      buys: p.buys,
+      sells: p.sells,
+      rows: i === last ? (p.rows.length ? p.rows : view.rows) : [],
+      misses: [],
+    })),
     misses: [],
   };
 }

@@ -96,5 +96,7 @@ describe("small fund pools", () => {
     expect(coversPool(wanted.slice(0, 10).map((ticker) => ({ ticker })), wanted)).toBe(false);
     expect(coversPool([], wanted)).toBe(false);
     expect(coversPool([{ ticker: "AAPL" }], ["AAPL", "SKHY", "SPCX"])).toBe(true);
+    expect(coversPool([{ ticker: "MSFT" }], ["AAPL"])).toBe(false);
+    expect(coversPool([{ ticker: "AAPL" }], ["AAPL"])).toBe(true);
   });
 });

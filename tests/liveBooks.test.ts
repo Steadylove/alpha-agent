@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { curveFromSparkline } from "@/components/LookbackEquityChart";
 import { isLiveBookFresh, liveBookCacheOf, livePoolKey, slimLookbackView } from "@/lib/fund/liveBooksLogic";
 import type { LookbackView } from "@/lib/fund/lookbackLogic";
 
@@ -36,7 +37,7 @@ const cache = {
   slots: 10,
   books: [
     { tf: "4h" as const, name: "4 小时", view: view() },
-    { tf: "2h" as const, name: "2H 扩池", view: view({ equity: 1.1, pnl: "+10.0%" }) },
+    { tf: "2h" as const, name: "2 小时", view: view({ equity: 1.1, pnl: "+10.0%" }) },
   ],
 };
 
@@ -54,18 +55,39 @@ describe("live books cache", () => {
     );
   });
 
-  it("落盘只留最后一根曲线", () => {
+  it("落盘留整条净值，中间点不带持仓明细", () => {
     const slim = slimLookbackView(
       view({
+        rows: [{ symbol: "NVDA", floatPnlPct: 2, entryPrice: 100, weightPct: 10, rps: 80 }],
         curve: [
-          { date: "2026-01-02", equity: 1.1, exposurePct: 80, rows: [], buys: ["AAPL"], sells: [], misses: [] },
+          {
+            date: "2026-01-02",
+            equity: 1.1,
+            exposurePct: 80,
+            rows: [{ symbol: "AAPL", floatPnlPct: 1, entryPrice: 10, weightPct: 10, rps: 50 }],
+            buys: ["AAPL"],
+            sells: [],
+            misses: [{ date: "2026-01-02", symbol: "MSFT", laterPct: 20 }],
+          },
           { date: "2026-09-08", equity: 1.2, exposurePct: 90, rows: [], buys: [], sells: ["NVDA"], misses: [] },
         ],
       }),
     );
-    expect(slim.curve).toHaveLength(1);
-    expect(slim.curve[0]?.date).toBe("2026-09-08");
-    expect(slim.curve[0]?.sells).toEqual(["NVDA"]);
+    expect(slim.curve).toHaveLength(2);
+    expect(slim.curve[0]?.buys).toEqual(["AAPL"]);
+    expect(slim.curve[0]?.rows).toEqual([]);
+    expect(slim.curve[1]?.sells).toEqual(["NVDA"]);
+    expect(slim.curve[1]?.rows[0]?.symbol).toBe("NVDA");
+    expect(slim.misses).toEqual([]);
+  });
+
+  it("旧 sparkline 能补一条净值", () => {
+    const curve = curveFromSparkline([1, 1.1, 1.2], "2026-01-01", "2026-09-08");
+    expect(curve).toHaveLength(3);
+    expect(curve[0]?.equity).toBe(1);
+    expect(curve[2]?.equity).toBe(1.2);
+    expect(curve[0]?.date).toBe("2026-01-01");
+    expect(curve[2]?.date).toBe("2026-09-08");
   });
 
   it("缺字段的磁盘内容当没有缓存", () => {

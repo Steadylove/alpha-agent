@@ -89,6 +89,8 @@ export function coversPool(panels: readonly { ticker: string }[], wanted: readon
     if (CSV_GAP.has(ticker)) continue;
     if (!have.has(ticker)) missing += 1;
   }
+  // 全池允许缺几只脏票；点一只看图时 wanted 很小，缺 1 只就不能当命中。
+  if (wanted.length <= 8) return missing === 0;
   return missing <= 8;
 }
 
@@ -156,11 +158,6 @@ function poolTickers(poolId: SmallFundPoolId): readonly string[] {
 
 async function readCsvForTimeframe(timeframe: Timeframe, wanted: readonly string[]): Promise<PanelBars[]> {
   const tf = timeframe === "1d" || timeframe === "4h" || timeframe === "2h" || timeframe === "1h" ? timeframe : "1d";
-  if (marketBaseUrl()) {
-    const remote = await fetchRemoteCsvPanels(tf, wanted);
-    const panels = tf === "1d" ? remote : remote.filter((panel) => panel.ticker !== "SPCX");
-    if (coversPool(panels, wanted)) return panels;
-  }
   const local =
     timeframe === "1d"
       ? readCsvPanels(CSV_PANEL_DIR, wanted)
@@ -168,7 +165,22 @@ async function readCsvForTimeframe(timeframe: Timeframe, wanted: readonly string
           { "4h": CSV_4H_DIR, "2h": CSV_2H_DIR, "1h": CSV_1H_DIR }[timeframe],
           wanted,
         ).filter((panel) => panel.ticker !== "SPCX");
+  if (coversPool(local, wanted)) return local;
+  if (marketBaseUrl()) {
+    const remote = await fetchRemoteCsvPanels(tf, wanted);
+    const panels = tf === "1d" ? remote : remote.filter((panel) => panel.ticker !== "SPCX");
+    if (coversPool(panels, wanted)) return panels;
+  }
   return local;
+}
+
+async function loadDailyPanels(
+  poolId: SmallFundPoolId,
+  wanted: readonly string[],
+  clipped: boolean,
+): Promise<PanelBars[]> {
+  if (clipped) return readCsvForTimeframe("1d", wanted);
+  return loadSmallFundPanels("1d", poolId);
 }
 
 async function loadSmallFundPanels(
@@ -206,8 +218,9 @@ async function loadSmallFundUniverse(
 ): Promise<PreparedUniverse> {
   const t0 = Date.now();
   const scale = await requireRpsScale();
+  const wanted = tradeTickers?.length ? tradeTickers : poolTickers(poolId);
   if (timeframe === "1d") {
-    const panels = await loadSmallFundPanels("1d", poolId);
+    const panels = await loadDailyPanels(poolId, wanted, Boolean(tradeTickers?.length));
     console.info(`[smallfund] 1d 面板 ${panels.length}只 ${Date.now() - t0}ms`);
     const t1 = Date.now();
     const prepared = prepareSmallFund(panels, poolId, { kind: "scale", scale });
@@ -216,14 +229,16 @@ async function loadSmallFundUniverse(
     return prepared;
   }
 
-  // 盘中只拉要交易的票；日线全池仍要，RPS 截面按 560 算。
-  const intraWanted = tradeTickers?.length ? tradeTickers : poolTickers(poolId);
-  const panels = await readCsvForTimeframe(timeframe, intraWanted);
+  // 外生标尺下日线 RPS 各票互不影响，点图/回看只拉要用的票。
+  const [panels, dailyPanels] = await Promise.all([
+    readCsvForTimeframe(timeframe, wanted),
+    loadDailyPanels(poolId, wanted, Boolean(tradeTickers?.length)),
+  ]);
   if (timeframe === "4h") assertFourHourShape(panels);
-  console.info(`[smallfund] ${timeframe} 面板 ${panels.length}/${intraWanted.length}只 ${Date.now() - t0}ms`);
+  console.info(`[smallfund] ${timeframe} 面板 ${panels.length}/${wanted.length}只 ${Date.now() - t0}ms`);
 
   const t1 = Date.now();
-  const dailyPrepared = prepareSmallFund(await loadSmallFundPanels("1d", poolId), poolId, {
+  const dailyPrepared = prepareSmallFund(dailyPanels, poolId, {
     kind: "scale",
     scale,
   });
