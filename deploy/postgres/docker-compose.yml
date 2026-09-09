@@ -1,0 +1,29 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: alpha-postgres
+    restart: unless-stopped
+    mem_limit: 768m
+    environment:
+      POSTGRES_DB: alpha_agent
+      POSTGRES_USER: alpha
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - /var/lib/alpha-agent/pgdata:/var/lib/postgresql/data
+    command:
+      - postgres
+      - -c
+      - listen_addresses=*
+      - -c
+      - password_encryption=scram-sha-256
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - work_mem=8MB
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U alpha -d alpha_agent"]
+      interval: 5s
+      timeout: 5s
+      retries: 12

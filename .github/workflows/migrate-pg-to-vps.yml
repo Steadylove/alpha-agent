@@ -1,0 +1,95 @@
+name: Migrate Postgres to VPS
+
+# 一次性：VPS 起库，把 GitHub secret 里那条 Neon DATABASE_URL 灌进去。
+# 跑完后把 Vercel / GitHub 的 DATABASE_URL 换成 VPS 上 /var/lib/alpha-agent/postgres.env。
+on:
+  workflow_dispatch:
+    inputs:
+      skip_restore:
+        description: "只起空库，不从 Neon 灌数"
+        type: boolean
+        default: false
+
+concurrency:
+  group: migrate-pg-to-vps
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pg client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: SSH to VPS
+        env:
+          HOST: 108.174.50.53
+          KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEY:-}" ]; then
+            echo "缺少 GitHub secret VPS_SSH_KEY" >&2
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          echo "HOST=$HOST" >> "$GITHUB_ENV"
+
+      - name: Deploy Postgres
+        run: |
+          set -euo pipefail
+          rsync -a --delete \
+            -e "ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes" \
+            deploy/postgres/ \
+            "root@${HOST}:/var/lib/alpha-agent/postgres-src/"
+          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes \
+            "root@${HOST}" \
+            "bash /var/lib/alpha-agent/postgres-src/deploy.sh"
+
+      - name: Dump Neon and restore
+        if: ${{ inputs.skip_restore == false }}
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "缺少 GitHub secret DATABASE_URL（Neon）" >&2
+            exit 1
+          fi
+          echo "开始从 Neon 导出…"
+          pg_dump "$DATABASE_URL" --no-owner --no-acl --format=custom --file /tmp/neon.dump
+          ls -lh /tmp/neon.dump
+          scp -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes \
+            /tmp/neon.dump "root@${HOST}:/tmp/neon.dump"
+          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes "root@${HOST}" bash -s <<'EOS'
+          set -euo pipefail
+          set +e
+          docker exec -i alpha-postgres pg_restore \
+            -U alpha -d alpha_agent \
+            --clean --if-exists --no-owner --no-acl \
+            < /tmp/neon.dump
+          rc=$?
+          set -e
+          rm -f /tmp/neon.dump
+          if [ "$rc" -gt 1 ]; then
+            echo "pg_restore 失败 exit=${rc}" >&2
+            exit "$rc"
+          fi
+          tables=$(docker exec alpha-postgres psql -U alpha -d alpha_agent -Atc \
+            "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';")
+          echo "public 表数量 ${tables}"
+          if [ "${tables}" -lt 5 ]; then
+            echo "灌数后表太少，中止" >&2
+            exit 1
+          fi
+          docker exec alpha-postgres psql -U alpha -d alpha_agent -c \
+            "SELECT relname, n_live_tup FROM pg_stat_user_tables ORDER BY n_live_tup DESC LIMIT 20;"
+          EOS
+          rm -f /tmp/neon.dump
+          echo "灌数完成。下一步：把 Vercel 和 GitHub 的 DATABASE_URL 换成 VPS 上 /var/lib/alpha-agent/postgres.env 里那条。"
