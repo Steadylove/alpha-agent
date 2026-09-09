@@ -4,7 +4,8 @@
  * Vercel 写 VPS desk；本机未配行情机则写本地盘。
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { writeJsonAtomic } from "@/lib/files/atomicJson";
 import path from "node:path";
 
 import { lastSettledSession } from "@/lib/backtest/mergeBars";
@@ -23,36 +24,31 @@ export function bookEpochPath(): string {
   return path.join(/*turbopackIgnore: true*/ process.cwd(), "data", "desk", "book-epoch.json");
 }
 
-function useRemote(): boolean {
+function usesRemoteStore(): boolean {
   return !process.env.BOOK_EPOCH_PATH && deskRemoteUrl(REMOTE_FILE) != null;
 }
 
 function readLocal(): BookEpoch {
   const file = bookEpochPath();
   if (!existsSync(file)) return { from: SMALL_FUND_FROM, resetAt: "" };
-  try {
-    return bookEpochOf(JSON.parse(readFileSync(file, "utf8")), SMALL_FUND_FROM);
-  } catch {
-    return { from: SMALL_FUND_FROM, resetAt: "" };
-  }
+  return bookEpochOf(JSON.parse(readFileSync(file, "utf8")), SMALL_FUND_FROM);
 }
 
 function writeLocal(epoch: BookEpoch): BookEpoch {
   const file = bookEpochPath();
-  mkdirSync(path.dirname(file), { recursive: true });
-  writeFileSync(file, `${JSON.stringify(epoch, null, 2)}\n`);
+  writeJsonAtomic(file, epoch);
   return epoch;
 }
 
 export async function readBookEpoch(): Promise<BookEpoch> {
-  if (!useRemote()) return readLocal();
+  if (!usesRemoteStore()) return readLocal();
   return bookEpochOf(await readDeskJson(REMOTE_FILE), SMALL_FUND_FROM);
 }
 
 export async function resetBookEpoch(from?: string, now = new Date()): Promise<BookEpoch> {
   const day = normalizeBookFrom(from) ?? lastSettledSession(now);
   const epoch: BookEpoch = { from: day, resetAt: now.toISOString() };
-  if (!useRemote()) return writeLocal(epoch);
+  if (!usesRemoteStore()) return writeLocal(epoch);
   await writeDeskJson(REMOTE_FILE, epoch);
   return epoch;
 }

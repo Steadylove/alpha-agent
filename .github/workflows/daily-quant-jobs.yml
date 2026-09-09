@@ -78,10 +78,16 @@ jobs:
       - name: Push market files to VPS
         run: |
           set -euo pipefail
-          rsync -a --info=stats1 \
+          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes "root@${HOST}" \
+            "printf 'updating\\n' > /var/lib/alpha-agent/market/.market-updating"
+          rsync -a --info=stats1 --exclude=MANIFEST.json --exclude=.market-updating \
             -e "ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes" \
             "$MARKET_DATA_DIR/" \
             "root@${HOST}:/var/lib/alpha-agent/market/"
+          rsync -a -e "ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes" \
+            "$MARKET_DATA_DIR/MANIFEST.json" "root@${HOST}:/var/lib/alpha-agent/market/MANIFEST.json"
+          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes "root@${HOST}" \
+            "rm -f /var/lib/alpha-agent/market/.market-updating"
 
       - name: Compute 4H/2H cash books on VPS
         run: |

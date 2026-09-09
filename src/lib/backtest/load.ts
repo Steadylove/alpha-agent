@@ -158,6 +158,11 @@ function poolTickers(poolId: SmallFundPoolId): readonly string[] {
 
 async function readCsvForTimeframe(timeframe: Timeframe, wanted: readonly string[]): Promise<PanelBars[]> {
   const tf = timeframe === "1d" || timeframe === "4h" || timeframe === "2h" || timeframe === "1h" ? timeframe : "1d";
+  // 配了 VPS 就以那份数据为准，不能把本地旧 CSV 标成远程的新行情版本。
+  if (marketBaseUrl()) {
+    const remote = await fetchRemoteCsvPanels(tf, wanted);
+    return tf === "1d" ? remote : remote.filter((panel) => panel.ticker !== "SPCX");
+  }
   const local =
     timeframe === "1d"
       ? readCsvPanels(CSV_PANEL_DIR, wanted)
@@ -165,12 +170,6 @@ async function readCsvForTimeframe(timeframe: Timeframe, wanted: readonly string
           { "4h": CSV_4H_DIR, "2h": CSV_2H_DIR, "1h": CSV_1H_DIR }[timeframe],
           wanted,
         ).filter((panel) => panel.ticker !== "SPCX");
-  if (coversPool(local, wanted)) return local;
-  if (marketBaseUrl()) {
-    const remote = await fetchRemoteCsvPanels(tf, wanted);
-    const panels = tf === "1d" ? remote : remote.filter((panel) => panel.ticker !== "SPCX");
-    if (coversPool(panels, wanted)) return panels;
-  }
   return local;
 }
 

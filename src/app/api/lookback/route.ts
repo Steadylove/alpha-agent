@@ -40,7 +40,7 @@ async function handle(tfRaw: unknown, fromRaw: unknown, membersRaw: unknown, slo
   const slots = slotsRaw == null || slotsRaw === "" ? DEFAULT_LOOKBACK_SLOTS : clampLookbackSlots(slotsRaw);
   if (!isLookbackTf(tf) || !from || slots == null) {
     return NextResponse.json(
-      { error: "tf 必须是 4h 或 2h，from 必须是 YYYY-MM-DD，最多持仓必须是 1–20" },
+      { error: "tf 必须是 4h 或 2h，from 必须是 YYYY-MM-DD，每笔投入比例的分母必须是 1–20" },
       { status: 400 },
     );
   }

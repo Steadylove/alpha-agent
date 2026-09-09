@@ -37,7 +37,7 @@ export async function readDeskJson(file: string): Promise<unknown> {
   try {
     return JSON.parse(text) as unknown;
   } catch {
-    return null;
+    throw new Error(`VPS ${file} 内容无效`);
   }
 }
 

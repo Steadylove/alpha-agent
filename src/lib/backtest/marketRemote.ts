@@ -26,8 +26,7 @@ export async function loadMarketPanel(
   ticker: string,
 ): Promise<PanelBars | null> {
   if (marketBaseUrl()) {
-    const remote = await fetchRemoteCsvPanel(timeframe, ticker);
-    if (remote) return remote;
+    return fetchRemoteCsvPanel(timeframe, ticker);
   }
   return readCsvPanel(csvDir(timeframe), ticker);
 }

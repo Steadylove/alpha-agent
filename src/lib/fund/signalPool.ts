@@ -4,7 +4,8 @@
  * Vercel 写 VPS desk；本机未配行情机则写本地盘。
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { writeJsonAtomic } from "@/lib/files/atomicJson";
 import path from "node:path";
 
 import type { PreparedUniverse } from "@/lib/backtest/engine";
@@ -43,35 +44,30 @@ export function signalPoolPath(): string {
   return path.join(/*turbopackIgnore: true*/ process.cwd(), "data", "desk", "signal-pool.json");
 }
 
-function useRemote(): boolean {
+function usesRemoteStore(): boolean {
   return !process.env.SIGNAL_POOL_PATH && deskRemoteUrl(REMOTE_FILE) != null;
 }
 
 function readLocal(): SignalPoolPatch {
   const file = signalPoolPath();
   if (!existsSync(file)) return emptySignalPool();
-  try {
-    return signalPoolOf(JSON.parse(readFileSync(file, "utf8")));
-  } catch {
-    return emptySignalPool();
-  }
+  return signalPoolOf(JSON.parse(readFileSync(file, "utf8")));
 }
 
 function writeLocal(patch: SignalPoolPatch): SignalPoolPatch {
   const file = signalPoolPath();
-  mkdirSync(path.dirname(file), { recursive: true });
-  writeFileSync(file, `${JSON.stringify(patch, null, 2)}\n`);
+  writeJsonAtomic(file, patch);
   return patch;
 }
 
 export async function readSignalPool(): Promise<SignalPoolPatch> {
-  if (!useRemote()) return readLocal();
+  if (!usesRemoteStore()) return readLocal();
   return signalPoolOf(await readDeskJson(REMOTE_FILE));
 }
 
 export async function writeSignalPool(patch: SignalPoolPatch, now = new Date()): Promise<SignalPoolPatch> {
   const next: SignalPoolPatch = { ...patch, updatedAt: now.toISOString() };
-  if (!useRemote()) return writeLocal(next);
+  if (!usesRemoteStore()) return writeLocal(next);
   await writeDeskJson(REMOTE_FILE, next);
   return next;
 }

@@ -5,8 +5,9 @@
  * 设了就用规范布局：1d / 4h / 2h / 1h / rps，方便整目录打包搬走。
  */
 
-import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, statSync, openSync, readSync, closeSync } from "node:fs";
 import path from "node:path";
+import { writeJsonAtomic } from "@/lib/files/atomicJson";
 
 export const MARKET_TIMEFRAMES = ["1d", "4h", "2h", "1h"] as const;
 export type MarketTimeframe = (typeof MARKET_TIMEFRAMES)[number];
@@ -56,20 +57,30 @@ export function rpsSnapshotFile(): string {
 export type MarketManifest = {
   generatedAt: string;
   root: string;
-  timeframes: Record<string, { files: number; bytes: number }>;
+  timeframes: Record<string, { files: number; bytes: number; asOf?: string }>;
   rps: { scale: boolean; snapshot: boolean };
 };
 
-function dirStats(dir: string): { files: number; bytes: number } {
+function dirStats(dir: string): { files: number; bytes: number; asOf?: string } {
   if (!existsSync(dir)) return { files: 0, bytes: 0 };
   let files = 0;
   let bytes = 0;
+  let asOf = "";
   for (const name of readdirSync(dir)) {
     if (!name.endsWith(".csv")) continue;
     files += 1;
-    bytes += statSync(path.join(dir, name)).size;
+    const file = path.join(dir, name);
+    const size = statSync(file).size;
+    bytes += size;
+    const fd = openSync(file, "r");
+    try {
+      const tail = Buffer.alloc(Math.min(2048, size));
+      readSync(fd, tail, 0, tail.length, Math.max(0, size - tail.length));
+      const date = tail.toString("utf8").trim().split(/\r?\n/).at(-1)?.split(",")[0] ?? "";
+      if (/^\d{4}-\d{2}-\d{2}/.test(date) && date > asOf) asOf = date;
+    } finally { closeSync(fd); }
   }
-  return { files, bytes };
+  return { files, bytes, asOf: asOf || undefined };
 }
 
 export function buildManifest(root: string): MarketManifest {
@@ -91,7 +102,7 @@ export function buildManifest(root: string): MarketManifest {
 export function writeManifest(root: string): MarketManifest {
   mkdirSync(root, { recursive: true });
   const manifest = buildManifest(root);
-  writeFileSync(path.join(root, "MANIFEST.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  writeJsonAtomic(path.join(root, "MANIFEST.json"), manifest);
   return manifest;
 }
 

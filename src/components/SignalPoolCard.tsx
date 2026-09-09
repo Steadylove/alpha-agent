@@ -20,6 +20,7 @@ import {
   UnstyledButton,
 } from "@mantine/core";
 
+import type { ApplyBookSettings } from "@/components/FundWorkbench";
 import { BookEpochCard } from "@/components/BookEpochCard";
 import { Card } from "@/components/Card";
 import { DayPicker } from "@/components/DayPicker";
@@ -62,8 +63,12 @@ export function SignalPoolCard({
   onMembersChange,
   restoreMembers,
   restoreToken,
+  onApply,
+  applying = false,
 }: {
   mode?: "live" | "scratch";
+  onApply?: ApplyBookSettings;
+  applying?: boolean;
   onMembersChange?: (members: string[]) => void;
   restoreMembers?: string[];
   restoreToken?: number;
@@ -101,6 +106,8 @@ export function SignalPoolCard({
   }, []);
 
   useEffect(() => {
+    // 异步读取外部存储；状态更新在网络请求完成之后。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load().catch((e: unknown) => setError(e instanceof Error ? e.message : "读取失败"));
   }, [load]);
 
@@ -141,7 +148,7 @@ export function SignalPoolCard({
   }, [draft, query]);
 
   const removedShown = query.trim() || showRemoved ? removedHits : [];
-  const visible = useMemo(() => [...removedShown, ...hits], [removedShown, hits]);
+  const visible = [...removedShown, ...hits];
   const selectedIn = hits.filter((s) => selected.has(s));
   const selectedOut = removedHits.filter((s) => selected.has(s));
 
@@ -183,49 +190,22 @@ export function SignalPoolCard({
 
   const pickedSnap = snapshots.find((s) => s.id === snapId) ?? null;
 
-  const persistMembers = async (tickers: readonly string[]) => {
-    const res = await fetch("/api/signal-pool", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action: "replace", members: tickers }),
-    });
-    const json = await res.json();
-    if (!res.ok) throw new Error(json.error ?? "写入失败");
-    const pool = json as Pool;
-    if (pool.memberCount !== tickers.length) {
-      throw new Error(`写入后是 ${pool.memberCount} 只，不是载入的 ${tickers.length} 只`);
-    }
-    setSaved(pool);
-    setDraft(asDraft(pool));
-  };
-
-  const loadSnap = async () => {
+  const loadSnap = () => {
     if (!pickedSnap) return;
     setError(null);
-    if (scratch) {
-      applyRecommend(pickedSnap.members);
-      setEditing(true);
-      setListOpen(true);
-      return;
-    }
-    setBusy(true);
-    try {
-      await persistMembers(pickedSnap.members);
-      setEditing(false);
-      setListOpen(true);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "载入失败");
-    } finally {
-      setBusy(false);
-    }
+    applyRecommend(pickedSnap.members);
+    setEditing(true);
+    setListOpen(true);
   };
 
-  useEffect(() => {
-    if (!restoreToken || !restoreMembers?.length || !saved) return;
-    applyRecommend(restoreMembers);
-    // 只在点载入或池子刚读完时套用
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [restoreToken, saved]);
+  const [appliedRestoreToken, setAppliedRestoreToken] = useState<number | undefined>();
+  if (restoreToken && restoreMembers?.length && saved && appliedRestoreToken !== restoreToken) {
+    setAppliedRestoreToken(restoreToken);
+    setDraft(replaceSignalPool(defaults, restoreMembers));
+    setSelected(new Set());
+    setShowRemoved(false);
+    setListOpen(true);
+  }
 
   const findBest = async () => {
     if (!saved || !pickFrom) return;
@@ -263,18 +243,21 @@ export function SignalPoolCard({
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/signal-pool", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "replace", members }),
+      if (!onApply) throw new Error("账本更新入口未就绪");
+      await onApply(async () => {
+        const res = await fetch("/api/signal-pool", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "replace", members }),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error ?? "写入失败");
+        const pool = json as Pool;
+        setSaved(pool);
+        setDraft(asDraft(pool));
+        setConfirmOpen(false);
+        setEditing(false);
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "写入失败");
-      const pool = json as Pool;
-      setSaved(pool);
-      setDraft(asDraft(pool));
-      setConfirmOpen(false);
-      setEditing(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "写入失败");
     } finally {
@@ -302,7 +285,7 @@ export function SignalPoolCard({
           {saved ? `${members.length} 只` : "—"}
           {draft && draft.removed.length > 0 ? ` · 已剔除 ${draft.removed.length}` : ""}
         </Text>
-        {scratch ? null : <BookEpochCard />}
+        {scratch ? null : <BookEpochCard onApply={onApply} applying={applying} />}
       </Group>
       <Group gap={8} wrap="nowrap">
         {dirty ? (
@@ -323,6 +306,7 @@ export function SignalPoolCard({
         )}
         <Button
           size="compact-xs"
+          disabled={applying}
           variant={editing ? "default" : "subtle"}
           onClick={() => {
             setEditing((v) => !v);
@@ -344,7 +328,7 @@ export function SignalPoolCard({
         </Text>
       ) : editing ? (
         <Text size="sm" c="dimmed" mb="md" lh={1.6}>
-          改名单或载入已存池会立刻影响两本账本。Discord 买/卖仍按 TV 信号转发。
+          修改和载入先保留为草稿；保存并重算后更新两本账本，原结果保留为历史版本。
         </Text>
       ) : null}
       {scratch || editing ? (
@@ -366,11 +350,11 @@ export function SignalPoolCard({
           <Button
             size="sm"
             variant="light"
-            disabled={!pickedSnap}
+            disabled={!pickedSnap || applying}
             loading={busy && !scratch}
             onClick={() => void loadSnap()}
           >
-            载入
+            载入草稿
           </Button>
         </Group>
       ) : null}
@@ -494,8 +478,8 @@ export function SignalPoolCard({
               恢复默认
             </Button>
             {scratch ? null : (
-              <Button size="sm" disabled={!dirty} onClick={() => setConfirmOpen(true)}>
-                保存
+              <Button size="sm" disabled={!dirty || applying || members.length === 0} onClick={() => setConfirmOpen(true)}>
+                保存并重算
               </Button>
             )}
           </Group>
@@ -695,19 +679,21 @@ export function SignalPoolCard({
         request={chartRequest}
         onClose={() => setChartTarget(null)}
       />
-      <Modal opened={!scratch && confirmOpen} onClose={() => setConfirmOpen(false)} title="保存信号池" centered>
+      <Modal opened={!scratch && confirmOpen} onClose={() => setConfirmOpen(false)} title="保存并重算账本" centered>
         <Text size="sm" lh={1.6}>
           将池写成 {members.length} 只（默认 {saved?.defaultCount ?? "—"}）。新纳入{" "}
           {draft?.added.length ?? 0} · 剔除 {draft?.removed.length ?? 0}。
           {members.length === 0 ? " 池是空的，账本将没有可开仓标的。" : ""}
-          确认后两本现金账本换成这份名单。Discord 转发不受影响。
+          保存后按新名单重新计算整个窗口，当前结果将保留为历史版本。
         </Text>
+        <Text size="sm" mt="sm">相对当前名单，新增：{members.filter((s) => !saved?.members.includes(s)).join(", ") || "无"}</Text>
+        <ScrollArea mah={140} mt="xs"><Text size="sm">剔除：{saved?.members.filter((s) => !members.includes(s)).join(", ") || "无"}</Text></ScrollArea>
         <Group justify="flex-end" mt="md">
-          <Button variant="default" onClick={() => setConfirmOpen(false)}>
+          <Button variant="default" disabled={busy || applying} onClick={() => setConfirmOpen(false)}>
             取消
           </Button>
-          <Button color="orange" loading={busy} onClick={() => void save()}>
-            确认保存
+          <Button color="orange" loading={busy || applying} onClick={() => void save()}>
+            保存并重算
           </Button>
         </Group>
       </Modal>

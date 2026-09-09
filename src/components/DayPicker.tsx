@@ -19,12 +19,14 @@ export function DayPicker({
   onChange,
   size = "sm",
   w = 180,
+  withinPortal = true,
 }: {
   label?: string;
   value: string;
   onChange: (day: string) => void;
   size?: "xs" | "sm";
   w?: number | string;
+  withinPortal?: boolean;
 }) {
   return (
     <DatePickerInput
@@ -36,7 +38,7 @@ export function DayPicker({
       clearable={false}
       size={size}
       w={w}
-      popoverProps={{ width: 308, withinPortal: true, shadow: "md" }}
+      popoverProps={{ width: 308, withinPortal, shadow: "md" }}
     />
   );
 }

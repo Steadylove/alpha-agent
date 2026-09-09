@@ -8,7 +8,7 @@ export default function FundPage() {
       <div className="rise-in">
         <h1 className="text-3xl font-semibold tracking-tight text-zinc-50">资金账本</h1>
         <p className="mt-2 max-w-3xl text-sm leading-relaxed text-zinc-400">
-          当前应用按记账池从起点空仓跑 4 小时和 2 小时，读日推写入的结果。改池、改起点或等下次行情日推才会更新；也可以手动重算。
+          按记账池从起点空仓推演 4 小时和 2 小时账本。修改先保留为草稿，保存并重算后更新结果，历史版本可随时查看。
         </p>
       </div>
       <FundWorkbench />

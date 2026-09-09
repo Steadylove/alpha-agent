@@ -114,6 +114,7 @@ export async function requireRpsScale(): Promise<RpsScale> {
       cached = parseScaleFile(JSON.parse(text) as RpsScaleFile);
       return cached;
     }
+    throw new Error("VPS 缺少 RPS 标尺，不能回落到本地旧版本");
   }
 
   const local = readRpsScale();

@@ -4,7 +4,7 @@ server {
     gzip on;
     gzip_types text/plain text/csv application/json;
     gzip_min_length 256;
-    client_max_body_size 1m;
+    client_max_body_size 8m;
 
     root /usr/share/nginx/html;
     location /desk/ {

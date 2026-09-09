@@ -4,7 +4,7 @@ import { bookPnlLabel, ytdOfNav } from "@/lib/discord/bookCopy";
 
 export type LookbackTf = "4h" | "2h";
 
-/** 回看默认最多同时持有 10 只，每笔投 1/N。 */
+/** 每笔投入当时权益的 1/N，默认 10%。这不是持仓只数上限。 */
 export const DEFAULT_LOOKBACK_SLOTS = 10;
 
 export function clampLookbackSlots(raw: unknown): number | null {

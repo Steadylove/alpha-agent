@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Alert, Badge, Button, Group, NumberInput, SegmentedControl, Stack, Table, Text, TextInput } from "@mantine/core";
+import { Alert, Badge, Button, Group, Select, SegmentedControl, Stack, Table, Text, TextInput } from "@mantine/core";
 
 import { Card } from "@/components/Card";
 import { DayPicker } from "@/components/DayPicker";
@@ -43,10 +43,12 @@ export function LookbackCard({
   const poolSig = members?.join(",") ?? "";
   const slotN = clampLookbackSlots(slots);
 
-  useEffect(() => {
+  const [previousPool, setPreviousPool] = useState(poolSig);
+  if (previousPool !== poolSig) {
+    setPreviousPool(poolSig);
     setCache({});
     setHoverDate(null);
-  }, [poolSig]);
+  }
 
   useEffect(() => {
     void fetch("/api/lookback-snapshots")
@@ -73,7 +75,7 @@ export function LookbackCard({
     if (!from) return;
     const nextSlots = clampLookbackSlots(slots);
     if (nextSlots == null) {
-      setError("最多持仓必须是 1–20");
+      setError("请选择有效的每笔投入比例");
       return;
     }
     if (members && members.length === 0) {
@@ -195,7 +197,7 @@ export function LookbackCard({
     <Card title="临时回看">
       <Text size="sm" c="dimmed" mb="md">
         只用上方临时回看池（{members ? `${members.length} 只` : "读取中"}
-        ）。最多持仓默认 10 只，每笔投 1/N，可改。2 小时用扩池档。从选定日起空仓算到最近一根。改池或只数后请再点回看。不写
+        ）。默认每笔投入当时权益的 10%，可改。此设置不限制持仓只数，现金不足时跳过新信号。2 小时用扩池档。从选定日起空仓算到最近一根。改池或投入比例后请再点回看。不写
         Discord 信号池。
       </Text>
       {error ? (
@@ -218,15 +220,13 @@ export function LookbackCard({
             { value: "2h", label: "2 小时" },
           ]}
         />
-        <NumberInput
+        <Select
           size="sm"
-          label="最多持仓"
-          value={slots}
-          onChange={setSlots}
-          min={1}
-          max={20}
-          allowDecimal={false}
-          w={96}
+          label="每笔投入比例"
+          value={String(slots)}
+          onChange={(v) => { if (v) setSlots(Number(v)); }}
+          data={Array.from({ length: 20 }, (_, i) => ({ value: String(i + 1), label: `${(100 / (i + 1)).toFixed(1)}%（1/${i + 1}）` }))}
+          w={170}
         />
         <Button
           variant="light"
@@ -288,7 +288,7 @@ export function LookbackCard({
                         {snap.name}
                       </Text>
                       <Text size="xs" c="dimmed" ff="monospace">
-                        {snap.from} · 持仓{snap.slots}
+                        {snap.from} · 每笔 {(100 / snap.slots).toFixed(1)}%
                       </Text>
                     </>
                   )}

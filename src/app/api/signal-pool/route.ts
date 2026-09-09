@@ -3,12 +3,13 @@ import { NextResponse } from "next/server";
 import { CSV_4H_DIR, CSV_PANEL_DIR, hasCsvPanel } from "@/lib/backtest/csvPanel";
 import {
   defaultSignalPoolTickers,
+  applySignalPool,
   editSignalPool,
   readSignalPool,
-  readSignalPoolMembers,
   replaceSignalPool,
   tickerListOf,
   writeSignalPool,
+  type SignalPoolPatch,
 } from "@/lib/fund/signalPool";
 
 export const dynamic = "force-dynamic";
@@ -20,10 +21,9 @@ function csvMissing(ticker: string): string[] {
   return missing;
 }
 
-async function payload() {
+function payload(patch: SignalPoolPatch) {
   const base = defaultSignalPoolTickers();
-  const patch = await readSignalPool();
-  const members = await readSignalPoolMembers(base);
+  const members = applySignalPool(base, patch);
   return {
     members,
     memberCount: members.length,
@@ -37,7 +37,7 @@ async function payload() {
 
 export async function GET() {
   try {
-    return NextResponse.json(await payload());
+    return NextResponse.json(payload(await readSignalPool()));
   } catch (error) {
     const message = error instanceof Error ? error.message : "读取失败";
     return NextResponse.json({ error: message }, { status: 502 });
@@ -67,8 +67,8 @@ export async function POST(request: Request) {
             action,
             typeof body.ticker === "string" ? body.ticker : undefined,
           );
-    await writeSignalPool(next);
-    return NextResponse.json({ ok: true, ...(await payload()) });
+    const saved = await writeSignalPool(next);
+    return NextResponse.json({ ok: true, ...payload(saved) });
   } catch (error) {
     const message = error instanceof Error ? error.message : "写入失败";
     const status = message.includes("已在池里") || message.includes("不在池里")

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Alert, Badge, Button, Group, Loader, SegmentedControl, Table, Text, UnstyledButton } from "@mantine/core";
 
 import { Card, MetricCard } from "@/components/Card";
@@ -26,7 +26,11 @@ const EXIT: Record<string, string> = {
 
 type BookOk = { tf: LookbackTf; name: string; view: LookbackView; sparkline?: number[] };
 type BookErr = { tf: LookbackTf; name: string; error: string };
-type Snapshot = {
+export type FundSnapshot = {
+  runId?: string;
+  poolKey?: string;
+  slots?: number;
+  staleReason?: string;
   epochFrom: string;
   computedAt: string | null;
   stale: boolean;
@@ -38,75 +42,36 @@ function stamp(raw: string): string {
   return raw.replace("T", " ").slice(0, 16);
 }
 
-export function FundBoard() {
-  const [from, setFrom] = useState<string | null>(null);
-  const [books, setBooks] = useState<(BookOk | BookErr)[]>([]);
-  const [computedAt, setComputedAt] = useState<string | null>(null);
-  const [stale, setStale] = useState(false);
-  const [busy, setBusy] = useState<"read" | "run" | null>("read");
-  const [error, setError] = useState<string | null>(null);
+export function FundBoard({
+  snapshot, busy = null, error = null, onRefresh, readOnly = false,
+}: {
+  snapshot: FundSnapshot | null;
+  busy?: "read" | "save" | "run" | null;
+  error?: string | null;
+  onRefresh?: () => void;
+  readOnly?: boolean;
+}) {
+  const from = snapshot?.epochFrom;
+  const books = snapshot?.books ?? [];
+  const computedAt = snapshot?.computedAt;
+  const stale = snapshot?.stale;
   const [tf, setTf] = useState<LookbackTf>("4h");
   const [fillsOpen, setFillsOpen] = useState(false);
   const [chartTarget, setChartTarget] = useState<ChartTarget | null>(null);
   const chartRequest = useMemo(
-    () => ({ champ: tf === "2h" ? "2h-broad" : "4h", index: "SMALLFUND" }),
-    [tf],
+    () => ({ champ: tf === "2h" ? "2h-broad" : "4h", index: "SMALLFUND" }), [tf],
   );
-
-  const apply = (json: Snapshot) => {
-    setFrom(json.epochFrom);
-    setBooks(json.books ?? []);
-    setComputedAt(json.computedAt);
-    setStale(Boolean(json.stale));
-  };
-
-  const refresh = useCallback(async () => {
-    setError(null);
-    setBusy("run");
-    try {
-      const res = await fetch("/api/fund/live-books", { method: "POST" });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "跑账本失败");
-      apply(json as Snapshot);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "跑账本失败");
-    } finally {
-      setBusy(null);
-    }
-  }, []);
-
-  const load = useCallback(async () => {
-    setError(null);
-    setBusy((cur) => cur ?? "read");
-    try {
-      const res = await fetch("/api/fund/live-books");
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "读取账本失败");
-      const snap = json as Snapshot;
-      apply(snap);
-      if ((snap.books ?? []).length === 0) setFrom(snap.epochFrom);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "读取账本失败");
-    } finally {
-      setBusy(null);
-    }
-  }, [refresh]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
 
   return (
     <div className="space-y-6">
       <Group justify="space-between" align="flex-end">
         <Text size="sm" c="dimmed">
-          当前信号池 · 自 {from ?? "—"} 空仓 · 每笔权益 1/{DEFAULT_LOOKBACK_SLOTS}
+          {readOnly ? "历史结果" : "当前账本"} · 自 {from ?? "—"} 空仓 · 每笔投入 {(100 / (snapshot?.slots ?? DEFAULT_LOOKBACK_SLOTS)).toFixed(1)}%
           {computedAt ? ` · 缓存 ${computedAt.replace("T", " ").slice(0, 16)}` : ""}
-          {busy === "run" ? " · 正在重算" : ""}
+          {busy === "save" ? " · 正在保存配置" : busy === "run" ? " · 正在重算，保留上次结果" : ""}
+          {snapshot?.runId ? ` · 版本 ${snapshot.runId.slice(0, 8)}` : ""}
         </Text>
-        <Button size="xs" variant="light" onClick={() => void refresh()} loading={busy != null}>
-          重算
-        </Button>
+        {onRefresh ? <Button size="xs" variant="light" onClick={onRefresh} loading={busy != null}>重算</Button> : null}
       </Group>
 
       {error ? (
@@ -117,7 +82,7 @@ export function FundBoard() {
 
       {stale ? (
         <Alert color="orange" variant="light">
-          池或记账起点已经变了，下面还是上次日推的结果。下次日推会覆盖，也可以现在重算。
+          {snapshot?.staleReason ?? "配置或行情已更新，下面仍是上次保存的结果，请重算。"}
         </Alert>
       ) : null}
 
@@ -174,7 +139,8 @@ export function FundBoard() {
             sparkline={book.sparkline}
             fillsOpen={fillsOpen}
             onToggleFills={() => setFillsOpen((v) => !v)}
-            onOpenChart={(symbol, entryDate) => setChartTarget({ symbol, entryDate: entryDate ?? "" })}
+            readOnly={readOnly}
+            onOpenChart={(symbol, entryDate) => { if (!readOnly) setChartTarget({ symbol, entryDate: entryDate ?? "" }); }}
           />
         ),
       )}
@@ -188,11 +154,13 @@ function LiveBookCard({
   name,
   view,
   sparkline,
+  readOnly,
   fillsOpen,
   onToggleFills,
   onOpenChart,
 }: {
   name: string;
+  readOnly: boolean;
   view: LookbackView;
   sparkline?: number[];
   fillsOpen: boolean;
@@ -206,7 +174,7 @@ function LiveBookCard({
   const lastSells = last?.sells ?? [];
   const curve: LookbackPoint[] =
     view.curve.length >= 2 ? view.curve : curveFromSparkline(sparkline ?? [], view.since, view.asOf);
-  const curveHint =
+  const curveHint = readOnly ? "此处保留该版本计算时的净值与成交。" :
     view.curve.length >= 2
       ? "绿买 · 红卖 · 琥珀当天既买又卖。点代码看 K 线。"
       : curve.length >= 2
@@ -237,14 +205,14 @@ function LiveBookCard({
       {lastBuys.length || lastSells.length ? (
         <Group gap={6} mb="md">
           {lastBuys.map((sym) => (
-            <UnstyledButton key={`b-${sym}`} onClick={() => onOpenChart(sym, last?.date)}>
+            <UnstyledButton disabled={readOnly} key={`b-${sym}`} onClick={() => onOpenChart(sym, last?.date)}>
               <Badge size="sm" color="teal" variant="light">
                 当根买 {sym}
               </Badge>
             </UnstyledButton>
           ))}
           {lastSells.map((sym) => (
-            <UnstyledButton key={`s-${sym}`} onClick={() => onOpenChart(sym, last?.date)}>
+            <UnstyledButton disabled={readOnly} key={`s-${sym}`} onClick={() => onOpenChart(sym, last?.date)}>
               <Badge size="sm" color="red" variant="light">
                 当根卖 {sym}
               </Badge>
@@ -281,11 +249,11 @@ function LiveBookCard({
             {view.rows.map((row) => (
               <Table.Tr
                 key={row.symbol}
-                className="cursor-pointer"
+                className={readOnly ? undefined : "cursor-pointer"}
                 onClick={() => onOpenChart(row.symbol, row.entryDate)}
               >
                 <Table.Td fw={600}>
-                  <TickerLink symbol={row.symbol} />
+                  <TickerLink symbol={row.symbol} readOnly={readOnly} />
                 </Table.Td>
                 <Table.Td c="dimmed">{row.entryDate ? stamp(row.entryDate) : "—"}</Table.Td>
                 <Table.Td ta="right" ff="monospace">
@@ -337,6 +305,7 @@ function LiveBookCard({
                 <FillRow
                   key={`${fill.date}-${fill.side}-${fill.symbol}-${i}`}
                   fill={fill}
+                  readOnly={readOnly}
                   onOpenChart={onOpenChart}
                 />
               ))}
@@ -350,14 +319,16 @@ function LiveBookCard({
 
 function FillRow({
   fill,
+  readOnly,
   onOpenChart,
 }: {
   fill: LookbackFill;
+  readOnly: boolean;
   onOpenChart: (symbol: string, entryDate?: string | null) => void;
 }) {
   const buy = fill.side === "buy";
   return (
-    <Table.Tr className="cursor-pointer" onClick={() => onOpenChart(fill.symbol, fill.date)}>
+    <Table.Tr className={readOnly ? undefined : "cursor-pointer"} onClick={() => onOpenChart(fill.symbol, fill.date)}>
       <Table.Td c="dimmed">{stamp(fill.date)}</Table.Td>
       <Table.Td>
         <Badge size="sm" color={buy ? "teal" : "red"} variant="light">
@@ -365,7 +336,7 @@ function FillRow({
         </Badge>
       </Table.Td>
       <Table.Td fw={600}>
-        <TickerLink symbol={fill.symbol} />
+        <TickerLink symbol={fill.symbol} readOnly={readOnly} />
       </Table.Td>
       <Table.Td ta="right" ff="monospace">
         {fill.price.toFixed(2)}
@@ -378,9 +349,9 @@ function FillRow({
   );
 }
 
-function TickerLink({ symbol }: { symbol: string }) {
+function TickerLink({ symbol, readOnly }: { symbol: string; readOnly: boolean }) {
   return (
-    <span className="font-mono font-semibold underline decoration-zinc-600 underline-offset-2 hover:text-zinc-100">
+    <span className={readOnly ? "font-mono font-semibold" : "font-mono font-semibold underline decoration-zinc-600 underline-offset-2 hover:text-zinc-100"}>
       {symbol}
     </span>
   );

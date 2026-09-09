@@ -1,6 +1,7 @@
 import "dotenv/config";
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import path from "node:path";
 
 import {
   CSV_1H_DIR,
@@ -260,6 +261,11 @@ async function main() {
     ]),
   ];
   const root = marketDataRoot();
+  const markerRoot = root ?? path.join(process.cwd(), "data");
+  if (!AUDIT_ONLY) {
+    mkdirSync(markerRoot, { recursive: true });
+    writeFileSync(path.join(markerRoot, ".market-updating"), "updating\n");
+  }
   console.log(
     `已收盘日 ${until}  扩池 ${wanted.length}  源 ${hasAlpacaCredentials() ? "Alpaca" : "Yahoo"}` +
       (root ? `  目录 ${root}` : ""),
@@ -290,6 +296,7 @@ async function main() {
     const man = writeManifest(root);
     console.log(`清单 ${man.timeframes["1d"]?.files ?? 0} 只日线  ${man.generatedAt}`);
   }
+  rmSync(path.join(markerRoot, ".market-updating"), { force: true });
 }
 
 main().catch((error) => {

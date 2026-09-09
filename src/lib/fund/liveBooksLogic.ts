@@ -12,6 +12,10 @@ export function liveBookName(tf: LookbackTf): string {
 export type LiveBookOk = { tf: LookbackTf; name: string; view: LookbackView; sparkline?: number[] };
 
 export type LiveBookCache = {
+  /** 旧缓存缺这些字段仍可展示，但不能当作最新结果使用。 */
+  runId?: string;
+  marketRevision?: string;
+  strategyKey?: string;
   computedAt: string;
   epochFrom: string;
   poolKey: string;
@@ -20,7 +24,7 @@ export type LiveBookCache = {
 };
 
 export function livePoolKey(members: readonly string[]): string {
-  return [...members].map((t) => t.toUpperCase()).sort().join(",");
+  return [...new Set(members.map((t) => t.trim().toUpperCase()))].sort().join(",");
 }
 
 /** 落盘留整条净值，去掉每日持仓明细和错过点。 */
@@ -74,7 +78,12 @@ export function liveBookCacheOf(raw: unknown): LiveBookCache | null {
   if (!Array.isArray(row.books)) return null;
   const books = row.books.map(bookOf).filter((b): b is LiveBookOk => b != null);
   if (books.length === 0) return null;
-  return { computedAt: row.computedAt, epochFrom: row.epochFrom, poolKey: row.poolKey, slots, books };
+  return {
+    computedAt: row.computedAt, epochFrom: row.epochFrom, poolKey: row.poolKey, slots, books,
+    runId: typeof row.runId === "string" ? row.runId : undefined,
+    marketRevision: typeof row.marketRevision === "string" ? row.marketRevision : undefined,
+    strategyKey: typeof row.strategyKey === "string" ? row.strategyKey : undefined,
+  };
 }
 
 export function isLiveBookFresh(
@@ -82,11 +91,29 @@ export function isLiveBookFresh(
   epochFrom: string,
   poolKey: string,
   slots = DEFAULT_LOOKBACK_SLOTS,
+  revision?: { marketRevision: string; strategyKey: string; asOf: Partial<Record<LookbackTf, string>> },
 ): boolean {
   return (
     cache.epochFrom === epochFrom &&
     cache.poolKey === poolKey &&
     cache.slots === slots &&
-    LIVE_BOOKS.every((want) => cache.books.some((b) => b.tf === want.tf))
+    LIVE_BOOKS.every((want) => cache.books.some((b) => b.tf === want.tf)) &&
+    (!revision || (
+      Boolean(cache.runId) && cache.marketRevision === revision.marketRevision &&
+      cache.strategyKey === revision.strategyKey &&
+      cache.books.every((b) => !revision.asOf[b.tf] || b.view.asOf >= revision.asOf[b.tf]!)
+    ))
   );
+}
+
+export type LiveBookVersion = Omit<LiveBookCache, "books"> & {
+  id: string;
+  books: { tf: LookbackTf; pnl: string; equity: number; dd: number; holdings: number; asOf: string }[];
+};
+
+export function liveBookVersion(cache: LiveBookCache, id: string): LiveBookVersion {
+  return {
+    ...cache, id,
+    books: cache.books.map(({ tf, view }) => ({ tf, pnl: view.pnl, equity: view.equity, dd: view.stats.dd, holdings: view.rows.length, asOf: view.asOf })),
+  };
 }
