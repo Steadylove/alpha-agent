@@ -43,7 +43,9 @@ export function createTelegramRelayServer(store: TelegramStore, secret: string, 
       }
       // 未开始接收群事件前拒绝入队，避免把暂时未知的订阅群误当作空列表。
       if (!status().ok) { reply(503, { error: "starting" }); return; }
-      reply(200, { ok: true, ...store.enqueue(data.id, data.content, data.png) });
+      const queued = store.enqueue(data.id, data.content, data.png);
+      console.info(`[telegram] enqueue id=${data.id.slice(0, 12)} recipients=${queued.recipients} duplicate=${queued.duplicate}`);
+      reply(200, { ok: true, ...queued });
     } catch (e) { if (!res.writableEnded) reply(e instanceof SyntaxError ? 400 : 500, { error: "request failed" }); }
   });
 }

@@ -45,7 +45,9 @@ export class TelegramStore {
   }
   enqueue(id: string, content: string, png?: string, directChat?: string, now = Date.now(), directThreadId?: number) {
     const prior = this.jobs.get(id);
-    if (prior) return { duplicate: true, recipients: prior.deliveries.length };
+    // 空收件人记录没有实际安排投递。绑定群/话题后重新提交时，
+    // 使用本次图片与时间建立任务；已有投递进度的任务仍保持去重。
+    if (prior?.deliveries.length) return { duplicate: true, recipients: prior.deliveries.length };
     const chats = directChat ? [directChat] : Object.values(this.state.groups).filter(subscribed).map((g) => g.id);
     this.saveJob({ id, content, png, createdAt: now, direct: !!directChat,
       deliveries: chats.map((chatId) => ({ chatId, state: "pending", attempts: 0, nextAt: now,

@@ -28,8 +28,9 @@ export type PushSignalBookResult = {
   sent: string[];
 };
 
-export function bookCaption(name: string, test: boolean): string {
-  return test ? `📒 **${STRATEGY_TITLE} · ${name} 现金账本**（测试）` : `📒 **${STRATEGY_TITLE} · ${name} 现金账本**`;
+export function bookCaption(tf: LookbackTf, test: boolean): string {
+  const name = tf === "4h" ? "现金账本1" : "现金账本2";
+  return `📒 **${STRATEGY_TITLE} · ${name}**${test ? "（测试）" : ""}`;
 }
 
 function liveCard(
@@ -44,7 +45,7 @@ function liveCard(
   const s = view.stats;
   return {
     filename: `book-${champ.id}.png`,
-    content: bookCaption(name, test),
+    content: bookCaption(tf, test),
     summary: `${name} 记账自 ${view.since.slice(0, 10)} 截至 ${view.asOf} ${view.rows.length}只`,
     input: {
       asOf: view.asOf,
@@ -104,7 +105,7 @@ async function buildLookback(tf: LookbackTf, test: boolean): Promise<BuiltBook> 
   const win = s.winRatePct == null ? "—" : `${s.winRatePct.toFixed(0)}%`;
   return {
     filename: `book-${tf}.png`,
-    content: bookCaption(champ.name, test),
+    content: bookCaption(tf, test),
     summary: `${champ.name} ${snap.name} 累计 ${view.pnl} 回撤 ${s.dd.toFixed(0)}% MAR ${s.mar.toFixed(2)} 均持 ${s.avgHoldings.toFixed(1)} 敞口 ${s.avgExposure.toFixed(0)}% 胜率 ${win}`,
     input: {
       asOf: view.asOf,

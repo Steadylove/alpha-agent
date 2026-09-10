@@ -196,6 +196,31 @@ describe("Telegram 话题绑定", () => {
 });
 
 describe("Telegram 持久化投递", () => {
+  it.each([false, true])("没有收件人的账本在绑定话题后重跑可以投递，等待话题=%s", async (waitingForTopic) => {
+    if (waitingForTopic) {
+      add(-1); store.state.groups['-1'].needsTopic = true; store.saveState();
+    }
+    expect(store.enqueue(id("book"), "账本", "old-png", undefined, 1000)).toEqual({ duplicate: false, recipients: 0 });
+    store = new TelegramStore(dir);
+    expect(store.jobs.get(id("book"))!.png).toBeUndefined();
+    expect(store.enqueue(id("book"), "账本", "old-png", undefined, 2000)).toEqual({ duplicate: false, recipients: 0 });
+
+    add(-1); store.state.groups['-1'].messageThreadId = 16; store.saveState();
+    // 绑定本身不补发历史；明确重跑时恢复图片，并从本次提交开始计时。
+    const now = 25 * 3600_000;
+    expect(await deliverTelegram(store, api, now)).toBe(false);
+    expect(store.enqueue(id("book"), "账本", "new-png", undefined, now)).toEqual({ duplicate: false, recipients: 1 });
+    store = new TelegramStore(dir);
+    expect(store.jobs.get(id("book"))!.createdAt).toBe(now);
+    expect(store.enqueue(id("book"), "账本", "new-png", undefined, now)).toEqual({ duplicate: true, recipients: 1 });
+    await deliverTelegram(store, api, now);
+    expect(sendPhoto).toHaveBeenCalledWith("-1", "账本", "new-png", undefined, 16);
+    store = new TelegramStore(dir);
+    expect(store.enqueue(id("book"), "账本", "new-png", undefined, now + 5000).duplicate).toBe(true);
+    expect(await deliverTelegram(store, api, now + 5000)).toBe(false);
+    expect(sendPhoto).toHaveBeenCalledTimes(1);
+  });
+
   it("同一信号重跑不重复入队，完成后重启仍能去重，新增群只收新信号", async () => {
     add(-1); store.enqueue(id("same"), "signal", "png", undefined, 1000);
     await deliverTelegram(store, api, 1000);

@@ -24,7 +24,6 @@ it("签名拒绝缺失、错误密钥、篡改、过期请求", () => {
 
 it("真实 HTTP 入队需签名；响应前持久化，重复提交保持已发送进度，重启可恢复", async () => {
   const dir = mkdtempSync(`${tmpdir()}/telegram-http-`), store = new TelegramStore(dir);
-  store.state.groups['-1'] = { id: '-1', title: 'private group name', present: true, writable: true, paused: false, updatedAt: 0, nextSendAt: 0 }; store.saveState();
   let ready = true;
   const server = createTelegramRelayServer(store, "test-secret", true, () => ({ ok: ready, username: "ExampleBot" }));
   server.listen(0, "127.0.0.1"); await once(server, "listening");
@@ -37,8 +36,11 @@ it("真实 HTTP 入队需签名；响应前持久化，重复提交保持已发�
     expect((await fetch(`${base}/status`)).status).toBe(401);
     expect((await post('{}')).status).toBe(400);
     ready = false; expect((await post(body)).status).toBe(503); ready = true;
+    expect(await (await post(body)).json()).toMatchObject({ ok: true, recipients: 0, duplicate: false });
+    expect(new TelegramStore(dir).jobs.get(id)!.deliveries).toEqual([]);
+    store.state.groups['-1'] = { id: '-1', title: 'private group name', present: true, writable: true, paused: false, updatedAt: 0, nextSendAt: 0, messageThreadId: 16 }; store.saveState();
     expect(await (await post(body)).json()).toMatchObject({ ok: true, recipients: 1, duplicate: false });
-    expect(new TelegramStore(dir).jobs.get(id)!.deliveries[0].state).toBe('pending');
+    expect(new TelegramStore(dir).jobs.get(id)!.deliveries[0]).toMatchObject({ state: 'pending', messageThreadId: 16 });
     const job = store.jobs.get(id)!; job.deliveries[0].state = 'sent'; store.saveJob(job);
     expect(await (await post(body)).json()).toMatchObject({ duplicate: true });
     expect(new TelegramStore(dir).jobs.get(id)!.deliveries[0].state).toBe('sent');

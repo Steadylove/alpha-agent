@@ -18,6 +18,10 @@ describe("每日卡片曲线", () => {
     mocks.refresh.mockResolvedValue(cache);
     const cards = await buildSignalBooks({ fromCache });
     expect(cards.map((c) => c.input.since)).toEqual(["2026-01-01", "2026-08-01"]);
+    expect(cards.map((c) => c.content)).toEqual([
+      "📒 **TREND-ADAPTIVE | 趋势自适应系统 · 现金账本1**",
+      "📒 **TREND-ADAPTIVE | 趋势自适应系统 · 现金账本2**",
+    ]);
     expect(cards[1].summary).toContain("记账自 2026-08-01");
   });
 
