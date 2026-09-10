@@ -17,6 +17,13 @@ const join = (update_id: number, groupId = -1, status = "member"): TelegramUpdat
   my_chat_member: { chat: chat(groupId), date: update_id, old_chat_member: { status: "left" }, new_chat_member: { status } } });
 const command = (update_id: number, text: string): TelegramUpdate => ({ update_id,
   message: { chat: chat(), date: update_id, text, from: { id: 10 } } });
+const topicCommand = (updateId: number, text: string, threadId?: number) => {
+  const update = command(updateId, text);
+  Object.assign(update.message!, { chat: { ...chat(), is_forum: true }, is_topic_message: threadId !== undefined, message_thread_id: threadId });
+  return update;
+};
+const allowAdmin = () => call.mockImplementation(async (method: string) => method === "getChatAdministrators"
+  ? [{ user: { id: 10 }, status: "administrator" }] : method === "getChatMember" ? { status: "member" } : { message_id: 1 });
 const add = (n: number) => { store.state.groups[String(n)] = { id: String(n), title: "Group", present: true, writable: true, paused: false, updatedAt: 0, nextSendAt: 0 }; store.saveState(); };
 beforeEach(() => { dir = mkdtempSync(`${tmpdir()}/telegram-`); store = new TelegramStore(dir); vi.resetAllMocks(); call.mockResolvedValue({ message_id: 1 }); sendPhoto.mockResolvedValue({ message_id: 2, photo: [{ file_id: "photo-id" }] }); });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
@@ -88,6 +95,103 @@ describe("Telegram 群订阅", () => {
     expect(store.stats().subscribed).toBe(0);
     expect(store.jobs.size).toBe(1);
     expect(call).not.toHaveBeenCalled();
+  });
+});
+
+describe("Telegram 话题绑定", () => {
+  it("话题群入群等待选择位置，加群链接的 start 不会提前向 General 开启广播", async () => {
+    const update = join(1); update.my_chat_member!.chat.is_forum = true;
+    await processTelegramUpdate(store, api, bot, update);
+    expect(store.stats().subscribed).toBe(0);
+    expect(store.enqueue(id("before"), "尚未选择话题").recipients).toBe(0);
+    allowAdmin();
+    await processTelegramUpdate(store, api, bot, topicCommand(2, "/start@ExampleBot signals"));
+    expect(store.stats().subscribed).toBe(0);
+    expect(store.jobs.get(id("command:2"))!.content).toContain("/resume@ExampleBot");
+  });
+  it("管理员在话题开启推送，绑定与回复位置持久化，权限变化和重新加群保留话题", async () => {
+    allowAdmin();
+    await processTelegramUpdate(store, api, bot, topicCommand(1, "/resume@ExampleBot", 42));
+    store = new TelegramStore(dir);
+    expect(store.state.groups['-1'].messageThreadId).toBe(42);
+    expect(store.jobs.get(id("command:1"))!.deliveries[0].messageThreadId).toBe(42);
+    const promoted = join(2, -1, "administrator"); promoted.my_chat_member!.old_chat_member.status = "member";
+    promoted.my_chat_member!.chat.is_forum = true;
+    await processTelegramUpdate(store, api, bot, promoted);
+    await processTelegramUpdate(store, api, bot, join(3, -1, "left"));
+    const rejoin = join(4); rejoin.my_chat_member!.chat.is_forum = true;
+    await processTelegramUpdate(store, api, bot, rejoin);
+    expect(store.state.groups['-1'].messageThreadId).toBe(42);
+    expect(store.stats().subscribed).toBe(1);
+    expect(store.jobs.get(id("welcome:4"))!.deliveries[0].messageThreadId).toBe(42);
+  });
+  it("普通成员不能更换位置，状态回复发回提问话题，不改变广播位置", async () => {
+    allowAdmin(); await processTelegramUpdate(store, api, bot, topicCommand(1, "/resume", 42));
+    call.mockResolvedValue([]);
+    await processTelegramUpdate(store, api, bot, topicCommand(2, "/resume", 99));
+    await processTelegramUpdate(store, api, bot, topicCommand(3, "/status", 99));
+    expect(store.state.groups['-1'].messageThreadId).toBe(42);
+    expect(store.jobs.get(id("command:2"))!.content).toContain("只有本群管理员");
+    expect(store.jobs.get(id("command:3"))!.content).toContain("话题 #42");
+    expect(store.jobs.get(id("command:3"))!.deliveries[0].messageThreadId).toBe(99);
+  });
+  it("更换话题取消旧位置待发广播，重启后新信号发到新位置，其他群不受影响", async () => {
+    add(-1); add(-2); store.state.groups['-1'].messageThreadId = 42;
+    store.enqueue(id("old"), "旧卡片", "png");
+    allowAdmin(); await processTelegramUpdate(store, api, bot, topicCommand(1, "/resume", 99));
+    store = new TelegramStore(dir);
+    expect(store.jobs.get(id("old"))!.deliveries.map((d) => d.state)).toEqual(["skipped", "pending"]);
+    store.enqueue(id("new"), "新卡片", "png");
+    expect(store.jobs.get(id("new"))!.deliveries.map((d) => [d.chatId, d.messageThreadId])).toEqual([["-1", 99], ["-2", undefined]]);
+    await processTelegramUpdate(store, api, bot, topicCommand(2, "/pause", 99));
+    await processTelegramUpdate(store, api, bot, topicCommand(3, "/resume", 99));
+    expect(store.state.groups['-1'].messageThreadId).toBe(99);
+    expect(store.jobs.get(id("new"))!.deliveries[0].state).toBe("skipped");
+  });
+  it("General 的自动 start 保留原绑定，只有管理员明确 resume 才改到 General", async () => {
+    add(-1); store.state.groups['-1'].messageThreadId = 42;
+    allowAdmin(); await processTelegramUpdate(store, api, bot, topicCommand(1, "/start signals"));
+    expect(store.state.groups['-1'].messageThreadId).toBe(42);
+    const general = topicCommand(2, "/resume"); general.message!.message_thread_id = 123;
+    await processTelegramUpdate(store, api, bot, general);
+    expect(store.state.groups['-1'].messageThreadId).toBeUndefined();
+    expect(store.jobs.get(id("command:2"))!.content).toContain("General");
+    expect(store.stats().subscribed).toBe(1);
+  });
+  it("文字和图片都携带目标话题，其他群和普通群发送保持独立", async () => {
+    add(-1); add(-2); store.state.groups['-1'].messageThreadId = 42; store.saveState();
+    store.enqueue(id("text"), "文字", undefined, undefined, 1000);
+    store.enqueue(id("photo"), "图片", "png", undefined, 1000);
+    store = new TelegramStore(dir);
+    await deliverTelegram(store, api, 1000); await deliverTelegram(store, api, 1001);
+    await deliverTelegram(store, api, 5000); await deliverTelegram(store, api, 5001);
+    expect(call.mock.calls).toEqual([
+      ["sendMessage", { chat_id: "-1", text: "文字", message_thread_id: 42 }],
+      ["sendMessage", { chat_id: "-2", text: "文字" }],
+    ]);
+    expect(sendPhoto.mock.calls.map((c) => [c[0], c[4]])).toEqual([["-1", 42], ["-2", undefined]]);
+  });
+  it("话题不存在时标记失败，不退回 General 发送", async () => {
+    add(-1); store.state.groups['-1'].messageThreadId = 42;
+    store.enqueue(id("photo"), "图片", "png", undefined, 1000);
+    sendPhoto.mockRejectedValue(new TelegramError(400));
+    await deliverTelegram(store, api, 1000);
+    expect(store.stats().failed).toBe(1);
+    expect(await deliverTelegram(store, api, 5000)).toBe(false);
+    expect(sendPhoto).toHaveBeenCalledTimes(1);
+    expect(sendPhoto.mock.calls[0][4]).toBe(42);
+    expect(call).not.toHaveBeenCalled();
+  });
+  it("实际图片请求无论上传还是复用 file_id 都携带话题，普通群不携带", async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => Response.json({ ok: true, result: { message_id: 1 } }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const client = new TelegramClient("test-token");
+      await client.sendPhoto("-1", "caption", "cG5n", undefined, 42);
+      await client.sendPhoto("-1", "caption", "", "file-id", 42);
+      await client.sendPhoto("-2", "caption", "", "file-id");
+      expect(fetchMock.mock.calls.map((c) => (c[1].body as FormData).get("message_thread_id"))).toEqual(["42", "42", null]);
+    } finally { vi.unstubAllGlobals(); }
   });
 });
 

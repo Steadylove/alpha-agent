@@ -5,17 +5,19 @@ import { writeJsonAtomic } from "@/lib/files/atomicJson";
 export type Group = {
   id: string; title: string; present: boolean; writable: boolean; paused: boolean;
   updatedAt: number; nextSendAt: number; migratedTo?: string; migratedFrom?: string;
+  messageThreadId?: number; needsTopic?: boolean;
 };
 export type Delivery = {
   chatId: string; state: "pending" | "sent" | "failed" | "skipped";
   attempts: number; nextAt: number; messageId?: number; error?: number;
+  messageThreadId?: number;
 };
 export type TelegramJob = {
   id: string; createdAt: number; content: string; png?: string; fileId?: string;
   direct?: boolean; deliveries: Delivery[];
 };
 type State = { version: 1; offset: number; groups: Record<string, Group>; nextApiAt?: number };
-export const subscribed = (g: Group) => g.present && g.writable && !g.paused && !g.migratedTo;
+export const subscribed = (g: Group) => g.present && g.writable && !g.paused && !g.migratedTo && !g.needsTopic;
 
 /** 由唯一常驻 worker 写入；所有内存变更与落盘均同步完成，避免并发读改写丢失。 */
 export class TelegramStore {
@@ -41,12 +43,13 @@ export class TelegramStore {
     writeJsonAtomic(path.join(this.dir, "jobs", `${job.id}.json`), job);
     this.jobs.set(job.id, job);
   }
-  enqueue(id: string, content: string, png?: string, directChat?: string, now = Date.now()) {
+  enqueue(id: string, content: string, png?: string, directChat?: string, now = Date.now(), directThreadId?: number) {
     const prior = this.jobs.get(id);
     if (prior) return { duplicate: true, recipients: prior.deliveries.length };
     const chats = directChat ? [directChat] : Object.values(this.state.groups).filter(subscribed).map((g) => g.id);
     this.saveJob({ id, content, png, createdAt: now, direct: !!directChat,
-      deliveries: chats.map((chatId) => ({ chatId, state: "pending", attempts: 0, nextAt: now })) });
+      deliveries: chats.map((chatId) => ({ chatId, state: "pending", attempts: 0, nextAt: now,
+        messageThreadId: directChat ? directThreadId : this.state.groups[chatId].messageThreadId })) });
     return { duplicate: false, recipients: chats.length };
   }
   cancelGroup(chatId: string) {

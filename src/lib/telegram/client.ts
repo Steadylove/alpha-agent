@@ -26,10 +26,11 @@ export class TelegramClient {
     return result.result;
   }
 
-  sendPhoto(chatId: string, caption: string, png: string, fileId?: string) {
+  sendPhoto(chatId: string, caption: string, png: string, fileId?: string, messageThreadId?: number) {
     const body = new FormData();
     body.set("chat_id", chatId);
     body.set("caption", caption);
+    if (messageThreadId !== undefined) body.set("message_thread_id", String(messageThreadId));
     if (fileId) body.set("photo", fileId);
     else body.set("photo", new Blob([new Uint8Array(Buffer.from(png, "base64"))], { type: "image/png" }), "signal.png");
     return this.call<{ message_id: number; photo?: Array<{ file_id: string }> }>("sendPhoto", body);

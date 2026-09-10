@@ -7,7 +7,7 @@ export async function deliverTelegram(store: TelegramStore, api: TelegramClient,
   for (const job of store.jobs.values()) for (const d of job.deliveries) {
     if (d.state !== "pending") continue;
     const group = store.state.groups[d.chatId];
-    if ((!job.direct && (!group || !subscribed(group))) || now - job.createdAt > 24 * 3600_000) {
+    if ((!job.direct && (!group || !subscribed(group) || d.messageThreadId !== group.messageThreadId)) || now - job.createdAt > 24 * 3600_000) {
       d.state = "skipped"; store.saveJob(job); continue;
     }
     if (d.nextAt > now || (group?.nextSendAt ?? 0) > now) continue;
@@ -17,8 +17,10 @@ export async function deliverTelegram(store: TelegramStore, api: TelegramClient,
     store.saveJob(job);
     try {
       const result = job.png || job.fileId
-        ? await api.sendPhoto(d.chatId, job.content, job.png ?? "", job.fileId)
-        : await api.call<{ message_id: number; photo?: Array<{ file_id: string }> }>("sendMessage", { chat_id: d.chatId, text: job.content });
+        ? await api.sendPhoto(d.chatId, job.content, job.png ?? "", job.fileId, d.messageThreadId)
+        : await api.call<{ message_id: number; photo?: Array<{ file_id: string }> }>("sendMessage", {
+          chat_id: d.chatId, text: job.content, ...(d.messageThreadId === undefined ? {} : { message_thread_id: d.messageThreadId }),
+        });
       d.state = "sent"; d.messageId = result.message_id; delete d.error;
       job.fileId = result.photo?.at(-1)?.file_id ?? job.fileId;
     } catch (error) {
