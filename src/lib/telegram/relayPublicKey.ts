@@ -1,0 +1,2 @@
+// 用于加密网站服务身份的公钥，可公开；私钥仅存于 VPS 配置代码。
+export const TELEGRAM_RELAY_PUBLIC_KEY = "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAh0DUbnTosHKSexhyDyp2\nOLsmo/U9R6/UK2b8zuuI6bB3ervalp0WpvVlCFm09056BX+laXyP5oPgRpfjCRPF\nibMjDb7uz2hIz4KoEmNdCc3Lk2e/CXu88vPCwwaBHFkRkXaFFoLUjjasU9ds8W4f\njngS7NJPhMPpo/hlKjWYXFRGvR++IEmyHVz0HxVQWyO/UdHJ0j8rmYxEDwrRrWBM\nj0cMXoZa69QuV1OF7VZI6KzsKrszMsaAJ6ysfH3kav6iwtp2Iat9v9UmazVhDfvJ\nznaGD0fIy/9vqPGmaRAyqtniFkJf0qHN2DtcynykivYBBWOvGoUFtr0CStqWVujN\nXwIDAQAB\n-----END PUBLIC KEY-----\n";

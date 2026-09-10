@@ -1,9 +1,10 @@
 import { createServer } from "node:http";
 import { TelegramStore } from "./store";
 import { verifyRelay } from "./relayAuth";
+import { verifyRelayIdentity } from "./relayIdentity";
 
 export function createTelegramRelayServer(store: TelegramStore, secret: string, configured: boolean,
-  status: () => { ok: boolean; username?: string }) {
+  status: () => { ok: boolean; username?: string }, identityPrivateKey = "") {
   return createServer(async (req, res) => {
     const reply = (code: number, body: unknown) => { res.writeHead(code, { "content-type": "application/json", "cache-control": "no-store" }); res.end(JSON.stringify(body)); };
     const route = req.url?.split("?")[0];
@@ -18,7 +19,8 @@ export function createTelegramRelayServer(store: TelegramStore, secret: string, 
         chunks.push(Buffer.from(chunk));
       }
       const body = Buffer.concat(chunks).toString("utf8");
-      if (!verifyRelay(secret, String(req.headers["x-relay-time"] ?? ""), String(req.headers["x-relay-signature"] ?? ""), body)) { reply(401, { error: "unauthorized" }); return; }
+      const signed = secret !== "change-me" && verifyRelay(secret, String(req.headers["x-relay-time"] ?? ""), String(req.headers["x-relay-signature"] ?? ""), body);
+      if (!signed && !await verifyRelayIdentity(identityPrivateKey, String(req.headers["x-relay-identity"] ?? ""), body)) { reply(401, { error: "unauthorized" }); return; }
       if (route === "/status") { reply(200, { ...status(), ...store.stats() }); return; }
       const data = JSON.parse(body) as { id?: unknown; content?: unknown; png?: unknown };
       if (!data || typeof data !== "object" || typeof data.id !== "string" || !/^[a-f0-9]{64}$/.test(data.id) || typeof data.content !== "string" || data.content.length > 1024 ||

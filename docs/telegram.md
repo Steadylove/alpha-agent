@@ -22,13 +22,16 @@
 ```js
 export default {
   token: "这里填写机器人 Token",
-  relaySecret: "与网站 CRON_SECRET 相同的值",
+  relaySecret: "独立生成的随机值，供本地 CLI 使用",
+  identityPrivateKey: "与 relayPublicKey.ts 中公钥配对的 PKCS8 私钥",
 };
 ```
 
 配置文件通过只读目录挂载，代码直接加载这些常量。它与公开源码和构建产物分开，自动部署不会覆盖此文件。修改后运行 `docker compose restart telegram`。也支持 `TELEGRAM_CONFIG_PATH` 指定配置位置。
 
-网站通过 `MARKET_DATA_BASE_URL/telegram` 把图片持久化入队，使用 `CRON_SECRET` 对时间戳和请求正文签名。可用 `TELEGRAM_RELAY_URL`、`TELEGRAM_RELAY_SECRET` 覆盖默认值。`TELEGRAM_ENABLED=false` 可关闭同步。机器人 Token 不经过网站、HTTP 中转请求或日志。
+网站通过 `MARKET_DATA_BASE_URL/telegram` 把图片持久化入队，使用 Vercel 自动签发的短期服务身份认证，无需另外设置网站密钥。VPS 校验签名、有效期、项目、团队与生产环境；预览部署不能向正式群发送消息。请求身份使用标准 JWE 加密，并绑定请求正文，身份令牌不会明文经过 HTTP 代理。私钥只保存在服务器配置中，对应公钥位于 `relayPublicKey.ts`。
+
+本地 CLI 使用独立的 `TELEGRAM_RELAY_SECRET` 签名，必须与服务器 `relaySecret` 相同；不沿用 `.env.example` 中的示例 CRON 密钥。`TELEGRAM_RELAY_URL` 可覆盖服务地址，`TELEGRAM_ENABLED=false` 可关闭同步。机器人 Token 不经过网站、HTTP 中转请求或日志。
 
 ## 持久化、重试与部署
 

@@ -1,20 +1,30 @@
 import { createHash } from "node:crypto";
 import { marketBaseUrl } from "@/lib/backtest/marketStore";
 import { relayHeaders } from "./relayAuth";
+import { getVercelOidcToken } from "@vercel/oidc";
+import { sealRelayIdentity } from "./relayIdentity";
 
 function config() {
   const base = process.env.TELEGRAM_RELAY_URL || (marketBaseUrl() ? `${marketBaseUrl()}/telegram` : "");
-  const secret = (process.env.TELEGRAM_RELAY_SECRET || process.env.CRON_SECRET || "").trim();
+  const secret = (process.env.TELEGRAM_RELAY_SECRET || "").trim();
   return { base: base.replace(/\/$/, ""), secret };
 }
 
 async function requestRelay(path: string, body?: string) {
   const { base, secret } = config();
-  if (!base || !secret) throw new Error("Telegram 推送服务未配置");
+  if (!base) throw new Error("Telegram 推送服务未配置");
+  let auth: Record<string, string>;
+  if (process.env.VERCEL) {
+    try { auth = { "x-relay-identity": await sealRelayIdentity(await getVercelOidcToken(), body) }; }
+    catch { throw new Error("无法获取 Vercel 服务身份"); }
+  } else {
+    if (!secret || secret === "change-me") throw new Error("Telegram 推送服务未配置");
+    auth = relayHeaders(secret, body);
+  }
   let response: Response;
   try {
     response = await fetch(`${base}/${path}`, { method: body == null ? "GET" : "POST", cache: "no-store",
-      headers: { "content-type": "application/json", ...relayHeaders(secret, body) }, body, signal: AbortSignal.timeout(15_000) });
+      headers: { "content-type": "application/json", ...auth }, body, signal: AbortSignal.timeout(15_000) });
   } catch { throw new Error("Telegram 推送服务暂时不可达"); }
   if (!response.ok) throw new Error(`Telegram 推送服务 HTTP ${response.status}`);
   return response.json() as Promise<{ ok: boolean; duplicate?: boolean; recipients?: number; username?: string; subscribed?: number }>;
