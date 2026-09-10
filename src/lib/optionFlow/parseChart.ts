@@ -1,6 +1,6 @@
 import type { OptionFlowLeg, OptionRight } from "./types";
 
-const HEAD_RE = /^([A-Z]{1,5})\s+(\d+(?:\.\d+)?)\s+(Call|Put)\s*$/im;
+const HEAD_RE = /^([A-Z]{1,5})\s+(\d+(?:\.\d+)?)\s+(Call|Put)\b/im;
 const EXP_RE = /^Exp\.?\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/im;
 const PREM_RE = /^Prem(?:ium)?[:\s]+\$?([\d.]+)\s*(K|M|B)/im;
 const OTM_RE = /^OTM[:\s]+([\d.]+)\s*%/im;

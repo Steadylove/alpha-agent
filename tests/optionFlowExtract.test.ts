@@ -110,6 +110,10 @@ describe("option flow extract", () => {
   });
 
   it("从 Bullflow 图头读行权价和到期", () => {
+    const live = parseChartText(
+      "GOOGL 355 Call $2.80\nExp. 10/02/26 4 +$0.05 (+1.82%)\nPrem: $3.0M OTM: 7.1% Multi: 0%",
+    );
+    expect(live).toMatchObject({ ticker: "GOOGL", strike: 355, right: "call", expiry: "10/02/26", premiumUsd: 3_000_000 });
     const chart = parseChartText("PLTR 190 Call\nExp. 12/17/27\nPrem: $15.8M\nOTM: 11.4%");
     expect(chart).toEqual({
       ticker: "PLTR",
