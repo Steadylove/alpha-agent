@@ -1,6 +1,8 @@
 /**
  * TradingView 告警中转：补上截面 RPS 闸门，再同步到 Discord 和 Telegram。
  *
+ * TV webhook 大约 3 秒超时且不重试。这里先回 200，出图和推送放在 `after()` 里。
+ *
  * Pine 只算得出单标的自足的信号，`rps >= rpsMin` 要把当日全池一起排名。
  * 分位读构建时的 `data/rps-latest.json`（或行情机上的快照）。
  *
@@ -9,7 +11,7 @@
  * 卖点照推，标题也不带一买/二买。
  */
 
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 
 import { ensureRpsSnapshot, lookupAlertRps, resolveAlertTimeframe } from "@/lib/backtest/rpsSnapshot";
@@ -44,6 +46,61 @@ function parsePayload(raw: unknown): AlertPayload | null {
   return p as unknown as AlertPayload;
 }
 
+export type DeliveredAlert = {
+  ok: true;
+  forwarded: boolean;
+  gate?: "unknown" | "reject" | "pass";
+  rps?: number | null;
+  lookupError?: string | null;
+};
+
+export async function deliverTvAlert(payload: AlertPayload, webhookUrl: string): Promise<DeliveredAlert> {
+  const label = tfLabel(payload.tf);
+  // 旧版告警没有 K 线时间时保留每次有效信号，不能按价格去重误吞后续交易。
+  const eventKey = JSON.stringify(["tv", isNum(payload.barTime) ? payload.barTime : randomUUID(), payload]);
+  const tf = resolveAlertTimeframe(payload.tf);
+  const rpsMin = rpsMinOf(tf);
+
+  if (payload.event === "sell") {
+    const view = buildAlertView(payload, label);
+    await postSignalImage(webhookUrl, {
+      filename: `signal-${payload.symbol}.png`,
+      eventKey,
+      bytes: await renderSignalOgPng(view),
+      content: `**${STRATEGY_NAME} ${view.title} · ${payload.symbol}**${alertTimeframeSuffix(label)}`,
+    });
+    return { ok: true, forwarded: true };
+  }
+
+  let rps: number | null = null;
+  let lookupError: string | null = null;
+  try {
+    await ensureRpsSnapshot();
+    rps = lookupAlertRps(payload.symbol, tf)?.rps ?? null;
+  } catch (error) {
+    lookupError = error instanceof Error ? error.message : String(error);
+  }
+
+  if (!buyPassesGate(rps, rpsMin) || rps == null) {
+    return {
+      ok: true,
+      forwarded: false,
+      gate: rps == null ? "unknown" : "reject",
+      rps,
+      lookupError,
+    };
+  }
+
+  const view = buildAlertView(payload, label, rps);
+  await postSignalImage(webhookUrl, {
+    filename: `signal-${payload.symbol}.png`,
+    eventKey,
+    bytes: await renderSignalOgPng(view),
+    content: `**${STRATEGY_NAME} ${view.title} · ${payload.symbol}**${alertTimeframeSuffix(label)}`,
+  });
+  return { ok: true, forwarded: true, gate: "pass", rps, lookupError };
+}
+
 export async function POST(request: Request) {
   const webhookUrl = process.env.DISCORD_SIGNAL_WEBHOOK_URL || process.env.DISCORD_WEBHOOK_URL;
   if (!webhookUrl) {
@@ -63,48 +120,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Malformed alert payload." }, { status: 400 });
   }
 
-  const label = tfLabel(payload.tf);
-  // 旧版告警没有 K 线时间时保留每次有效信号，不能按价格去重误吞后续交易。
-  const eventKey = JSON.stringify(["tv", isNum(payload.barTime) ? payload.barTime : randomUUID(), payload]);
-  const tf = resolveAlertTimeframe(payload.tf);
-  const rpsMin = rpsMinOf(tf);
-
-  if (payload.event === "sell") {
-    const view = buildAlertView(payload, label);
-    await postSignalImage(webhookUrl, {
-      filename: `signal-${payload.symbol}.png`,
-      eventKey,
-      bytes: await renderSignalOgPng(view),
-      content: `**${STRATEGY_NAME} ${view.title} · ${payload.symbol}**${alertTimeframeSuffix(label)}`,
-    });
-    return NextResponse.json({ ok: true, forwarded: true });
-  }
-
-  let rps: number | null = null;
-  let lookupError: string | null = null;
-  try {
-    await ensureRpsSnapshot();
-    rps = lookupAlertRps(payload.symbol, tf)?.rps ?? null;
-  } catch (error) {
-    lookupError = error instanceof Error ? error.message : String(error);
-  }
-
-  if (!buyPassesGate(rps, rpsMin) || rps == null) {
-    return NextResponse.json({
-      ok: true,
-      forwarded: false,
-      gate: rps == null ? "unknown" : "reject",
-      rps,
-      lookupError,
-    });
-  }
-
-  const view = buildAlertView(payload, label, rps);
-  await postSignalImage(webhookUrl, {
-    filename: `signal-${payload.symbol}.png`,
-    eventKey,
-    bytes: await renderSignalOgPng(view),
-    content: `**${STRATEGY_NAME} ${view.title} · ${payload.symbol}**${alertTimeframeSuffix(label)}`,
-  });
-  return NextResponse.json({ ok: true, forwarded: true, gate: "pass", rps, lookupError });
+  after(() =>
+    deliverTvAlert(payload, webhookUrl).catch((error) => {
+      console.error("[tv-alert]", error instanceof Error ? error.message : error);
+    }),
+  );
+  return NextResponse.json({ ok: true, accepted: true });
 }
