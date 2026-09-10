@@ -1,6 +1,7 @@
 import type { DailyBar } from "@/lib/types/market";
+import { marketDataSymbol } from "./marketSymbol";
 
-const stooqSymbol = (symbol: string) => `${symbol.toLowerCase()}.us`;
+const stooqSymbol = (symbol: string) => `${marketDataSymbol(symbol).toLowerCase()}.us`;
 
 const parseCsv = (csv: string): DailyBar[] => {
   const lines = csv.trim().split("\n");

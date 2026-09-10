@@ -1,3 +1,5 @@
+import { marketDataSymbol } from "./marketSymbol";
+
 /** UTC 墙钟到分钟，可排序，作 4H 面板日期轴。 */
 export function barTimeISO(unixSeconds: number): string {
   return new Date(unixSeconds * 1000).toISOString().slice(0, 16);
@@ -30,7 +32,7 @@ type YahooChartResponse = {
 };
 
 async function fetchYahoo1HWindow(symbol: string, period1: number, period2: number): Promise<IntradayBar[]> {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?period1=${period1}&period2=${period2}&interval=1h`;
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(marketDataSymbol(symbol))}?period1=${period1}&period2=${period2}&interval=1h`;
   const response = await fetch(url, {
     headers: { "user-agent": "Mozilla/5.0" },
     next: { revalidate: 60 * 30 },

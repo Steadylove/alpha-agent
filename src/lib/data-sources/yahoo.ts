@@ -1,4 +1,5 @@
 import type { DailyBar } from "@/lib/types/market";
+import { marketDataSymbol } from "./marketSymbol";
 
 type YahooChartResponse = {
   chart?: {
@@ -28,7 +29,7 @@ export async function fetchYahooDailyBars(
   // daily-report 只吃最近 250 根，扩窗零副作用。
   // MPR 历史校准需要更长窗口，通过 years 显式放宽。
   const period1 = period2 - (options.years ?? 8) * 365 * 24 * 60 * 60;
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?period1=${period1}&period2=${period2}&interval=1d`;
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(marketDataSymbol(symbol))}?period1=${period1}&period2=${period2}&interval=1d`;
   const response = await fetch(url, { next: { revalidate: 60 * 60 } });
 
   if (!response.ok) {

@@ -24,6 +24,7 @@ import { fetchAlpaca30MBars, hasAlpacaCredentials } from "@/lib/data-sources/alp
 import { fetchCboeVolIndexHistory, type CboeVolIndex } from "@/lib/data-sources/cboe";
 import { fetchStooqDailyBars } from "@/lib/data-sources/stooq";
 import { fetchYahooDailyBars } from "@/lib/data-sources/yahoo";
+import { marketDataSymbol } from "@/lib/data-sources/marketSymbol";
 import { MPR_SYMBOLS } from "@/lib/scoring/mpr";
 import { ROTATION_UNIVERSE } from "@/lib/scoring/rotationUniverse";
 import { SECTOR_UNIVERSE } from "@/lib/scoring/sectorUniverse";
@@ -270,6 +271,8 @@ async function main() {
     `已收盘日 ${until}  扩池 ${wanted.length}  源 ${hasAlpacaCredentials() ? "Alpaca" : "Yahoo"}` +
       (root ? `  目录 ${root}` : ""),
   );
+  const aliases = wanted.filter((t) => marketDataSymbol(t) !== t);
+  if (aliases.length) console.log(`行情代码映射（保留原 CSV / 账本代码）：${aliases.map((t) => `${t}→${marketDataSymbol(t)}`).join("，")}`);
 
   const daily = await refreshDaily(
     wanted.filter((t) => !MACRO_CBOE.includes(t as CboeVolIndex) && t !== "DXY"),
@@ -281,10 +284,6 @@ async function main() {
   const one = await refreshTf("1h", CSV_1H_DIR, tfWanted, until, (raw) => toOhlcv(aggregateTo1H(raw)));
 
   if (AUDIT_ONLY) return;
-  if (one.failed.length) throw new Error(`1H 同步失败，停止发布 2H：${one.failed.join("；")}`);
-  // 每次从完整 1H 重建，旧目录即使已经更新到今天也会被替换。
-  const rebuilt = rebuildTwoHourCsv(CSV_1H_DIR, CSV_2H_DIR, tfWanted);
-  const two = { updated: rebuilt.length, failed: [] as string[] };
   const report = (name: string, r: { updated: number; failed: string[] }) => {
     console.log(`\n补 ${name}: 写入 ${r.updated}  失败 ${r.failed.length}`);
     if (r.failed.length) console.log(`  ${r.failed.slice(0, 15).join(" | ")}`);
@@ -292,8 +291,11 @@ async function main() {
   report("1d", daily);
   report("macro", macro);
   report("4h", four);
-  report("2h", two);
   report("1h", one);
+  if (one.failed.length) throw new Error(`1H 同步失败，停止发布 2H：${one.failed.join("；")}`);
+  // 每次从完整 1H 重建，旧目录即使已经更新到今天也会被替换。
+  const rebuilt = rebuildTwoHourCsv(CSV_1H_DIR, CSV_2H_DIR, tfWanted);
+  report("2h", { updated: rebuilt.length, failed: [] });
   extendRpsScale(until);
   if (root) {
     const man = writeManifest(root);

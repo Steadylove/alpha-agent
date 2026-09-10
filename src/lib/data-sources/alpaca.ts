@@ -1,5 +1,6 @@
 import type { IntradayBar } from "@/lib/data-sources/yahooIntraday";
 import type { DailyBar } from "@/lib/types/market";
+import { marketDataSymbol } from "./marketSymbol";
 
 const DATA_URL = "https://data.alpaca.markets/v2/stocks";
 const FEEDS = ["sip", "iex"] as const;
@@ -114,7 +115,7 @@ async function fetchPage(
   timeframe: AlpacaTimeframe,
 ): Promise<AlpacaBarsResponse> {
   const { key, secret } = alpacaCredentials();
-  const url = new URL(`${DATA_URL}/${encodeURIComponent(symbol)}/bars`);
+  const url = new URL(`${DATA_URL}/${encodeURIComponent(marketDataSymbol(symbol))}/bars`);
   url.searchParams.set("timeframe", timeframe);
   url.searchParams.set("start", from);
   url.searchParams.set("end", to);
