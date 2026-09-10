@@ -22,7 +22,7 @@ describe("tv alert copy", () => {
   it("买点写该股相对大池分位，不写门槛、一买二买和 RPS", () => {
     const msg = renderBuy({ event: "buy", symbol: "NVDA", tf: "240", kind: 1, price: 100 }, "4H", 79);
     const text = JSON.stringify(msg);
-    expect(msg.content).toBe("🟢 **TREND-ADAPTIVE 买点 · NVDA** · 4H");
+    expect(msg.content).toBe("🟢 **TREND-ADAPTIVE 买点 · NVDA**");
     expect(text).toContain("强于 79%");
     expect(text).not.toContain("强于 30%");
     expect(text).not.toMatch(/一买|二买|RPS|未达标/);
@@ -47,7 +47,7 @@ describe("tv alert copy", () => {
       "4H",
     );
     const text = JSON.stringify(msg);
-    expect(msg.content).toBe("🛑 **TREND-ADAPTIVE 止损 · ADI** · 4H");
+    expect(msg.content).toBe("🛑 **TREND-ADAPTIVE 止损 · ADI**");
     expect(text).not.toMatch(/一买|二买/);
   });
 });

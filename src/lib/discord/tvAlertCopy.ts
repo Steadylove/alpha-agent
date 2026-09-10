@@ -2,6 +2,7 @@ import type { Timeframe } from "@/lib/backtest/engine";
 import { SMALL_FUND_DEFAULT_CONFIG } from "@/lib/backtest/smallFundUniverse";
 import { STRATEGY_NAME } from "./brand";
 import type { DiscordPayload } from "./sendWebhook";
+import { buyChartOf, sellChartOf, type SignalTradeChart } from "./signalTradeChart";
 
 export function rpsMinOf(tf: Timeframe): number {
   if (tf === "4h") return 30;
@@ -20,6 +21,11 @@ export function strengthLabel(rps: number): string {
   return `强于 ${Math.round(rps)}%`;
 }
 
+/** 默认 4H 信号不展示周期标记，其他周期保留区分。 */
+export function alertTimeframeSuffix(label: string): string {
+  return label.toUpperCase() === "4H" ? "" : ` · ${label}`;
+}
+
 export type AlertPayload = {
   event: string;
   symbol: string;
@@ -33,6 +39,10 @@ export type AlertPayload = {
   pnl?: number;
   /** TradingView K 线收盘时间（毫秒），供重复告警去重。 */
   barTime?: number;
+  /** 这笔持仓实际开仓的 K 线开盘时间，毫秒。 */
+  entryTime?: number;
+  /** Pine 随买卖点携带的 K 线与 Vegas 通道快照，需校验后使用。 */
+  chart?: unknown;
 };
 
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
@@ -55,6 +65,7 @@ export type AlertView = {
   pnl?: number;
   rps?: number;
   footer?: string;
+  chart?: SignalTradeChart;
 };
 
 export function buildAlertView(p: AlertPayload, label: string, rps?: number): AlertView {
@@ -71,6 +82,7 @@ export function buildAlertView(p: AlertPayload, label: string, rps?: number): Al
       stopPct: stop != null ? ((stop - p.price) / p.price) * 100 : undefined,
       stopMult: isNum(p.stopMult) ? p.stopMult : undefined,
       rps,
+      chart: buyChartOf(p.chart, p.barTime, p.price),
     };
   }
 
@@ -84,6 +96,7 @@ export function buildAlertView(p: AlertPayload, label: string, rps?: number): Al
     price: p.price,
     entry: isNum(p.entry) ? p.entry : undefined,
     pnl: isNum(p.pnl) ? p.pnl : undefined,
+    chart: sellChartOf(p.chart, p.entryTime, p.entry, p.barTime, p.price),
     footer: isNum(p.stop) ? `触发：收盘跌破生效止损 ${money(p.stop)}` : undefined,
   };
 }
@@ -102,7 +115,7 @@ export function renderBuy(p: AlertPayload, label: string, rps: number): DiscordP
     });
   }
   return {
-    content: `🟢 **${STRATEGY_NAME} 买点 · ${p.symbol}** · ${label}`,
+    content: `🟢 **${STRATEGY_NAME} 买点 · ${p.symbol}**${alertTimeframeSuffix(label)}`,
     embeds: [{ color: 0x22c55e, fields }],
   };
 }
@@ -121,7 +134,7 @@ export function renderSell(p: AlertPayload, label: string): DiscordPayload {
   if (isNum(p.pnl)) fields.push({ name: "盈亏", value: `\`${signed(p.pnl)}\``, inline: true });
 
   return {
-    content: `${head.icon} **${STRATEGY_NAME} ${head.title} · ${p.symbol}** · ${label}`,
+    content: `${head.icon} **${STRATEGY_NAME} ${head.title} · ${p.symbol}**${alertTimeframeSuffix(label)}`,
     embeds: [
       {
         color: head.color,

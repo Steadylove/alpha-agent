@@ -15,6 +15,7 @@ import { randomUUID } from "node:crypto";
 import { ensureRpsSnapshot, lookupAlertRps, resolveAlertTimeframe } from "@/lib/backtest/rpsSnapshot";
 import { renderSignalOgPng } from "@/lib/discord/signalCardOg";
 import {
+  alertTimeframeSuffix,
   buildAlertView,
   buyPassesGate,
   rpsMinOf,
@@ -74,7 +75,7 @@ export async function POST(request: Request) {
       filename: `signal-${payload.symbol}.png`,
       eventKey,
       bytes: await renderSignalOgPng(view),
-      content: `**${STRATEGY_NAME} ${view.title} · ${payload.symbol}** · ${label}`,
+      content: `**${STRATEGY_NAME} ${view.title} · ${payload.symbol}**${alertTimeframeSuffix(label)}`,
     });
     return NextResponse.json({ ok: true, forwarded: true });
   }
@@ -103,7 +104,7 @@ export async function POST(request: Request) {
     filename: `signal-${payload.symbol}.png`,
     eventKey,
     bytes: await renderSignalOgPng(view),
-    content: `**${STRATEGY_NAME} ${view.title} · ${payload.symbol}** · ${label}`,
+    content: `**${STRATEGY_NAME} ${view.title} · ${payload.symbol}**${alertTimeframeSuffix(label)}`,
   });
   return NextResponse.json({ ok: true, forwarded: true, gate: "pass", rps, lookupError });
 }

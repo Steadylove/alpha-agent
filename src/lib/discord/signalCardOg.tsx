@@ -2,7 +2,12 @@ import { ImageResponse } from "next/og";
 
 import { STRATEGY_NAME, STRATEGY_TAGLINE } from "./brand";
 import { loadOgFonts, OG_FONT } from "./ogFont";
-import { strengthLabel, type AlertView } from "./tvAlertCopy";
+import { alertTimeframeSuffix, strengthLabel, type AlertView } from "./tvAlertCopy";
+import {
+  signalTradeChartLabels, signalTradeChartNote, signalTradeChartSvg,
+  TRADE_CHART_EXTRA_HEIGHT, TRADE_CHART_HEIGHT, TRADE_CHART_WIDTH,
+  type SignalTradeChart,
+} from "./signalTradeChart";
 
 const WIDTH = 840;
 const T = {
@@ -59,6 +64,25 @@ function fieldsOf(view: AlertView, accent: string): Field[] {
   return fields;
 }
 
+function SignalChart({ chart }: { chart: SignalTradeChart }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", marginTop: 18, flexShrink: 0 }}>
+      <div style={{ display: "flex", position: "relative", width: TRADE_CHART_WIDTH, height: TRADE_CHART_HEIGHT }}>
+        {/* SVG 只绘制几何图形，中文标签使用外层 OG 字体。 */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img alt="买卖点与 Vegas 通道" width={TRADE_CHART_WIDTH} height={TRADE_CHART_HEIGHT}
+          src={`data:image/svg+xml;base64,${Buffer.from(signalTradeChartSvg(chart)).toString("base64")}`} />
+        {signalTradeChartLabels(chart).map((label, i) => (
+          <div key={i} style={{ display: "flex", position: "absolute", left: label.x, top: label.y, width: label.width,
+            height: label.height ?? 18, fontSize: label.fontSize ?? 12, fontWeight: label.fontWeight ?? 400,
+            alignItems: "center", justifyContent: label.align === "center" ? "center" : "flex-start", color: label.color }}>{label.text}</div>
+        ))}
+      </div>
+      <div style={{ display: "flex", height: 22, alignItems: "center", fontSize: 12, color: T.dim }}>{signalTradeChartNote(chart)}</div>
+    </div>
+  );
+}
+
 function SignalCard({ view }: { view: AlertView }) {
   const accent = ACCENT[view.tone];
   const fields = fieldsOf(view, accent);
@@ -80,12 +104,12 @@ function SignalCard({ view }: { view: AlertView }) {
         borderLeftColor: accent,
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ display: "flex", alignItems: "center" }}>
-          <div style={{ display: "flex", color: T.cyan, fontSize: 13, marginRight: 16 }}>{STRATEGY_NAME}</div>
-          <div style={{ display: "flex", fontSize: 16, fontWeight: 700 }}>{`${STRATEGY_TAGLINE} · ${view.tfLabel}`}</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", height: 44, flexShrink: 0 }}>
+        <div style={{ display: "flex", fontSize: 34, fontWeight: 700, letterSpacing: 1 }}>{view.symbol}</div>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+          <div style={{ display: "flex", color: T.cyan, fontSize: 11 }}>{STRATEGY_NAME}</div>
+          <div style={{ display: "flex", color: T.dim, fontSize: 11, marginTop: 3 }}>{`${STRATEGY_TAGLINE}${alertTimeframeSuffix(view.tfLabel)}`}</div>
         </div>
-        <div style={{ display: "flex", fontSize: 22, fontWeight: 700 }}>{view.symbol}</div>
       </div>
       <div style={{ display: "flex", alignItems: "center", marginTop: 14 }}>
         <div
@@ -146,6 +170,7 @@ function SignalCard({ view }: { view: AlertView }) {
       ) : (
         <div style={{ display: "none" }} />
       )}
+      {view.chart ? <SignalChart chart={view.chart} /> : null}
     </div>
   );
 }
@@ -159,6 +184,7 @@ function signalText(view: AlertView): string {
     view.symbol,
     view.tfLabel,
     view.footer ?? "",
+    ...(view.chart ? [...signalTradeChartLabels(view.chart).map((v) => v.text), signalTradeChartNote(view.chart)] : []),
     ...fields.flatMap((f) => [f.label, f.value, f.sub ?? ""]),
   ].join(" ");
 }
@@ -166,7 +192,8 @@ function signalText(view: AlertView): string {
 export async function renderSignalOgPng(view: AlertView): Promise<Buffer> {
   const fields = fieldsOf(view, ACCENT[view.tone]);
   const hasSub = fields.some((f) => f.sub);
-  const height = 168 + (hasSub ? 18 : 0) + (view.rps != null ? 26 : 0) + (view.footer ? 22 : 0);
+  // 买点还需容纳参考止损说明下方的强度条及底部留白，避免 OG 字体行高导致裁切。
+  const height = 184 + (hasSub ? 18 : 0) + (view.rps != null ? 70 : 0) + (view.footer ? 22 : 0) + (view.chart ? TRADE_CHART_EXTRA_HEIGHT : 0);
   const image = new ImageResponse(<SignalCard view={view} />, {
     width: WIDTH,
     height,

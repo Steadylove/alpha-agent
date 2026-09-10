@@ -1,6 +1,7 @@
 import { STRATEGY_NAME, STRATEGY_TAGLINE } from "./brand";
-import { FONT, MONO, T, esc, hudBackdrop, hudHeader, svgToPng } from "./terminalTheme";
-import { strengthLabel, type AlertView } from "./tvAlertCopy";
+import { FONT, MONO, T, esc, hudBackdrop, svgToPng } from "./terminalTheme";
+import { alertTimeframeSuffix, strengthLabel, type AlertView } from "./tvAlertCopy";
+import { signalTradeChartLabels, signalTradeChartNote, signalTradeChartSvg, TRADE_CHART_EXTRA_HEIGHT } from "./signalTradeChart";
 
 const WIDTH = 840;
 
@@ -58,7 +59,8 @@ export function signalCardSvg(view: AlertView): string {
   const hasBar = view.rps != null;
   const hasFooter = Boolean(view.footer);
   const hasSub = fields.some((f) => f.sub);
-  const height = 168 + (hasSub ? 18 : 0) + (hasBar ? 26 : 0) + (hasFooter ? 22 : 0);
+  const baseHeight = 168 + (hasSub ? 18 : 0) + (hasBar ? 26 : 0) + (hasFooter ? 22 : 0);
+  const height = baseHeight + (view.chart ? TRADE_CHART_EXTRA_HEIGHT : 0);
 
   const colW = (WIDTH - 56) / Math.max(fields.length, 1);
   const fieldY = 108;
@@ -76,21 +78,27 @@ export function signalCardSvg(view: AlertView): string {
     : "";
 
   const footer = hasFooter
-    ? `<text x="28" y="${height - 16}" font-size="13" fill="${T.dim}" font-family="${FONT}">${esc(view.footer ?? "")}</text>`
+    ? `<text x="28" y="${baseHeight - 16}" font-size="13" fill="${T.dim}" font-family="${FONT}">${esc(view.footer ?? "")}</text>`
     : "";
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg width="${WIDTH}" height="${height}" viewBox="0 0 ${WIDTH} ${height}" xmlns="http://www.w3.org/2000/svg">
   ${hudBackdrop(WIDTH, height, accent)}
-  ${hudHeader(WIDTH, STRATEGY_NAME, `${STRATEGY_TAGLINE} · ${view.tfLabel}`, view.code, accent)}
+  <text x="28" y="50" font-size="34" font-weight="bold" letter-spacing="1" fill="${T.text}" font-family="${MONO}">${esc(view.symbol)}</text>
+  <text x="${WIDTH - 28}" y="32" font-size="11" fill="${T.cyan}" text-anchor="end" font-family="${MONO}">${esc(STRATEGY_NAME)}</text>
+  <text x="${WIDTH - 28}" y="49" font-size="11" fill="${T.dim}" text-anchor="end" font-family="${FONT}">${esc(`${STRATEGY_TAGLINE}${alertTimeframeSuffix(view.tfLabel)}`)}</text>
   <rect x="28" y="66" width="56" height="22" rx="2" fill="${accent}"/>
   <text x="56" y="82" font-size="12" font-weight="bold" fill="${T.bg}" text-anchor="middle" font-family="${MONO}">${esc(view.code)}</text>
   <text x="94" y="82" font-size="16" fill="${T.text}" font-family="${FONT}">${esc(view.title)}</text>
-  <text x="${WIDTH - 28}" y="84" font-size="24" font-weight="bold" fill="${T.text}" text-anchor="end" font-family="${MONO}">${esc(view.symbol)}</text>
   <line x1="28" y1="96" x2="${WIDTH - 28}" y2="96" stroke="${T.line}" stroke-width="1"/>
   ${cols}
   ${bar}
   ${footer}
+  ${view.chart ? `<g transform="translate(28,${baseHeight + 4})">
+    ${signalTradeChartSvg(view.chart)}
+    ${signalTradeChartLabels(view.chart).map((label) => `<text x="${label.x + (label.align === "center" ? label.width / 2 : 0)}" y="${label.y + (label.height ?? 18) / 2 + (label.fontSize ?? 12) * .35}" text-anchor="${label.align === "center" ? "middle" : "start"}" font-size="${label.fontSize ?? 12}" font-weight="${label.fontWeight ?? 400}" fill="${label.color}" font-family="${FONT}">${esc(label.text)}</text>`).join("")}
+    <text x="0" y="442" font-size="12" fill="${T.dim}" font-family="${FONT}">${esc(signalTradeChartNote(view.chart))}</text>
+  </g>` : ""}
 </svg>`;
 }
 

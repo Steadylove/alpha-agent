@@ -218,8 +218,9 @@ trailMultFor(float pnl) =>
 
 var int   sigType      = 0
 var float entryPrice   = na
-// 只为离场标签算持有根数用，不参与任何判定
+// 用于离场标签和告警附图，不参与交易判定
 var int   entryBar     = na
+var int   entryTime    = na // 实际开仓根的开盘时间，供卖点图定位买入
 var float stopLevel    = na
 var float trailLevel   = na
 var float highWater    = na
@@ -237,6 +238,7 @@ if pendingExit and not na(entryPrice)
     sigType    := 0
     entryPrice := na
     entryBar   := na
+    entryTime  := na
     stopLevel  := na
     trailLevel := na
     highWater  := na
@@ -249,6 +251,7 @@ if pendingEntry != 0
     sigType      := pendingEntry
     entryPrice   := open
     entryBar     := bar_index
+    entryTime    := time
     stopLevel    := open - stopMult * pendingAtr
     trailLevel   := open - trailMult * pendingAtr
     highWater    := open
@@ -418,22 +421,52 @@ if barstate.islast
 n4(float v) => str.tostring(v, "#.####")
 n2(float v) => str.tostring(v, "#.##")
 
-if entrySignal
+// 买卖点附图快照：最多 120 根显示柱，长持仓合并 OHLC；只取已确认的本根及历史。
+// 列：[开盘毫秒,收盘毫秒,O,H,L,C,EMA166,EMA169,EMA576,EMA676]。
+// 使用图表本身的数据与 EMA，服务端不猜入场日期，也不拼接滞后的日更行情。
+chartNumber(float v) => na(v) ? "null" : n4(v)
+signalChartJson(int anchorBar) =>
+    int window = math.min(2000, math.min(bar_index + 1, math.max(80, bar_index - anchorBar + 21)))
+    int stride = int(math.ceil(window / 120.0))
+    int groups = int(math.ceil(window / float(stride)))
+    array<string> rows = array.new_string()
+    for group = groups - 1 to 0
+        int newer = group * stride
+        int older = math.min(window - 1, newer + stride - 1)
+        float groupHigh = high[newer]
+        float groupLow = low[newer]
+        for offset = newer to older
+            groupHigh := math.max(groupHigh, high[offset])
+            groupLow := math.min(groupLow, low[offset])
+        string row = '[' + str.tostring(time[older]) + ',' + str.tostring(time_close[newer]) +
+           ',' + chartNumber(open[older]) + ',' + chartNumber(groupHigh) + ',' + chartNumber(groupLow) + ',' + chartNumber(close[newer]) +
+           ',' + chartNumber(ef1[newer]) + ',' + chartNumber(ef2[newer]) + ',' + chartNumber(es1[newer]) + ',' + chartNumber(es2[newer]) + ']'
+        array.push(rows, row)
+    '{"version":1,"stride":' + str.tostring(stride) + ',"bars":[' + array.join(rows, ',') + ']}'
+
+if entrySignal and barstate.isconfirmed
+    string chartPayload = barstate.isrealtime ? signalChartJson(bar_index) : "null"
     // atr 交给服务端换算参考止损：建仓价要等次日开盘，这里只报点火根的口径
     string buyPayload = '{"event":"buy","symbol":"' + syminfo.ticker +
        '","tf":"' + timeframe.period +
        '","kind":' + str.tostring(pendingEntry) +
+       ',"barTime":' + str.tostring(time_close) +
        ',"price":' + n4(close) +
        ',"atr":' + n4(atrRisk) +
-       ',"stopMult":' + n2(stopMult) + '}'
+       ',"stopMult":' + n2(stopMult) +
+       ',"chart":' + chartPayload + '}'
     alert(buyPayload, alert.freq_once_per_bar_close)
 
-if exitSignal
+if exitSignal and barstate.isconfirmed
+    string chartPayload = barstate.isrealtime ? signalChartJson(entryBar) : "null"
     string sellPayload = '{"event":"sell","symbol":"' + syminfo.ticker +
        '","tf":"' + timeframe.period +
        '","kind":' + str.tostring(sigType) +
+       ',"barTime":' + str.tostring(time_close) +
        ',"price":' + n4(close) +
        ',"entry":' + n4(entryPrice) +
+       ',"entryTime":' + str.tostring(entryTime) +
        ',"stop":' + n4(math.max(stopLevel, trailLevel)) +
-       ',"pnl":' + n2((close - entryPrice) / entryPrice * 100) + '}'
+       ',"pnl":' + n2((close - entryPrice) / entryPrice * 100) +
+       ',"chart":' + chartPayload + '}'
     alert(sellPayload, alert.freq_once_per_bar_close)
