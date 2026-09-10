@@ -6,6 +6,7 @@ import type { LiveBookOk } from "./liveBooksLogic";
 import { poolAt, type PoolRevision } from "./poolTimeline";
 import { runRotate, type RotateCheckpoint } from "./rotate";
 import { rotateCheckpointOf } from "./rotateCheckpoint";
+import { restoreBookCurve } from "./liveBookCurve";
 
 export function appendBookView(previous: LookbackView, next: LookbackView, checkpoint: RotateCheckpoint): LookbackView {
   const days = new Map(previous.curve.map((p) => [p.date, p]));
@@ -19,10 +20,11 @@ export function appendBookView(previous: LookbackView, next: LookbackView, check
     if (!fills.has(key)) fills.set(key, fill);
   }
   const curve = [...days.values()].sort((a, b) => a.date.localeCompare(b.date));
-  const merged = { ...next, since: previous.since, curve, fills: [...fills.values()].sort((a, b) => a.date.localeCompare(b.date) || a.symbol.localeCompare(b.symbol) || a.side.localeCompare(b.side)) };
+  const merged = restoreBookCurve({ ...next, since: previous.since, curve,
+    fills: [...fills.values()].sort((a, b) => a.date.localeCompare(b.date) || a.symbol.localeCompare(b.symbol) || a.side.localeCompare(b.side)) }, checkpoint);
   // YTD 要以整条已记账曲线的年初净值计算。
   const year = Number(next.asOf.slice(0, 4));
-  const base = curve.filter((p) => Number(p.date.slice(0, 4)) < year).at(-1)?.equity ?? 1;
+  const base = merged.curve.filter((p) => Number(p.date.slice(0, 4)) < year).at(-1)?.equity ?? 1;
   merged.stats = { ...next.stats, ytdYear: year, ytdPct: (next.equity / base - 1) * 100,
     winRatePct: checkpoint.totals.exits ? checkpoint.totals.wins / checkpoint.totals.exits * 100 : null };
   return merged;
@@ -87,7 +89,7 @@ export async function runContinuousBook(input: {
     checkpoint = migrateCheckpoint(oldUniverse, tf, previous, oldMembers, slots);
   }
   if (checkpoint && to < checkpoint.asOf) throw new Error("行情早于已记账时间，原成绩未覆盖");
-  if (checkpoint && previous && to === checkpoint.asOf) return { view: previous.view, checkpoint };
+  if (checkpoint && previous && to === checkpoint.asOf) return { view: restoreBookCurve(previous.view, checkpoint), checkpoint };
   const raw = runRotate(uni, { ...champ.config, from, to }, {
     ...champ.opts, slotPct: 1 / slots, retainMissing: true,
     continuation: { checkpoint, capture: true },

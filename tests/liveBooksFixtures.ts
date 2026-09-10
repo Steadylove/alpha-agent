@@ -33,5 +33,5 @@ export const bookCheckpoint = (): RotateCheckpoint => ({
 export const continuousCache = (over: Partial<LiveBookCache> = {}): LiveBookCache => bookCache({
   twoHourVersion: TWO_HOUR_VERSION, accounting: "continuous-v1", epochResetAt: "", poolHistory: [{ id: "baseline", effectiveAt: "", members: ["AAPL", "NVDA"] }],
   poolRevision: createHash("sha256").update(JSON.stringify({ members: ["AAPL", "NVDA"], updatedAt: "" })).digest("hex"),
-  books: bookCache().books.map((b) => ({ ...b, view: { ...b.view, rows: b.view.rows.map((r) => ({ ...r, entryDate: "2026-09-01T13:30" })) }, checkpoint: bookCheckpoint() })), ...over,
+  books: bookCache().books.map((b) => ({ ...b, sparkline: [1.2], view: { ...b.view, rows: b.view.rows.map((r) => ({ ...r, entryDate: "2026-09-01T13:30" })) }, checkpoint: bookCheckpoint() })), ...over,
 });

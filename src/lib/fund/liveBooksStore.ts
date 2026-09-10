@@ -56,6 +56,9 @@ export async function readLiveBooks(): Promise<LiveBookCache | null> {
 
 /** 历史归档完成后才原子替换当前结果；任何失败都向调用者报告。 */
 export async function writeLiveBooks(cache: LiveBookCache): Promise<void> {
+  const normalized = liveBookCacheOf(cache);
+  if (!normalized) throw new Error("账本文件无效，未覆盖原结果");
+  cache = normalized;
   if (usesRemoteStore()) {
     await writeDeskJson(REMOTE_FILE, cache);
     return;

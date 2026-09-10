@@ -8,6 +8,7 @@ import { peekLiveBooks, refreshLiveBooks } from "@/lib/fund/liveBooks";
 import { liveBookName, type LiveBookOk } from "@/lib/fund/liveBooksLogic";
 import { STRATEGY_TITLE } from "@/lib/discord/brand";
 import { sparklineValues, type CashBookView } from "@/lib/discord/bookCopy";
+import { withBookCurve } from "./liveBookCurve";
 
 export type PushSignalBookOpts = {
   test?: boolean;
@@ -66,6 +67,7 @@ function liveCard(
 }
 
 async function builtFromCache(row: LiveBookOk, test: boolean): Promise<BuiltBook> {
+  row = withBookCurve(row);
   const champ = champOf(row.tf === "2h" ? "2h-broad" : row.tf);
   return liveCard(
     champ,

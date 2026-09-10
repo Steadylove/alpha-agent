@@ -3,6 +3,7 @@ import type { RotateCheckpoint } from "./rotate";
 import { rotateCheckpointOf } from "./rotateCheckpoint";
 import { poolRevisionsOf, type PoolRevision } from "./poolTimeline";
 import { TWO_HOUR_VERSION } from "@/lib/backtest/twoHourVersion";
+import { withBookCurve } from "./liveBookCurve";
 
 export const LIVE_BOOKS: { tf: LookbackTf; name: string }[] = [
   { tf: "4h", name: "4 小时" },
@@ -70,13 +71,13 @@ function bookOf(raw: unknown): LiveBookOk | null {
   if (!isLookbackTf(row.tf) || typeof row.name !== "string") return null;
   const view = viewOf(row.view);
   if (!view) return null;
-  return {
+  return withBookCurve({
     tf: row.tf,
     name: row.name,
     view,
     sparkline: Array.isArray(row.sparkline) ? row.sparkline.filter((n): n is number => typeof n === "number") : undefined,
     ...(row.checkpoint != null ? { checkpoint: rotateCheckpointOf(row.checkpoint) } : {}),
-  };
+  });
 }
 
 export function liveBookCacheOf(raw: unknown): LiveBookCache | null {

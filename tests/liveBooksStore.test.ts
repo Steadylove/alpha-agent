@@ -29,6 +29,25 @@ describe("账本持久化", () => {
     expect(await readLiveBookVersion(current.runId!)).toEqual(current);
   });
 
+  it("读入残缺曲线能立即恢复，下一次保存留完整曲线且不改写历史归档", async () => {
+    const damaged = continuousCache();
+    damaged.books[0].checkpoint!.dailyEquity.unshift({ date: "2026-01-02", v: 1.01 });
+    const source = JSON.stringify(damaged);
+    writeFileSync(file, source);
+    const restored = (await readLiveBooks())!;
+    expect(restored.books[0].sparkline).toEqual([1.01, 1.2]);
+    expect(readFileSync(file, "utf8")).toBe(source);
+    await writeLiveBooks({ ...damaged, runId: "repaired-run" });
+    const saved = JSON.parse(readFileSync(file, "utf8"));
+    expect(saved.books[0].view.curve).toHaveLength(2);
+    expect(saved.books[0].sparkline).toEqual([1.01, 1.2]);
+    const archive = path.join(dir, "book-versions", `${damaged.runId}.json`);
+    const archived = readFileSync(archive, "utf8");
+    await writeLiveBooks({ ...damaged, runId: "next-run" });
+    expect(readFileSync(archive, "utf8")).toBe(archived);
+    expect((await readLiveBookVersion(damaged.runId!))!.books[0].checkpoint).toEqual(damaged.books[0].checkpoint);
+  });
+
   it("同一进程在文件更新后读到新结果，旧版本完整保留", async () => {
     const first = bookCache();
     await writeLiveBooks(first);

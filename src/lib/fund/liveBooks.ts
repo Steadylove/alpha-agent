@@ -4,7 +4,7 @@ import { clearRpsScaleCache } from "@/lib/backtest/rpsScale";
 import { readBookEpoch } from "./bookEpoch";
 import { runContinuousBook } from "./liveBookContinuation";
 import { DEFAULT_LOOKBACK_SLOTS } from "./lookbackLogic";
-import { sparklineValues } from "@/lib/discord/bookCopy";
+import { withBookCurve } from "./liveBookCurve";
 import { computeLiveBooksUrl, postComputeLiveBooks } from "./deskRemote";
 import { isLiveBookFresh, LIVE_BOOKS, liveBookCacheOf, livePoolKey, slimLookbackView, withoutObsoleteTwoHour, type LiveBookCache, type LiveBookOk } from "./liveBooksLogic";
 import { liveMarketRevision, liveStrategyKey } from "./liveBooksRevision";
@@ -89,7 +89,7 @@ async function compute(): Promise<LiveBooksResult> {
     const keep = continuing && (book.tf !== "2h" || previous.twoHourVersion === TWO_HOUR_VERSION);
     const { view, checkpoint } = await runContinuousBook({ tf: book.tf, from: input.epochFrom, members, slots: input.slots, history,
       previous: keep ? previous.books.find((p) => p.tf === book.tf) : undefined, priorMembers: keep ? priorMembers : undefined });
-    books.push({ ...book, checkpoint, view: slimLookbackView(view), sparkline: sparklineValues(view.curve.map((p) => p.equity)) });
+    books.push(withBookCurve({ ...book, checkpoint, view: slimLookbackView(view) }));
   }
   if (JSON.stringify(input) !== JSON.stringify(await fingerprint())) {
     throw new Error("计算期间名单、起点或行情发生变化，未覆盖上次结果，请重算");
