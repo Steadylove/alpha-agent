@@ -48,3 +48,5 @@ alpha-market-*.tar.gz
 data/
 .market/
 deploy/market-http/compute.mjs
+deploy/market-http/telegram.mjs
+**/telegram.config.mjs

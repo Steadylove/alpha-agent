@@ -6,7 +6,7 @@ import { config as loadEnv } from "dotenv";
 import { renderGexBriefOgPng } from "../src/lib/discord/gexBriefCardOg";
 import type { GexSnapshot } from "../src/lib/discord/gexCopy";
 import { gexBriefPushBody } from "../src/lib/discord/marketStateCopy";
-import { postDiscordImage } from "../src/lib/discord/sendWebhook";
+import { postSignalImage } from "../src/lib/notifications/postSignalImage";
 
 const envFile = loadEnv({ override: true });
 
@@ -44,8 +44,9 @@ async function postLocal(snapshot: GexSnapshot, test: boolean): Promise<void> {
   const webhook = webhookUrl();
   if (!webhook) throw new Error("未配置 DISCORD_SIGNAL_WEBHOOK_URL / DISCORD_WEBHOOK_URL");
   const body = gexBriefPushBody(snapshot, test);
-  await postDiscordImage(webhook, {
+  await postSignalImage(webhook, {
     filename: body.filename,
+    eventKey: JSON.stringify([body.filename, body.content, body.input]),
     bytes: await renderGexBriefOgPng(body.input),
     content: body.content,
   });

@@ -7,6 +7,12 @@ server {
     client_max_body_size 8m;
 
     root /usr/share/nginx/html;
+    location /telegram/ {
+        proxy_pass http://telegram:8082/;
+        proxy_http_version 1.1;
+        proxy_read_timeout 30s;
+        add_header Cache-Control "no-store";
+    }
     location /desk/ {
         proxy_pass http://desk:8080/;
         proxy_http_version 1.1;

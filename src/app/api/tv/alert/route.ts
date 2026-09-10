@@ -1,5 +1,5 @@
 /**
- * TradingView 告警中转：补上截面 RPS 闸门，再转发 Discord。
+ * TradingView 告警中转：补上截面 RPS 闸门，再同步到 Discord 和 Telegram。
  *
  * Pine 只算得出单标的自足的信号，`rps >= rpsMin` 要把当日全池一起排名。
  * 分位读构建时的 `data/rps-latest.json`（或行情机上的快照）。
@@ -10,6 +10,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 
 import { ensureRpsSnapshot, lookupAlertRps, resolveAlertTimeframe } from "@/lib/backtest/rpsSnapshot";
 import { renderSignalOgPng } from "@/lib/discord/signalCardOg";
@@ -20,7 +21,7 @@ import {
   type AlertPayload,
 } from "@/lib/discord/tvAlertCopy";
 import { STRATEGY_NAME } from "@/lib/discord/brand";
-import { postDiscordImage } from "@/lib/discord/sendWebhook";
+import { postSignalImage } from "@/lib/notifications/postSignalImage";
 
 function tfLabel(period: string): string {
   const mins = Number(period);
@@ -62,13 +63,16 @@ export async function POST(request: Request) {
   }
 
   const label = tfLabel(payload.tf);
+  // 旧版告警没有 K 线时间时保留每次有效信号，不能按价格去重误吞后续交易。
+  const eventKey = JSON.stringify(["tv", isNum(payload.barTime) ? payload.barTime : randomUUID(), payload]);
   const tf = resolveAlertTimeframe(payload.tf);
   const rpsMin = rpsMinOf(tf);
 
   if (payload.event === "sell") {
     const view = buildAlertView(payload, label);
-    await postDiscordImage(webhookUrl, {
+    await postSignalImage(webhookUrl, {
       filename: `signal-${payload.symbol}.png`,
+      eventKey,
       bytes: await renderSignalOgPng(view),
       content: `**${STRATEGY_NAME} ${view.title} · ${payload.symbol}** · ${label}`,
     });
@@ -95,8 +99,9 @@ export async function POST(request: Request) {
   }
 
   const view = buildAlertView(payload, label, rps);
-  await postDiscordImage(webhookUrl, {
+  await postSignalImage(webhookUrl, {
     filename: `signal-${payload.symbol}.png`,
+    eventKey,
     bytes: await renderSignalOgPng(view),
     content: `**${STRATEGY_NAME} ${view.title} · ${payload.symbol}** · ${label}`,
   });

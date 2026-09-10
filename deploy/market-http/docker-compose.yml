@@ -31,6 +31,18 @@ services:
     command: ["node", "/app/compute.mjs"]
     expose:
       - "8081"
+  telegram:
+    image: node:22-alpine
+    container_name: alpha-telegram
+    restart: unless-stopped
+    mem_limit: 256m
+    volumes:
+      - /var/lib/alpha-agent/telegram:/data
+      - /var/lib/alpha-agent/telegram-config:/config:ro
+      - /var/lib/alpha-agent/market-http/telegram.mjs:/app/telegram.mjs:ro
+    command: ["node", "/app/telegram.mjs"]
+    expose:
+      - "8082"
   market:
     image: nginx:1.27-alpine
     container_name: alpha-market
@@ -39,6 +51,7 @@ services:
     depends_on:
       - desk
       - book
+      - telegram
     ports:
       - "8787:80"
     volumes:

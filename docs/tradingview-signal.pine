@@ -410,6 +410,7 @@ if entrySignal
     string buyPayload = '{"event":"buy","symbol":"' + syminfo.ticker +
        '","tf":"' + timeframe.period +
        '","kind":' + str.tostring(pendingEntry) +
+       ',"barTime":' + str.tostring(time_close) +
        ',"price":' + n4(close) +
        ',"atr":' + n4(atrRisk) +
        ',"stopMult":' + n2(stopMult) + '}'
@@ -419,6 +420,7 @@ if exitSignal
     string sellPayload = '{"event":"sell","symbol":"' + syminfo.ticker +
        '","tf":"' + timeframe.period +
        '","kind":' + str.tostring(sigType) +
+       ',"barTime":' + str.tostring(time_close) +
        ',"price":' + n4(close) +
        ',"entry":' + n4(entryPrice) +
        ',"stop":' + n4(math.max(stopLevel, trailLevel)) +

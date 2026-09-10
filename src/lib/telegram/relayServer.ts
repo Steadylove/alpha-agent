@@ -1,0 +1,34 @@
+import { createServer } from "node:http";
+import { TelegramStore } from "./store";
+import { verifyRelay } from "./relayAuth";
+
+export function createTelegramRelayServer(store: TelegramStore, secret: string, configured: boolean,
+  status: () => { ok: boolean; username?: string }) {
+  return createServer(async (req, res) => {
+    const reply = (code: number, body: unknown) => { res.writeHead(code, { "content-type": "application/json", "cache-control": "no-store" }); res.end(JSON.stringify(body)); };
+    const route = req.url?.split("?")[0];
+    if (req.method === "GET" && route === "/health") { reply(200, { ok: true, configured }); return; }
+    if (!configured) { reply(503, { error: "not configured" }); return; }
+    if (!(req.method === "GET" && route === "/status") && !(req.method === "POST" && route === "/enqueue")) { reply(404, { error: "not found" }); return; }
+    try {
+      const chunks: Buffer[] = []; let size = 0;
+      for await (const chunk of req) {
+        size += chunk.length;
+        if (size > 8 * 1024 * 1024) { reply(413, { error: "too large" }); return; }
+        chunks.push(Buffer.from(chunk));
+      }
+      const body = Buffer.concat(chunks).toString("utf8");
+      if (!verifyRelay(secret, String(req.headers["x-relay-time"] ?? ""), String(req.headers["x-relay-signature"] ?? ""), body)) { reply(401, { error: "unauthorized" }); return; }
+      if (route === "/status") { reply(200, { ...status(), ...store.stats() }); return; }
+      const data = JSON.parse(body) as { id?: unknown; content?: unknown; png?: unknown };
+      if (!data || typeof data !== "object" || typeof data.id !== "string" || !/^[a-f0-9]{64}$/.test(data.id) || typeof data.content !== "string" || data.content.length > 1024 ||
+        typeof data.png !== "string" || data.png.length > 8_000_000 || !/^[A-Za-z0-9+/]+={0,2}$/.test(data.png) ||
+        !Buffer.from(data.png, "base64").subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
+        reply(400, { error: "invalid image job" }); return;
+      }
+      // 未开始接收群事件前拒绝入队，避免把暂时未知的订阅群误当作空列表。
+      if (!status().ok) { reply(503, { error: "starting" }); return; }
+      reply(200, { ok: true, ...store.enqueue(data.id, data.content, data.png) });
+    } catch (e) { if (!res.writableEnded) reply(e instanceof SyntaxError ? 400 : 500, { error: "request failed" }); }
+  });
+}

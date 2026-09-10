@@ -31,6 +31,8 @@ export type AlertPayload = {
   entry?: number;
   stop?: number;
   pnl?: number;
+  /** TradingView K 线收盘时间（毫秒），供重复告警去重。 */
+  barTime?: number;
 };
 
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { renderMarketStateOgPng } from "@/lib/discord/marketStateCardOg";
 import type { MarketStateView } from "@/lib/discord/marketStateCopy";
-import { postDiscordImage } from "@/lib/discord/sendWebhook";
+import { postSignalImage } from "@/lib/notifications/postSignalImage";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -28,8 +28,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "缺少 input / filename" }, { status: 400 });
   }
   try {
-    await postDiscordImage(webhook, {
+    await postSignalImage(webhook, {
       filename: body.filename,
+      eventKey: JSON.stringify([body.filename, body.content, body.input]),
       bytes: await renderMarketStateOgPng(body.input),
       content: body.content ?? "",
     });

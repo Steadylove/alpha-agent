@@ -24,8 +24,8 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Bundle book worker
-        run: npm ci && npm run book:worker:bundle
+      - name: Bundle workers
+        run: npm ci && npm run book:worker:bundle && npm run telegram:worker:bundle
 
       - name: Deploy to VPS
         env:
