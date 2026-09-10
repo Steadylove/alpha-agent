@@ -43,6 +43,25 @@ services:
     command: ["node", "/app/telegram.mjs"]
     expose:
       - "8082"
+  option-flow:
+    build:
+      context: .
+      dockerfile: option-flow.Dockerfile
+      network: host
+    container_name: alpha-option-flow
+    restart: unless-stopped
+    mem_limit: 512m
+    env_file:
+      - /var/lib/alpha-agent/option-flow.env
+    environment:
+      MARKET_DATA_BASE_URL: http://market
+      PORT: "8083"
+    volumes:
+      - /var/lib/alpha-agent/market-http/option-flow.mjs:/app/option-flow.mjs:ro
+    depends_on:
+      - desk
+    expose:
+      - "8083"
   market:
     image: nginx:1.27-alpine
     container_name: alpha-market
@@ -52,6 +71,7 @@ services:
       - desk
       - book
       - telegram
+      - option-flow
     ports:
       - "8787:80"
     volumes:

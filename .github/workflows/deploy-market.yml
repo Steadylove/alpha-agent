@@ -25,7 +25,7 @@ jobs:
           cache: npm
 
       - name: Bundle workers
-        run: npm ci && npm run book:worker:bundle && npm run telegram:worker:bundle
+        run: npm ci && npm run book:worker:bundle && npm run telegram:worker:bundle && npm run option-flow:worker:bundle
 
       - name: Deploy to VPS
         env:

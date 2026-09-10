@@ -68,6 +68,26 @@ export async function sendDiscordWebhook(input: {
   }
 }
 
+export async function postDiscordBotImage(
+  channelId: string,
+  token: string,
+  input: { filename: string; bytes: Buffer; content?: string },
+): Promise<void> {
+  const payload = {
+    content: input.content ?? "",
+    embeds: [{ color: 0x131722, image: { url: `attachment://${input.filename}` } }],
+  };
+  const form = new FormData();
+  form.append("payload_json", JSON.stringify(payload));
+  form.append("files[0]", new Blob([new Uint8Array(input.bytes)], { type: "image/png" }), input.filename);
+  const response = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+    method: "POST",
+    headers: { authorization: `Bot ${token}`, "user-agent": "alpha-agent-option-flow" },
+    body: form,
+  });
+  if (!response.ok) throw new Error(`Discord 发图失败 HTTP ${response.status}`);
+}
+
 export async function postDiscordImage(
   webhookUrl: string,
   input: { filename: string; bytes: Buffer; content?: string },

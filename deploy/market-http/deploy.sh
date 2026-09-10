@@ -14,11 +14,21 @@ if [ ! -f "$SRC/telegram.mjs" ]; then
   echo "缺少 telegram.mjs，先在仓库跑 npm run telegram:worker:bundle" >&2
   exit 1
 fi
+if [ ! -f "$SRC/option-flow.mjs" ]; then
+  echo "缺少 option-flow.mjs，先在仓库跑 npm run option-flow:worker:bundle" >&2
+  exit 1
+fi
+if [ ! -f /var/lib/alpha-agent/option-flow.env ]; then
+  echo "缺少 /var/lib/alpha-agent/option-flow.env" >&2
+  exit 1
+fi
 cp "$SRC/docker-compose.yml" "$DEST/docker-compose.yml"
 cp "$SRC/nginx.conf.template" "$DEST/nginx.conf"
 cp "$SRC/desk-http.mjs" "$DEST/desk-http.mjs"
 cp "$SRC/compute.mjs" "$DEST/compute.mjs"
 cp "$SRC/telegram.mjs" "$DEST/telegram.mjs"
+cp "$SRC/option-flow.mjs" "$DEST/option-flow.mjs"
+cp "$SRC/option-flow.Dockerfile" "$DEST/option-flow.Dockerfile"
 
 wait_http() {
   local url=$1 name=$2
@@ -42,4 +52,5 @@ code=$(wait_http "http://127.0.0.1:8787/MANIFEST.json" "行情")
 desk=$(wait_http "http://127.0.0.1:8787/desk/lookback-snapshots.json" "desk")
 book=$(wait_http "http://127.0.0.1:8787/compute/health" "账本")
 telegram=$(wait_http "http://127.0.0.1:8787/telegram/health" "Telegram")
-echo "行情服务已部署  http://127.0.0.1:8787  自检 ${code}  desk ${desk}  book ${book}  Telegram ${telegram}"
+flow=$(wait_http "http://127.0.0.1:8787/option-flow/health" "期权流")
+echo "行情服务已部署  http://127.0.0.1:8787  自检 ${code}  desk ${desk}  book ${book}  Telegram ${telegram}  期权流 ${flow}"

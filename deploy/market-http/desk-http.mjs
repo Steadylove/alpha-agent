@@ -4,12 +4,13 @@ import { createHash, randomUUID } from "node:crypto";
 
 const DIR = process.env.DESK_DIR || "/data";
 const SECRET = (process.env.DESK_STORE_SECRET || "").trim();
-const FILES = new Set(["lookback-snapshots.json", "book-epoch.json", "signal-pool.json", "live-books.json"]);
+const FILES = new Set(["lookback-snapshots.json", "book-epoch.json", "signal-pool.json", "live-books.json", "option-flow.json"]);
 const EMPTY = {
   "lookback-snapshots.json": "[]\n",
   "book-epoch.json": "{}\n",
   "signal-pool.json": "{}\n",
   "live-books.json": "{}\n",
+  "option-flow.json": "{\"updatedAt\":\"\",\"channelId\":\"\",\"lastMessageId\":\"\",\"posts\":[]}\n",
 };
 const MAX = 8 * 1024 * 1024;
 const VERSION = /^book-versions\/([a-zA-Z0-9-]{1,80})\.json$/;

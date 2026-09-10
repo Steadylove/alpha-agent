@@ -39,6 +39,7 @@ yarn-debug.log*
 yarn-error.log*
 
 tmp/
+.tmp/
 alpha-market-*.tar.gz
 
 # 历史面板的本地落盘缓存，可由数据库重建
@@ -49,4 +50,5 @@ data/
 .market/
 deploy/market-http/compute.mjs
 deploy/market-http/telegram.mjs
+deploy/market-http/option-flow.mjs
 **/telegram.config.mjs
