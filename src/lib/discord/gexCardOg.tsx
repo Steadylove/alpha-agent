@@ -39,7 +39,7 @@ function toneColor(tone: "pos" | "neg" | "flat"): string {
 function gexText(input: GexCardView): string {
   return [
     `${STRATEGY_TITLE} GEX Gamma Flip Call Wall Put Wall 净GEX 现价 近月 偏正 偏负 临界 均值回归 波动`,
-    "10Y 口径 墙 数据 CBOE 延时链 GEX(S) Flip 现价 ±3% 快照",
+    "10Y 口径 墙 GEX(S) Flip 现价 ±3% 快照",
     input.asOf,
     input.dte,
     input.tnx ?? "",
@@ -148,7 +148,6 @@ function GexCard({ input }: { input: GexCardView }) {
           <Kpi label="10Y" value={input.tnx == null ? "—" : `${input.tnx}%`} />
           <Kpi label="口径" value="GEX(S) Flip" />
           <Kpi label="墙" value="现价 ±3%" />
-          <Kpi label="数据" value="CBOE 延时链" />
         </div>
 
         <div style={{ display: "flex", width: "100%", height: px(1), background: T.line, marginTop: px(16), marginBottom: px(8) }} />

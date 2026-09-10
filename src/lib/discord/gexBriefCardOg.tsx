@@ -37,7 +37,7 @@ function toneColor(tone: "pos" | "neg" | "flat"): string {
 function briefText(input: GexBriefView): string {
   return [
     `${STRATEGY_TITLE} GEX Gamma Flip Call Wall Put Wall 净GEX 现价 近月 偏正 偏负 临界 关键位 资金结构`,
-    "10Y 口径 墙 数据 CBOE 延时链 GEX(S) Flip 现价 ±3% 快照 截面描述 不是操作计划",
+    "10Y 口径 墙 GEX(S) Flip 现价 ±3% 快照 截面描述 不是操作计划",
     input.gex.asOf,
     input.gex.dte,
     input.gex.tnx ?? "",
@@ -244,7 +244,6 @@ function GexBriefCard({ input }: { input: GexBriefView }) {
           <Kpi label="10Y" value={gex.tnx == null ? "—" : `${gex.tnx}%`} />
           <Kpi label="口径" value="GEX(S) Flip" />
           <Kpi label="墙" value="现价 ±3%" />
-          <Kpi label="数据" value="CBOE 延时链" />
         </div>
         <Table rows={gex.rows} />
         <Structure state={input.state} />
