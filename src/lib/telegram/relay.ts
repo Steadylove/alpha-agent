@@ -10,12 +10,12 @@ function config() {
   return { base: base.replace(/\/$/, ""), secret };
 }
 
-async function requestRelay(path: string, body?: string) {
+async function requestRelay(path: string, body?: string, sourceSecret?: string) {
   const { base, secret } = config();
   if (!base) throw new Error("Telegram 推送服务未配置");
   let auth: Record<string, string>;
   if (process.env.VERCEL) {
-    try { auth = { "x-relay-identity": await sealRelayIdentity(await getVercelOidcToken(), body) }; }
+    try { auth = { "x-relay-identity": await sealRelayIdentity(await getVercelOidcToken(), body, undefined, undefined, sourceSecret) }; }
     catch { throw new Error("无法获取 Vercel 服务身份"); }
   } else {
     if (!secret || secret === "change-me") throw new Error("Telegram 推送服务未配置");
@@ -31,6 +31,7 @@ async function requestRelay(path: string, body?: string) {
 }
 
 export function telegramRelayStatus() { return requestRelay("status"); }
+export function relayTelegramUpdate(body: string, sourceSecret: string) { return requestRelay("updates", body, sourceSecret); }
 
 export async function enqueueTelegramImage(input: { filename: string; content?: string; bytes: Buffer; eventKey?: string }) {
   if (!config().base || process.env.TELEGRAM_ENABLED === "false") return { skipped: true };

@@ -1,7 +1,7 @@
 import { generateKeyPairSync } from "node:crypto";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterEach, expect, it, vi } from "vitest";
-import { sealRelayIdentity, verifyRelayIdentity, verifyVercelIdentity } from "@/lib/telegram/relayIdentity";
+import { sealRelayIdentity, openRelayIdentity, verifyRelayIdentity, verifyVercelIdentity } from "@/lib/telegram/relayIdentity";
 
 const keys = generateKeyPairSync('rsa', { modulusLength: 2048, publicKeyEncoding: { type: 'spki', format: 'pem' }, privateKeyEncoding: { type: 'pkcs8', format: 'pem' } });
 afterEach(() => vi.unstubAllGlobals());
@@ -18,6 +18,13 @@ it('服务身份通过 JWE 加密并绑定请求正文，拒绝篡改、过期�
   expect(await verifyRelayIdentity(keys.privateKey, sealed.slice(5), body, now, verify)).toBe(false);
   verify.mockRejectedValue(new Error('invalid issuer'));
   expect(await verifyRelayIdentity(keys.privateKey, sealed, body, now, verify)).toBe(false);
+});
+
+it('Telegram 回调密钥只在加密身份内部传输', async () => {
+  const hookSecret = 'a'.repeat(64), now = 1_800_000_000_000;
+  const sealed = await sealRelayIdentity('service-token', 'update', now, keys.publicKey, hookSecret);
+  expect(sealed).not.toContain(hookSecret);
+  expect(await openRelayIdentity(keys.privateKey, sealed, 'update', now, async () => {})).toEqual({ sourceSecret: hookSecret });
 });
 
 it('真实 JWT 校验只接受指定项目的生产身份，拒绝其他项目、预览、过期和伪造签名', async () => {

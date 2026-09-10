@@ -15,7 +15,9 @@
 
 ## 服务与固定配置
 
-`alpha-telegram` 在 VPS 常驻，用 `getUpdates` 长轮询接收 `my_chat_member` 和命令，不需要新域名或 HTTPS 回调。不能同时运行另一份轮询进程或设置 Telegram webhook。发现已有 webhook 时不会自动清除。
+`alpha-telegram` 在 VPS 常驻。正式环境使用 Telegram webhook：`https://alpha-agent-eight.vercel.app/api/telegram/webhook`。网站将事件转交 VPS，在校验 Telegram 回调密钥并持久化处理后才确认成功；失败由 Telegram 重试。回调连接数设为 1，VPS 也串行处理更新，防止乱序或重复操作。启用 webhook 后，其他程序不能再使用这个机器人的 `getUpdates`。
+
+也保留 `mode: "polling"` 的长轮询方式，供没有回调地址且没有其他接收进程的环境使用。
 
 固定 Token 写在服务器配置代码 `/var/lib/alpha-agent/telegram-config/telegram.config.mjs`：
 
@@ -24,6 +26,8 @@ export default {
   token: "这里填写机器人 Token",
   relaySecret: "独立生成的随机值，供本地 CLI 使用",
   identityPrivateKey: "与 relayPublicKey.ts 中公钥配对的 PKCS8 私钥",
+  mode: "webhook",
+  webhookSecret: "独立生成的 64 位十六进制随机值",
 };
 ```
 
@@ -54,5 +58,7 @@ curl -fsS https://alpha-agent-eight.vercel.app/api/telegram/status
 ```
 
 网站状态接口仅公开连接状态、机器人用户名和订阅数量，不公开群名、群 ID 或消息内容。
+
+`setWebhook` 使用上述 HTTPS 地址、`secret_token: webhookSecret`、`max_connections: 1`、`allowed_updates: ["message", "my_chat_member"]`，保留待处理更新。机器人的 Token 和回调密钥都由部署者设置完成，拉群使用的人无需做服务器配置。
 
 Telegram 规则：[更新事件](https://core.telegram.org/bots/api#update)、[发送限制](https://core.telegram.org/bots/faq#my-bot-is-hitting-limits-how-do-i-avoid-this)。
