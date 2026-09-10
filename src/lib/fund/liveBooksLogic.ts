@@ -4,6 +4,7 @@ import { rotateCheckpointOf } from "./rotateCheckpoint";
 import { poolRevisionsOf, type PoolRevision } from "./poolTimeline";
 import { TWO_HOUR_VERSION } from "@/lib/backtest/twoHourVersion";
 import { withBookCurve } from "./liveBookCurve";
+import { bookEpochStateOf, type BookEpoch, type BookEpochs } from "./bookEpochLogic";
 
 export const LIVE_BOOKS: { tf: LookbackTf; name: string }[] = [
   { tf: "4h", name: "4 小时" },
@@ -24,6 +25,7 @@ export type LiveBookCache = {
   accounting?: "continuous-v1";
   twoHourVersion?: string;
   epochResetAt?: string;
+  epochs?: BookEpochs;
   poolRevision?: string;
   poolHistory?: PoolRevision[];
   computedAt: string;
@@ -32,6 +34,14 @@ export type LiveBookCache = {
   slots: number;
   books: LiveBookOk[];
 };
+
+export function liveBookEpoch(cache: Pick<LiveBookCache, "epochFrom" | "epochResetAt" | "epochs">, tf: LookbackTf): BookEpoch {
+  return cache.epochs?.[tf] ?? { from: cache.epochFrom, resetAt: cache.epochResetAt ?? "" };
+}
+
+export function liveBookStarts(cache: Pick<LiveBookCache, "epochFrom" | "epochs">): string {
+  return `4H ${liveBookEpoch(cache, "4h").from} · 2H ${liveBookEpoch(cache, "2h").from}`;
+}
 
 export function livePoolKey(members: readonly string[]): string {
   return [...new Set(members.map((t) => t.trim().toUpperCase()))].sort().join(",");
@@ -101,6 +111,7 @@ export function liveBookCacheOf(raw: unknown): LiveBookCache | null {
     marketRevision: typeof row.marketRevision === "string" ? row.marketRevision : undefined,
     strategyKey: typeof row.strategyKey === "string" ? row.strategyKey : undefined,
     twoHourVersion: typeof row.twoHourVersion === "string" ? row.twoHourVersion : undefined,
+    ...(row.epochs != null ? { epochs: bookEpochStateOf({ epochs: row.epochs }, row.epochFrom).epochs } : {}),
     ...(row.accounting === "continuous-v1" ? { accounting: row.accounting, epochResetAt: row.epochResetAt, poolRevision: row.poolRevision, poolHistory: poolRevisionsOf(row.poolHistory) } : {}),
   };
 }

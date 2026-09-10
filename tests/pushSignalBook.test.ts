@@ -8,6 +8,19 @@ vi.mock("@/lib/backtest/marketRemote", () => ({ loadMarketPanel: async () => nul
 beforeEach(() => vi.resetAllMocks());
 
 describe("每日卡片曲线", () => {
+  it.each([true, false])("fromCache=%s 两周期推送分别使用自身记账日期", async (fromCache) => {
+    const cache = continuousCache({ epochs: {
+      "4h": { from: "2026-01-01", resetAt: "" },
+      "2h": { from: "2026-08-01", resetAt: "2026-09-09T12:00:00Z" },
+    } });
+    cache.books[1].view.since = "2026-08-01";
+    mocks.peek.mockResolvedValue({ ...cache, stale: false });
+    mocks.refresh.mockResolvedValue(cache);
+    const cards = await buildSignalBooks({ fromCache });
+    expect(cards.map((c) => c.input.since)).toEqual(["2026-01-01", "2026-08-01"]);
+    expect(cards[1].summary).toContain("记账自 2026-08-01");
+  });
+
   it.each([true, false])("fromCache=%s 出图从完整已记账曲线采样，不能使用旧的两点直线", async (fromCache) => {
     const cache = continuousCache();
     for (const b of cache.books) {

@@ -17,6 +17,19 @@ afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); rmSync(dir, { recur
 function remote() { vi.stubEnv("LIVE_BOOKS_PATH", ""); vi.stubEnv("MARKET_DATA_BASE_URL", "http://books.test"); }
 
 describe("账本持久化", () => {
+  it("分别保存两个周期的起点，重开 2H 后旧账本仍可完整查看", async () => {
+    const first = continuousCache();
+    await writeLiveBooks(first);
+    const next = continuousCache({ runId: "separate-epoch", epochs: {
+      "4h": { from: first.epochFrom, resetAt: "" },
+      "2h": { from: "2026-08-01", resetAt: "2026-09-09T12:00:00Z" },
+    }, books: first.books.map((b) => b.tf === "2h" ? { ...b, view: { ...b.view, since: "2026-08-01" } } : b) });
+    await writeLiveBooks(next);
+    expect(await readLiveBooks()).toEqual(next);
+    expect(await readLiveBookVersion(first.runId!)).toEqual(first);
+    expect((await listLiveBookVersions()).find((v) => v.id === next.runId)?.epochs).toEqual(next.epochs);
+  });
+
   it("连续账本的现金、股数、风控和池版本经归档读回不会丢失", async () => {
     const current = continuousCache();
     await writeLiveBooks(current);

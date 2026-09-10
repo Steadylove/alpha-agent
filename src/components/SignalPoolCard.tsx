@@ -21,7 +21,6 @@ import {
 } from "@mantine/core";
 
 import type { ApplyBookSettings } from "@/components/FundWorkbench";
-import { BookEpochCard } from "@/components/BookEpochCard";
 import { Card } from "@/components/Card";
 import { DayPicker } from "@/components/DayPicker";
 import { LabSymbolChart, type ChartTarget } from "@/components/LabSymbolChart";
@@ -287,7 +286,6 @@ export function SignalPoolCard({
           {saved ? `${members.length} 只` : "—"}
           {draft && draft.removed.length > 0 ? ` · 已剔除 ${draft.removed.length}` : ""}
         </Text>
-        {scratch ? null : <BookEpochCard onApply={onApply} applying={applying} />}
       </Group>
       <Group gap={8} wrap="nowrap">
         {dirty ? (

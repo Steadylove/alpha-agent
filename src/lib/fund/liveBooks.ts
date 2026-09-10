@@ -2,11 +2,13 @@ import { createHash, randomUUID } from "node:crypto";
 import { invalidateSmallFundCache } from "@/lib/backtest/load";
 import { clearRpsScaleCache } from "@/lib/backtest/rpsScale";
 import { readBookEpoch } from "./bookEpoch";
+import { bookEpochStateOf } from "./bookEpochLogic";
+import { SMALL_FUND_FROM } from "@/lib/backtest/smallFundUniverse";
 import { runContinuousBook } from "./liveBookContinuation";
 import { DEFAULT_LOOKBACK_SLOTS } from "./lookbackLogic";
 import { withBookCurve } from "./liveBookCurve";
 import { computeLiveBooksUrl, postComputeLiveBooks } from "./deskRemote";
-import { isLiveBookFresh, LIVE_BOOKS, liveBookCacheOf, livePoolKey, slimLookbackView, withoutObsoleteTwoHour, type LiveBookCache, type LiveBookOk } from "./liveBooksLogic";
+import { isLiveBookFresh, LIVE_BOOKS, liveBookCacheOf, liveBookEpoch, livePoolKey, slimLookbackView, withoutObsoleteTwoHour, type LiveBookCache, type LiveBookOk } from "./liveBooksLogic";
 import { liveMarketRevision, liveStrategyKey } from "./liveBooksRevision";
 import { readLiveBooks, writeLiveBooks } from "./liveBooksStore";
 import { applySignalPool, defaultSignalPoolTickers, readSignalPool } from "./signalPool";
@@ -20,10 +22,12 @@ export type LiveBooksResult = LiveBookCache & {
 };
 
 async function fingerprint() {
-  const [epoch, pool, market] = await Promise.all([readBookEpoch(), readSignalPool(), liveMarketRevision()]);
+  const [rawEpoch, pool, market] = await Promise.all([readBookEpoch(), readSignalPool(), liveMarketRevision()]);
+  const epoch = bookEpochStateOf(rawEpoch, SMALL_FUND_FROM);
   const members = applySignalPool(defaultSignalPoolTickers(), pool);
   return {
     epochFrom: epoch.from, poolKey: livePoolKey(members), slots: DEFAULT_LOOKBACK_SLOTS,
+    epochs: epoch.epochs,
     twoHourVersion: TWO_HOUR_VERSION,
     epochResetAt: epoch.resetAt || "", poolUpdatedAt: pool.updatedAt,
     poolHistory: pool.revisions,
@@ -35,7 +39,12 @@ async function fingerprint() {
 type Fingerprint = Awaited<ReturnType<typeof fingerprint>>;
 
 function isFresh(cache: LiveBookCache, now: Fingerprint): boolean {
-  return cache.twoHourVersion === TWO_HOUR_VERSION && cache.accounting === "continuous-v1" && cache.epochResetAt === now.epochResetAt && cache.poolRevision === now.poolRevision &&
+  return cache.twoHourVersion === TWO_HOUR_VERSION && cache.accounting === "continuous-v1" && cache.poolRevision === now.poolRevision &&
+    LIVE_BOOKS.every(({ tf }) => {
+      const before = liveBookEpoch(cache, tf), after = now.epochs[tf];
+      return before.from === after.from && before.resetAt === after.resetAt &&
+        cache.books.find((b) => b.tf === tf)?.view.since === after.from;
+    }) &&
     isLiveBookFresh(cache, now.epochFrom, now.poolKey, now.slots, now);
 }
 
@@ -70,12 +79,19 @@ async function compute(): Promise<LiveBooksResult> {
   const input = await fingerprint();
   const previous = await readLiveBooks();
   const members = input.poolKey.split(",").filter(Boolean);
-  const continuing = previous && previous.epochFrom === input.epochFrom &&
-    (previous.epochResetAt != null ? previous.epochResetAt === input.epochResetAt : !input.epochResetAt || Date.parse(input.epochResetAt) <= Date.parse(previous.computedAt));
-  if (continuing && LIVE_BOOKS.some((b) => (b.tf !== "2h" || previous.twoHourVersion === TWO_HOUR_VERSION) &&
-    !previous.books.some((p) => p.tf === b.tf))) throw new Error("旧账本缺少一个周期，不能从零覆盖原成绩");
-  const priorMembers = continuing ? previous.poolKey.split(",").filter(Boolean) : undefined;
-  const history: PoolRevision[] = input.poolHistory ?? (continuing && previous.poolHistory ? [...previous.poolHistory]
+  const continues = (tf: "4h" | "2h"): boolean => {
+    if (!previous || (tf === "2h" && previous.twoHourVersion !== TWO_HOUR_VERSION)) return false;
+    const before = liveBookEpoch(previous, tf), after = input.epochs[tf];
+    return before.from === after.from &&
+      (previous.epochs != null || previous.epochResetAt != null ? before.resetAt === after.resetAt :
+        !after.resetAt || Date.parse(after.resetAt) <= Date.parse(previous.computedAt));
+  };
+  if (previous && LIVE_BOOKS.some((b) => continues(b.tf) && !previous.books.some((p) => p.tf === b.tf))) {
+    throw new Error("旧账本缺少一个周期，不能从零覆盖原成绩");
+  }
+  const continuing = LIVE_BOOKS.some((b) => continues(b.tf));
+  const priorMembers = continuing ? previous!.poolKey.split(",").filter(Boolean) : undefined;
+  const history: PoolRevision[] = input.poolHistory ?? (continuing && previous?.poolHistory ? [...previous.poolHistory]
     : [{ id: "baseline", effectiveAt: "", members: priorMembers ?? members }]);
   if (JSON.stringify(history.at(-1)?.members.slice().sort()) !== JSON.stringify(members)) {
     history.push({ id: input.poolRevision, effectiveAt: input.poolUpdatedAt || new Date().toISOString(), members });
@@ -86,9 +102,9 @@ async function compute(): Promise<LiveBooksResult> {
   const books: LiveBookOk[] = [];
   for (const book of LIVE_BOOKS) {
     console.info(`[live-books] 开始 ${book.name}`);
-    const keep = continuing && (book.tf !== "2h" || previous.twoHourVersion === TWO_HOUR_VERSION);
-    const { view, checkpoint } = await runContinuousBook({ tf: book.tf, from: input.epochFrom, members, slots: input.slots, history,
-      previous: keep ? previous.books.find((p) => p.tf === book.tf) : undefined, priorMembers: keep ? priorMembers : undefined });
+    const keep = continues(book.tf);
+    const { view, checkpoint } = await runContinuousBook({ tf: book.tf, from: input.epochs[book.tf].from, members, slots: input.slots, history,
+      previous: keep ? previous!.books.find((p) => p.tf === book.tf) : undefined, priorMembers: keep ? priorMembers : undefined });
     books.push(withBookCurve({ ...book, checkpoint, view: slimLookbackView(view) }));
   }
   if (JSON.stringify(input) !== JSON.stringify(await fingerprint())) {

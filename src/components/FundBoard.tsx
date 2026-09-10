@@ -7,7 +7,10 @@ import { Card, MetricCard } from "@/components/Card";
 import { LabSymbolChart, type ChartTarget } from "@/components/LabSymbolChart";
 import { curveFromSparkline, LookbackEquityChart } from "@/components/LookbackEquityChart";
 import { daysOpenLabel, daysOpenOf, pnlLabel } from "@/lib/discord/bookCopy";
-import { liveBookName } from "@/lib/fund/liveBooksLogic";
+import { LIVE_BOOKS, liveBookName, liveBookEpoch } from "@/lib/fund/liveBooksLogic";
+import type { BookEpochs } from "@/lib/fund/bookEpochLogic";
+import { BookEpochCard } from "@/components/BookEpochCard";
+import type { ApplyBookSettings } from "@/components/FundWorkbench";
 import {
   DEFAULT_LOOKBACK_SLOTS,
   type LookbackFill,
@@ -34,6 +37,7 @@ export type FundSnapshot = {
   slots?: number;
   staleReason?: string;
   epochFrom: string;
+  epochs?: BookEpochs;
   computedAt: string | null;
   stale: boolean;
   fromCache: boolean;
@@ -45,20 +49,22 @@ function stamp(raw: string): string {
 }
 
 export function FundBoard({
-  snapshot, busy = null, error = null, onRefresh, readOnly = false,
+  snapshot, busy = null, error = null, onRefresh, onApply, readOnly = false,
 }: {
   snapshot: FundSnapshot | null;
   busy?: "read" | "save" | "run" | null;
   error?: string | null;
   onRefresh?: () => void;
+  onApply?: ApplyBookSettings;
   readOnly?: boolean;
 }) {
-  const from = snapshot?.epochFrom;
   const books = snapshot?.books ?? [];
   const computedAt = snapshot?.computedAt;
   const stale = snapshot?.stale;
   const [tf, setTf] = useState<LookbackTf>("4h");
-  const activeTf = books.some((b) => b.tf === tf) ? tf : books[0]?.tf ?? tf;
+  const activeTf = !readOnly || books.some((b) => b.tf === tf) ? tf : books[0]?.tf ?? tf;
+  const activeBook = books.find((b) => b.tf === activeTf);
+  const from = activeBook && "view" in activeBook ? activeBook.view.since : snapshot ? liveBookEpoch(snapshot, activeTf).from : undefined;
   const [fillsOpen, setFillsOpen] = useState(false);
   const [chartTarget, setChartTarget] = useState<ChartTarget | null>(null);
   const chartRequest = useMemo(
@@ -113,20 +119,25 @@ export function FundBoard({
         </Text>
       ) : null}
 
-      {books.length > 0 ? (
+      {books.length > 0 || !readOnly ? (
+        <Group justify="space-between" gap="sm">
         <SegmentedControl
           size="sm"
           value={activeTf}
+          disabled={busy === "save" || busy === "run"}
           onChange={(v) => {
             setTf(v as LookbackTf);
             setFillsOpen(false);
             setChartTarget(null);
           }}
-          data={books.map((book) => ({
+          data={(readOnly ? books : LIVE_BOOKS).map((book) => ({
             value: book.tf,
             label: liveBookName(book.tf),
           }))}
         />
+        {!readOnly && onApply ? <BookEpochCard key={activeTf} tf={activeTf} onApply={onApply}
+          applying={busy === "save" || busy === "run"} refreshKey={snapshot?.runId} /> : null}
+        </Group>
       ) : null}
 
       {books.map((book) =>

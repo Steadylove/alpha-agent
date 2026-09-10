@@ -1,5 +1,5 @@
 /**
- * Discord 现金账本的记账起点。实验室五年窗不动，只有推账本读这里。
+ * 网页与日推现金账本的分周期记账起点，实验室五年窗不动。
  *
  * Vercel 写 VPS desk；本机未配行情机则写本地盘。
  */
@@ -11,7 +11,8 @@ import path from "node:path";
 import { lastSettledSession } from "@/lib/backtest/mergeBars";
 import { SMALL_FUND_FROM } from "@/lib/backtest/smallFundUniverse";
 
-import { bookEpochOf, normalizeBookFrom, type BookEpoch } from "./bookEpochLogic";
+import { bookEpochStateOf, normalizeBookFrom, type BookEpoch, type BookEpochState } from "./bookEpochLogic";
+import { isLookbackTf, type LookbackTf } from "./lookbackLogic";
 import { deskRemoteUrl, readDeskJson, writeDeskJson } from "./deskRemote";
 
 export type { BookEpoch };
@@ -28,27 +29,33 @@ function usesRemoteStore(): boolean {
   return !process.env.BOOK_EPOCH_PATH && deskRemoteUrl(REMOTE_FILE) != null;
 }
 
-function readLocal(): BookEpoch {
+function readLocal(): BookEpochState {
   const file = bookEpochPath();
-  if (!existsSync(file)) return { from: SMALL_FUND_FROM, resetAt: "" };
-  return bookEpochOf(JSON.parse(readFileSync(file, "utf8")), SMALL_FUND_FROM);
+  return bookEpochStateOf(existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null, SMALL_FUND_FROM);
 }
 
-function writeLocal(epoch: BookEpoch): BookEpoch {
+function writeLocal(epoch: BookEpochState): void {
   const file = bookEpochPath();
   writeJsonAtomic(file, epoch);
-  return epoch;
 }
 
-export async function readBookEpoch(): Promise<BookEpoch> {
+export async function readBookEpoch(): Promise<BookEpochState> {
   if (!usesRemoteStore()) return readLocal();
-  return bookEpochOf(await readDeskJson(REMOTE_FILE), SMALL_FUND_FROM);
+  return bookEpochStateOf(await readDeskJson(REMOTE_FILE), SMALL_FUND_FROM);
 }
 
-export async function resetBookEpoch(from?: string, now = new Date()): Promise<BookEpoch> {
-  const day = normalizeBookFrom(from) ?? lastSettledSession(now);
-  const epoch: BookEpoch = { from: day, resetAt: now.toISOString() };
-  if (!usesRemoteStore()) return writeLocal(epoch);
-  await writeDeskJson(REMOTE_FILE, epoch);
+export async function resetBookEpoch(tf: LookbackTf, from: string, now = new Date()): Promise<BookEpoch> {
+  if (!isLookbackTf(tf)) throw new Error("请选择 2H 或 4H 账本");
+  const day = normalizeBookFrom(from);
+  if (!day || day > lastSettledSession(now)) throw new Error("请选择有效日期，且不能晚于最近已收盘交易日");
+  const remote = usesRemoteStore();
+  const previous = remote ? await readBookEpoch() : readLocal();
+  const at = new Date(Math.max(now.getTime(), (Date.parse(previous.updatedAt) || 0) + 1,
+    (Date.parse(previous.epochs[tf].resetAt) || 0) + 1)).toISOString();
+  const epoch: BookEpoch = { from: day, resetAt: at };
+  const epochs = { ...previous.epochs, [tf]: epoch };
+  const next: BookEpochState = { ...epochs["4h"], epochs, updatedAt: at };
+  if (remote) await writeDeskJson(REMOTE_FILE, next, previous.updatedAt);
+  else writeLocal(next);
   return epoch;
 }

@@ -67,3 +67,28 @@ it("并发保存股票池时只接受基于最新版本的请求，历史不能�
   expect(stored.revisions).toHaveLength(2);
   expect(stored.revisions[0]).toEqual(initial.revisions[0]);
 });
+
+it("分周期起点并发保存不丢另一周期的修改，旧计算程序不能覆盖新起点的账本", async () => {
+  const put = (name: string, value: unknown, expected?: string) => fetch(`${base}/${name}`, {
+    method: "PUT", headers: { authorization: "Bearer test-secret", "content-type": "application/json",
+      ...(expected != null ? { "if-match": JSON.stringify(expected) } : {}) }, body: JSON.stringify(value),
+  });
+  const epoch = { from: "2026-01-01", resetAt: "" };
+  const initial = { ...epoch, epochs: { "4h": epoch, "2h": epoch }, updatedAt: "2026-09-10T00:00:00.000Z" };
+  expect((await put("book-epoch.json", initial, "")).status).toBe(200);
+  const updates = (["4h", "2h"] as const).map((tf) => ({ ...initial, epochs: { ...initial.epochs,
+    [tf]: { from: "2026-08-01", resetAt: "2026-09-10T00:01:00.000Z" } }, updatedAt: "2026-09-10T00:01:00.000Z" }));
+  const responses = await Promise.all(updates.map((next) => put("book-epoch.json", next, initial.updatedAt)));
+  expect(responses.map((r) => r.status).sort()).toEqual([200, 409]);
+  expect((await put("book-epoch.json", { from: "2025-01-01" })).status).toBe(409);
+  const stored = await (await fetch(`${base}/book-epoch.json`)).json();
+  expect(stored).toEqual(updates[responses.findIndex((r) => r.status === 200)]);
+  const before = readFileSync(path.join(dir, "live-books.json"), "utf8");
+  expect((await put("live-books.json", bookCache({ runId: "outdated-worker" }))).status).toBe(409);
+  expect(readFileSync(path.join(dir, "live-books.json"), "utf8")).toBe(before);
+  const next = bookCache({ runId: "separate-worker", epochFrom: stored.epochs["4h"].from, epochs: stored.epochs });
+  next.books = next.books.map((b) => ({ ...b, view: { ...b.view, since: stored.epochs[b.tf].from } }));
+  expect((await put("live-books.json", next)).status).toBe(200);
+  const versions = await (await fetch(`${base}/live-books-history.json`)).json();
+  expect(versions.find((v: { id: string }) => v.id === next.runId).epochs).toEqual(stored.epochs);
+});

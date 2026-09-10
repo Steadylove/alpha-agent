@@ -27,6 +27,7 @@ export async function GET(request: Request) {
       stale: false,
       computedAt: null,
       epochFrom: epoch.from,
+      epochs: epoch.epochs,
       books: [],
     });
   } catch (error) {

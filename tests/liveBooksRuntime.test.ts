@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { continuousCache as bookCache, bookView, bookCheckpoint } from "./liveBooksFixtures";
+import { bookEpochStateOf } from "@/lib/fund/bookEpochLogic";
 
 const mocks = vi.hoisted(() => ({
   epoch: vi.fn(), members: vi.fn(), market: vi.fn(), strategy: vi.fn(), run: vi.fn(),
@@ -22,13 +23,58 @@ beforeEach(() => {
   mocks.members.mockResolvedValue({ members: ["AAPL", "NVDA"], added: [], removed: [], updatedAt: "" });
   mocks.market.mockResolvedValue({ marketRevision: "market-1", asOf: { "4h": "2026-09-08T17:30", "2h": "2026-09-08T17:30" } });
   mocks.strategy.mockReturnValue("strategy-1");
-  mocks.run.mockResolvedValue({ view: bookCache().books[0].view, checkpoint: bookCheckpoint() });
+  mocks.run.mockImplementation(async ({ from }) => ({ view: { ...bookCache().books[0].view, since: from }, checkpoint: bookCheckpoint() }));
   mocks.read.mockResolvedValue(bookCache());
   mocks.write.mockResolvedValue(undefined);
   mocks.remoteUrl.mockReturnValue(null);
 });
 
 describe("账本计算与缓存一致性", () => {
+  it.each(["2h", "4h"] as const)("只重新记账 %s，另一个周期保留持仓、曲线；日常更新继续各自的起点", async (tf) => {
+    const other = tf === "2h" ? "4h" : "2h";
+    const old = bookCache();
+    for (const book of old.books) book.view.curve.at(-1)!.rows = book.view.rows;
+    const state = bookEpochStateOf({ from: old.epochFrom, resetAt: "" }, old.epochFrom);
+    state.epochs[tf] = { from: "2026-08-01", resetAt: "2026-09-09T10:00:00Z" };
+    mocks.epoch.mockResolvedValue(state);
+    mocks.read.mockResolvedValue(old);
+    mocks.run.mockImplementation(async ({ from, previous }) => previous
+      ? { view: previous.view, checkpoint: previous.checkpoint }
+      : { view: { ...bookView(), since: from }, checkpoint: bookCheckpoint() });
+    expect((await peekLiveBooks())?.stale).toBe(true);
+    const next = await refreshLiveBooks();
+    expect(mocks.run).toHaveBeenCalledWith(expect.objectContaining({ tf, from: "2026-08-01", previous: undefined }));
+    expect(mocks.run).toHaveBeenCalledWith(expect.objectContaining({ tf: other, from: old.epochFrom, previous: old.books.find((b) => b.tf === other) }));
+    expect(next.books.find((b) => b.tf === other)).toEqual(old.books.find((b) => b.tf === other));
+    expect(next.epochs).toEqual(state.epochs);
+    mocks.read.mockResolvedValue(next);
+    expect((await peekLiveBooks())?.stale).toBe(false);
+    mocks.run.mockClear();
+    await refreshLiveBooks();
+    for (const book of next.books) expect(mocks.run).toHaveBeenCalledWith(expect.objectContaining({ tf: book.tf,
+      from: state.epochs[book.tf].from, previous: book }));
+  });
+
+  it("2H 起点日期不变但显式重开，也只重置 2H", async () => {
+    const state = bookEpochStateOf({ from: "2026-01-01", resetAt: "" }, "2026-01-01");
+    state.epochs["2h"].resetAt = "2026-09-09T10:00:00Z";
+    mocks.epoch.mockResolvedValue(state);
+    await refreshLiveBooks();
+    expect(mocks.run).toHaveBeenCalledWith(expect.objectContaining({ tf: "2h", previous: undefined }));
+    expect(mocks.run).toHaveBeenCalledWith(expect.objectContaining({ tf: "4h", previous: expect.any(Object) }));
+  });
+
+  it("计算期间另一周期改起点，拒绝保存过时结果", async () => {
+    mocks.run.mockImplementationOnce(async () => {
+      const state = bookEpochStateOf({ from: "2026-01-01", resetAt: "" }, "2026-01-01");
+      state.epochs["2h"] = { from: "2026-08-01", resetAt: "2026-09-09T10:00:00Z" };
+      mocks.epoch.mockResolvedValue(state);
+      return { view: bookView(), checkpoint: bookCheckpoint() };
+    });
+    await expect(refreshLiveBooks()).rejects.toThrow("计算期间");
+    expect(mocks.write).not.toHaveBeenCalled();
+  });
+
   it("旧 2H 从起点重建，4H 状态继续；新 2H 下一次更新不再重置", async () => {
     const old = bookCache({ twoHourVersion: undefined });
     mocks.read.mockResolvedValue(old);

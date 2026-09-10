@@ -1,14 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Alert, Button, Group, Modal, Popover, Text, UnstyledButton } from "@mantine/core";
+import { useEffect, useState } from "react";
+import { Alert, Button, Group, Modal, Popover, Text } from "@mantine/core";
 
 import type { ApplyBookSettings } from "@/components/FundWorkbench";
 import { DayPicker } from "@/components/DayPicker";
+import type { LookbackTf } from "@/lib/fund/lookbackLogic";
 
 type Epoch = { from: string; resetAt: string | null; defaultFrom: string };
 
-export function BookEpochCard({ onApply, applying = false }: { onApply?: ApplyBookSettings; applying?: boolean }) {
+export function BookEpochCard({ tf, onApply, applying = false, refreshKey }: {
+  tf: LookbackTf; onApply: ApplyBookSettings; applying?: boolean; refreshKey?: string;
+}) {
   const [epoch, setEpoch] = useState<Epoch | null>(null);
   const [from, setFrom] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -16,20 +19,24 @@ export function BookEpochCard({ onApply, applying = false }: { onApply?: ApplyBo
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [open, setOpen] = useState(false);
 
-  const load = useCallback(async () => {
-    const res = await fetch("/api/signal-book");
-    const json = await res.json();
-    if (!res.ok) throw new Error(json.error ?? "读取记账起点失败");
-    const next = json as Epoch;
-    setEpoch(next);
-    setFrom(next.from);
-  }, []);
-
   useEffect(() => {
-    // 异步读取外部存储；状态更新在网络请求完成之后。
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void load().catch((e: unknown) => setError(e instanceof Error ? e.message : "读取失败"));
-  }, [load]);
+    const controller = new AbortController();
+    const load = async () => {
+      try {
+        const res = await fetch(`/api/signal-book?tf=${tf}`, { cache: "no-store", signal: controller.signal });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error ?? "读取记账起点失败");
+        if (controller.signal.aborted) return;
+        setEpoch(json as Epoch);
+        setFrom(json.from);
+        setError(null);
+      } catch (e) {
+        if (!controller.signal.aborted) setError(e instanceof Error ? e.message : "读取失败");
+      }
+    };
+    void load();
+    return () => controller.abort();
+  }, [tf, refreshKey]);
 
   const reset = async () => {
     setBusy(true);
@@ -38,7 +45,7 @@ export function BookEpochCard({ onApply, applying = false }: { onApply?: ApplyBo
       if (!onApply) throw new Error("账本更新入口未就绪");
       await onApply(async () => {
         const res = await fetch("/api/signal-book", {
-          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ from }),
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tf, from }),
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.error ?? "保存起点失败");
@@ -57,15 +64,13 @@ export function BookEpochCard({ onApply, applying = false }: { onApply?: ApplyBo
   return (
     <Group gap={6} wrap="nowrap">
       <Text size="sm" c="dimmed">
-        自 {epoch?.from ?? "—"} 空仓
+        {tf.toUpperCase()} 起点 {epoch?.from ?? "—"}
       </Text>
       <Popover opened={open} onChange={setOpen} position="bottom-end" shadow="md">
         <Popover.Target>
-          <UnstyledButton disabled={applying} onClick={() => setOpen((v) => !v)}>
-            <Text size="xs" c="dimmed">
-              新建一期
-            </Text>
-          </UnstyledButton>
+          <Button size="xs" variant="light" color="orange" disabled={applying || busy} onClick={() => setOpen((v) => !v)}>
+            重新记账
+          </Button>
         </Popover.Target>
         <Popover.Dropdown>
           {error ? (
@@ -74,21 +79,24 @@ export function BookEpochCard({ onApply, applying = false }: { onApply?: ApplyBo
             </Alert>
           ) : null}
           <Group align="flex-end" gap="sm">
-            <DayPicker label="新一期起点" value={from} onChange={setFrom} withinPortal={false} />
-            <Button size="xs" variant="subtle" color="gray" disabled={!from || from === epoch?.from || applying} onClick={() => setConfirmOpen(true)}>
+            <DayPicker label={`${tf.toUpperCase()} 新一期起点`} value={from} onChange={setFrom} withinPortal={false} />
+            <Button size="xs" variant="light" disabled={!from || !epoch || applying || busy} onClick={() => { setOpen(false); setConfirmOpen(true); }}>
               查看变更
             </Button>
           </Group>
+          <Text size="xs" c="dimmed" mt="xs">仅重建 {tf.toUpperCase()}。最晚可选 {epoch?.defaultFrom ?? "最近已收盘交易日"}。</Text>
         </Popover.Dropdown>
       </Popover>
-      <Modal opened={confirmOpen} onClose={() => setConfirmOpen(false)} title="新建一期账本" centered>
-        <Text size="sm">当前账本自 {epoch?.from ?? "—"} 开始。新一期从 {from || "—"} 空仓、初始净值 1 开始计算，不继承当前持仓和收益；当前账本保留为历史版本。仅调整股票池无需新建一期。</Text>
+      <Modal opened={confirmOpen} onClose={() => { if (!busy && !applying) setConfirmOpen(false); }} title={`${tf.toUpperCase()} 重新记账`} centered>
+        <Text size="sm">{tf.toUpperCase()} 当前自 {epoch?.from ?? "—"} 开始。新一期使用当前股票池，从 {from || "—"} 空仓、初始净值 1 重新计算，原持仓和收益保留在历史版本中。</Text>
+        <Text size="sm" mt="sm">{tf === "2h" ? "4H" : "2H"} 继续原起点、持仓和收益。仅调整股票池无需重新记账。</Text>
+        {error ? <Alert color="red" mt="sm">{error}</Alert> : null}
         <Group justify="flex-end" mt="md">
-          <Button variant="default" onClick={() => setConfirmOpen(false)}>
+          <Button variant="default" disabled={busy || applying} onClick={() => setConfirmOpen(false)}>
             取消
           </Button>
           <Button color="orange" loading={busy || applying} onClick={() => void reset()}>
-            新建并计算
+            确认重建 {tf.toUpperCase()}
           </Button>
         </Group>
       </Modal>

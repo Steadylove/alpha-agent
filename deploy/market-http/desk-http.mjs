@@ -152,6 +152,19 @@ createServer((req, res) => {
         return;
       }
       try {
+        if (name === "book-epoch.json") {
+          const previous = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
+          const next = JSON.parse(raw);
+          if (req.headers["if-match"] !== JSON.stringify(previous.updatedAt || "")) {
+            deny(res, 409, "记账起点已被其他操作更新，请刷新后重试");
+            return;
+          }
+          if (!next?.updatedAt || !Number.isFinite(Date.parse(next.updatedAt)) || next.updatedAt === previous.updatedAt ||
+            ["4h", "2h"].some((tf) => !/^\d{4}-\d{2}-\d{2}$/.test(next.epochs?.[tf]?.from || "") || typeof next.epochs?.[tf]?.resetAt !== "string")) {
+            deny(res, 400, "请使用分周期记账起点配置");
+            return;
+          }
+        }
         if (name === "signal-pool.json") {
           const previous = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
           const next = JSON.parse(raw);
@@ -170,6 +183,14 @@ createServer((req, res) => {
           const book = JSON.parse(raw);
           if (!book.runId || !book.computedAt || !Array.isArray(book.books) || book.books.length !== 2) {
             deny(res, 400, "invalid live books");
+            return;
+          }
+          const epochFile = `${DIR}/book-epoch.json`;
+          const config = existsSync(epochFile) ? JSON.parse(readFileSync(epochFile, "utf8")) : {};
+          if (config.epochs && ["4h", "2h"].some((tf) =>
+            book.epochs?.[tf]?.from !== config.epochs[tf]?.from || book.epochs?.[tf]?.resetAt !== config.epochs[tf]?.resetAt ||
+            book.books.find((b) => b.tf === tf)?.view?.since !== config.epochs[tf]?.from)) {
+            deny(res, 409, "账本与分周期记账起点不一致，请更新计算程序后重试");
             return;
           }
           if (existsSync(file)) archive(JSON.parse(readFileSync(file, "utf8")));

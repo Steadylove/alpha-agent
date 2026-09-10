@@ -87,7 +87,7 @@ export function FundWorkbench() {
       ]} />
       <div className={tab === "live" ? "space-y-6" : "hidden"}>
         <SignalPoolCard onApply={apply} applying={busy === "save" || busy === "run"} />
-        <FundBoard snapshot={snapshot} busy={busy} error={error} onRefresh={() => void apply().catch(() => {})} />
+        <FundBoard snapshot={snapshot} busy={busy} error={error} onRefresh={() => void apply().catch(() => {})} onApply={apply} />
         <BookHistoryCard current={snapshot} />
       </div>
       <div className={tab === "lookback" ? "space-y-6" : "hidden"}>

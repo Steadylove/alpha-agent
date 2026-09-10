@@ -5,6 +5,7 @@ import { Alert, Button, Group, Modal, ScrollArea, Select, Table, Text } from "@m
 import { Card } from "@/components/Card";
 import { FundBoard, type FundSnapshot } from "@/components/FundBoard";
 import type { LiveBookCache, LiveBookVersion } from "@/lib/fund/liveBooksLogic";
+import { liveBookStarts } from "@/lib/fund/liveBooksLogic";
 
 export function BookHistoryCard({ current }: { current: FundSnapshot | null }) {
   const [open, setOpen] = useState(false);
@@ -60,15 +61,15 @@ export function BookHistoryCard({ current }: { current: FundSnapshot | null }) {
       <Modal opened={open} onClose={() => setOpen(false)} title="账本历史与当前结果对照" size="xl" centered>
         <Select label="历史版本" placeholder={versions.length ? "选择一个版本" : "还没有保存的版本"} searchable clearable value={selected}
           onChange={(id) => void choose(id)}
-          data={versions.map((v) => ({ value: v.id, label: `${v.computedAt.replace("T", " ").slice(0, 19)} · 自 ${v.epochFrom} · ${v.poolKey.split(",").filter(Boolean).length}只 · ${v.id.slice(0, 8)}` }))}
+          data={versions.map((v) => ({ value: v.id, label: `${v.computedAt.replace("T", " ").slice(0, 19)} · ${liveBookStarts(v)} · ${v.poolKey.split(",").filter(Boolean).length}只 · ${v.id.slice(0, 8)}` }))}
         />
         {error ? <Alert color="red" mt="md">{error}</Alert> : null}
         {loading ? <Text size="sm" mt="md">正在读取历史结果…</Text> : null}
         {book ? (
           <div className="mt-5 space-y-5">
             <Group gap="xl">
-              <Text size="sm">历史起点：{book.epochFrom} · 每笔 {(100 / book.slots).toFixed(1)}%</Text>
-              <Text size="sm">当前起点：{current?.epochFrom ?? "—"} · 每笔 {(100 / (current?.slots ?? 10)).toFixed(1)}%</Text>
+              <Text size="sm">历史起点：{liveBookStarts(book)} · 每笔 {(100 / book.slots).toFixed(1)}%</Text>
+              <Text size="sm">当前起点：{current ? liveBookStarts(current) : "—"} · 每笔 {(100 / (current?.slots ?? 10)).toFixed(1)}%</Text>
             </Group>
             <ScrollArea mah={130}>
               <Text size="sm">此后纳入：{changes.added.join(", ") || "无"}</Text>
