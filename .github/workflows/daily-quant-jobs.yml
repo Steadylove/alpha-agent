@@ -1,9 +1,7 @@
 name: Daily Quant Jobs
 
 on:
-  # 00:30 UTC = 美东前日收盘后。周二至周六对应美股交易日。
-  schedule:
-    - cron: "30 0 * * 2-6"
+  # 日更主定时在 VPS：北京时间周二到周六 08:30。手点这条仍可补跑。
   workflow_dispatch:
 
 concurrency:

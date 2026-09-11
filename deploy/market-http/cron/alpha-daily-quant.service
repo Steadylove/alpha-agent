@@ -1,0 +1,16 @@
+[Unit]
+Description=Alpha Agent 北京 08:30 日更行情并推账本
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=-/var/lib/alpha-agent/daily-quant.env
+Environment=TZ=Asia/Shanghai
+ExecStart=/var/lib/alpha-agent/bin/alpha-daily-quant.sh
+WorkingDirectory=/var/lib/alpha-agent
+Nice=10
+TimeoutStartSec=5400
+StandardOutput=append:/var/lib/alpha-agent/logs/daily-quant.log
+StandardError=append:/var/lib/alpha-agent/logs/daily-quant.log

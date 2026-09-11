@@ -1,10 +1,7 @@
 name: Daily Screener Push
 
 on:
-  # 01:00 UTC = 09:00 Asia/Shanghai.
-  # US trading days Mon-Fri map to Tue-Sat morning in Asia/Shanghai.
-  schedule:
-    - cron: "0 1 * * 2-6"
+  # 自动日更只在 VPS。GitHub 这条只手点。
   workflow_dispatch:
 
 jobs:

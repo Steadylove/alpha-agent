@@ -46,6 +46,10 @@ wait_http() {
   exit 1
 }
 
+if [ -f "$SRC/cron/install-daily-quant.sh" ]; then
+  bash "$SRC/cron/install-daily-quant.sh"
+fi
+
 cd "$DEST"
 docker compose up -d --force-recreate
 code=$(wait_http "http://127.0.0.1:8787/MANIFEST.json" "行情")

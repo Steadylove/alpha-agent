@@ -1,0 +1,13 @@
+[Unit]
+Description=北京时间周二到周六 08:30 日更行情并推账本
+
+[Timer]
+# VPS 系统时区就是 Asia/Shanghai，这里的 08:30 即北京时间。
+# 周二到周六才能接到周五美股收盘；周一 08:30 还在周日美东晚上。
+OnCalendar=Tue..Sat 08:30:00
+Persistent=true
+AccuracySec=1min
+Unit=alpha-daily-quant.service
+
+[Install]
+WantedBy=timers.target
