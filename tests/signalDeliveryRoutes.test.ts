@@ -7,6 +7,7 @@ import { POST as market } from "@/app/api/tv/render-market-state/route";
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   lookup: vi.fn(),
+  fund: vi.fn(),
   render: vi.fn(),
   png: Buffer.from("rendered-image"),
   after: vi.fn((task: () => unknown) => task),
@@ -22,9 +23,15 @@ vi.mock('@/lib/discord/bookCardOg', () => ({ renderCashBookOgPng: async () => mo
 vi.mock('@/lib/discord/gexCardOg', () => ({ renderGexOgPng: async () => mocks.png }));
 vi.mock('@/lib/discord/gexBriefCardOg', () => ({ isGexBriefView: () => true, renderGexBriefOgPng: async () => mocks.png }));
 vi.mock('@/lib/discord/marketStateCardOg', () => ({ renderMarketStateOgPng: async () => mocks.png }));
+vi.mock("@/lib/jobs/fundScore", () => ({ lookupAlertFundScore: mocks.fund }));
 const request = (value: unknown) => new Request('https://app.test/api', { method: 'POST', body: JSON.stringify(value) });
 const hook = "https://discord.example/hook";
-beforeEach(() => { vi.resetAllMocks(); mocks.render.mockResolvedValue(mocks.png); vi.stubEnv('DISCORD_SIGNAL_WEBHOOK_URL', hook); });
+beforeEach(() => {
+  vi.resetAllMocks();
+  mocks.render.mockResolvedValue(mocks.png);
+  mocks.fund.mockResolvedValue(undefined);
+  vi.stubEnv('DISCORD_SIGNAL_WEBHOOK_URL', hook);
+});
 afterEach(() => vi.unstubAllEnvs());
 
 it("合法告警先回 accepted，出图推送等 after 再跑", async () => {

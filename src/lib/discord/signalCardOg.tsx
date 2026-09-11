@@ -2,7 +2,7 @@ import { ImageResponse } from "next/og";
 
 import { STRATEGY_NAME, STRATEGY_TAGLINE } from "./brand";
 import { loadOgFonts, OG_FONT } from "./ogFont";
-import { alertCardFields, alertTimeframeSuffix, type AlertCardField, type AlertView } from "./tvAlertCopy";
+import { alertCardFields, alertTimeframeSuffix, fundDimLabels, FUND_STRIP_HEIGHT, type AlertCardField, type AlertView } from "./tvAlertCopy";
 import {
   signalTradeChartLabels, signalTradeChartNote, signalTradeChartSvg,
   TRADE_CHART_EXTRA_HEIGHT, TRADE_CHART_HEIGHT, TRADE_CHART_WIDTH,
@@ -43,7 +43,7 @@ function fieldsOf(view: AlertView, accent: string): Field[] {
           ? (view.pnl ?? 0) >= 0
             ? T.buy
             : T.stop
-          : field.role === "strength"
+          : field.role === "strength" || field.role === "fund"
             ? accent
             : T.text,
   }));
@@ -150,6 +150,15 @@ function SignalCard({ view }: { view: AlertView }) {
       ) : (
         <div style={{ display: "none" }} />
       )}
+      {view.fund?.usable ? (
+        <div style={{ display: "flex", flexWrap: "wrap", marginTop: 12, height: 32 }}>
+          {fundDimLabels(view.fund).map((text) => (
+            <div key={text} style={{ display: "flex", color: T.dim, fontSize: 12, marginRight: 16 }}>{text}</div>
+          ))}
+        </div>
+      ) : (
+        <div style={{ display: "none" }} />
+      )}
       {view.footer ? (
         <div style={{ display: "flex", color: T.dim, fontSize: 13, marginTop: 16 }}>{view.footer}</div>
       ) : (
@@ -163,7 +172,7 @@ function SignalCard({ view }: { view: AlertView }) {
 function signalText(view: AlertView): string {
   const fields = fieldsOf(view, ACCENT[view.tone]);
   return [
-    `${STRATEGY_NAME} ${STRATEGY_TAGLINE} SIGNAL 买点 卖点 止盈 止损 信号价 参考止损 开仓价 强度 ATR 盈亏 相对大池 强于 触发 收盘跌破生效止损`,
+    `${STRATEGY_NAME} ${STRATEGY_TAGLINE} SIGNAL 买点 卖点 止盈 止损 信号价 参考止损 开仓价 强度 ATR 盈亏 相对大池 强于 基本面 盈利增速 营收增速 资本回报 接近新高 盈利质量 债务风险 触发 收盘跌破生效止损`,
     view.title,
     view.code,
     view.symbol,
@@ -171,6 +180,7 @@ function signalText(view: AlertView): string {
     view.footer ?? "",
     ...(view.chart ? [...signalTradeChartLabels(view.chart).map((v) => v.text), signalTradeChartNote(view.chart)] : []),
     ...fields.flatMap((f) => [f.label, f.value, f.sub ?? ""]),
+    ...(view.fund ? fundDimLabels(view.fund) : []),
   ].join(" ");
 }
 
@@ -178,7 +188,7 @@ export async function renderSignalOgPng(view: AlertView): Promise<Buffer> {
   const fields = fieldsOf(view, ACCENT[view.tone]);
   const hasSub = fields.some((f) => f.sub);
   // 买点还需容纳参考止损说明下方的强度条及底部留白，避免 OG 字体行高导致裁切。
-  const height = 184 + (hasSub ? 18 : 0) + (view.rps != null ? 70 : 0) + (view.footer ? 22 : 0) + (view.chart ? TRADE_CHART_EXTRA_HEIGHT : 0);
+  const height = 184 + (hasSub ? 18 : 0) + (view.rps != null ? 70 : 0) + (view.fund?.usable ? FUND_STRIP_HEIGHT : 0) + (view.footer ? 22 : 0) + (view.chart ? TRADE_CHART_EXTRA_HEIGHT : 0);
   const image = new ImageResponse(<SignalCard view={view} />, {
     width: WIDTH,
     height,

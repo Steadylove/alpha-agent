@@ -1,5 +1,6 @@
 import { signalCardSvg } from "@/lib/discord/signalCardImage";
 import { buildAlertView, buyPassesGate, renderBuy, renderSell, rpsMinOf } from "@/lib/discord/tvAlertCopy";
+import { fundScoreOf } from "@/lib/scoring/fundScore";
 import { describe, expect, it } from "vitest";
 
 describe("tv alert copy", () => {
@@ -72,5 +73,18 @@ describe("tv alert copy", () => {
     expect(svg).not.toContain("$2.70");
     expect(svg).toContain("3.00%");
     expect(svg).not.toMatch(/一买|二买|RPS|未达标/);
+  });
+
+  it("买卖点卡写入基本面梯队，不另出图", () => {
+    const fund = fundScoreOf({
+      epsYoy: 0.41, revYoy: 0.3, roe: 0.2, dist52w: -9, gmTtm: 0.45, debtEquity: 1.2,
+    });
+    const svg = signalCardSvg(
+      buildAlertView({ event: "buy", symbol: "NVDA", tf: "240", kind: 1, price: 178.4, atr: 4.2, stopMult: 4 }, "4H", 79, fund),
+    );
+    expect(svg).toContain("基本面");
+    expect(svg).toContain("S+ 100");
+    expect(svg).toContain("盈利增速");
+    expect(svg).toContain("买点");
   });
 });

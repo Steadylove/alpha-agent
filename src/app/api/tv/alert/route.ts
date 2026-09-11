@@ -24,6 +24,7 @@ import {
   type AlertPayload,
 } from "@/lib/discord/tvAlertCopy";
 import { STRATEGY_NAME } from "@/lib/discord/brand";
+import { lookupAlertFundScore } from "@/lib/jobs/fundScore";
 import { postSignalImage } from "@/lib/notifications/postSignalImage";
 
 function tfLabel(period: string): string {
@@ -80,7 +81,13 @@ export async function deliverTvAlert(payload: AlertPayload, webhookUrl: string):
     };
   }
 
-  const view = buildAlertView(payload, label, rps ?? undefined);
+  let fund;
+  try {
+    fund = await lookupAlertFundScore(payload.symbol);
+  } catch {
+    fund = undefined;
+  }
+  const view = buildAlertView(payload, label, rps ?? undefined, fund);
   await postSignalImage(webhookUrl, {
     filename: `signal-${payload.symbol}.png`,
     eventKey,

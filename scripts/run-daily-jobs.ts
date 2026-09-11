@@ -4,6 +4,7 @@ import { runMacroPhaseJob } from "@/lib/jobs/macroPhase";
 import { runRotationRadarJob } from "@/lib/jobs/rotationRadar";
 import { runShortInterestJob } from "@/lib/jobs/shortInterest";
 import { runStockPanelJob } from "@/lib/jobs/stockPanel";
+import { runFundScoreJob } from "@/lib/jobs/fundScore";
 import { runStockValuationJob } from "@/lib/jobs/stockValuation";
 
 /**
@@ -36,6 +37,7 @@ const STEPS: Step[] = [
   { name: "rotation-radar", run: runRotationRadarJob },
   { name: "stock-valuation", run: runStockValuationJob },
   { name: "stock-panel", run: runStockPanelJob },
+  { name: "fund-score", run: () => runFundScoreJob(), soft: true },
 ];
 
 async function main() {

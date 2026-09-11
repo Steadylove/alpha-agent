@@ -1,6 +1,6 @@
 import { STRATEGY_NAME, STRATEGY_TAGLINE } from "./brand";
 import { FONT, MONO, T, esc, hudBackdrop, svgToPng } from "./terminalTheme";
-import { alertCardFields, alertTimeframeSuffix, type AlertCardField, type AlertView } from "./tvAlertCopy";
+import { alertCardFields, alertTimeframeSuffix, fundDimLabels, FUND_STRIP_HEIGHT, type AlertCardField, type AlertView } from "./tvAlertCopy";
 import { signalTradeChartLabels, signalTradeChartNote, signalTradeChartSvg, TRADE_CHART_EXTRA_HEIGHT } from "./signalTradeChart";
 
 const WIDTH = 840;
@@ -24,7 +24,7 @@ function fieldsOf(view: AlertView, accent: string): Field[] {
           ? (view.pnl ?? 0) >= 0
             ? T.buy
             : T.stop
-          : field.role === "strength"
+          : field.role === "strength" || field.role === "fund"
             ? accent
             : T.text,
   }));
@@ -42,9 +42,10 @@ export function signalCardSvg(view: AlertView): string {
   const accent = ACCENT[view.tone];
   const fields = fieldsOf(view, accent);
   const hasBar = view.rps != null;
+  const hasFund = Boolean(view.fund?.usable);
   const hasFooter = Boolean(view.footer);
   const hasSub = fields.some((f) => f.sub);
-  const baseHeight = 168 + (hasSub ? 18 : 0) + (hasBar ? 26 : 0) + (hasFooter ? 22 : 0);
+  const baseHeight = 168 + (hasSub ? 18 : 0) + (hasBar ? 26 : 0) + (hasFund ? FUND_STRIP_HEIGHT : 0) + (hasFooter ? 22 : 0);
   const height = baseHeight + (view.chart ? TRADE_CHART_EXTRA_HEIGHT : 0);
 
   const colW = (WIDTH - 56) / Math.max(fields.length, 1);
@@ -60,6 +61,12 @@ export function signalCardSvg(view: AlertView): string {
   <rect x="108" y="${barY - 10}" width="${trackW}" height="7" rx="3" fill="${T.panelAlt}"/>
   <rect x="108" y="${barY - 10}" width="${fillW}" height="7" rx="3" fill="${accent}"/>
 `
+    : "";
+  const fundY = barY + (hasBar ? 22 : 0);
+  const fund = hasFund && view.fund
+    ? fundDimLabels(view.fund).map((text, i) =>
+        `<text x="${28 + (i % 3) * 260}" y="${fundY + Math.floor(i / 3) * 16}" font-size="12" fill="${T.dim}" font-family="${FONT}">${esc(text)}</text>`,
+      ).join("\n")
     : "";
 
   const footer = hasFooter
@@ -78,6 +85,7 @@ export function signalCardSvg(view: AlertView): string {
   <line x1="28" y1="96" x2="${WIDTH - 28}" y2="96" stroke="${T.line}" stroke-width="1"/>
   ${cols}
   ${bar}
+  ${fund}
   ${footer}
   ${view.chart ? `<g transform="translate(28,${baseHeight + 4})">
     ${signalTradeChartSvg(view.chart)}

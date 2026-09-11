@@ -1,8 +1,11 @@
 import type { Timeframe } from "@/lib/backtest/engine";
 import { SMALL_FUND_DEFAULT_CONFIG } from "@/lib/backtest/smallFundUniverse";
+import { formatFundRatio, type FundScore } from "@/lib/scoring/fundScore";
 import { STRATEGY_NAME } from "./brand";
 import type { DiscordPayload } from "./sendWebhook";
 import { buyChartOf, sellChartOf, type SignalTradeChart } from "./signalTradeChart";
+
+export const FUND_STRIP_HEIGHT = 44;
 
 export function rpsMinOf(tf: Timeframe): number {
   if (tf === "4h") return 30;
@@ -66,6 +69,7 @@ export type AlertView = {
   atr?: number;
   atrPct?: number;
   rps?: number;
+  fund?: FundScore;
   footer?: string;
   chart?: SignalTradeChart;
 };
@@ -74,7 +78,7 @@ export type AlertCardField = {
   label: string;
   value: string;
   sub?: string;
-  role: "price" | "stop" | "entry" | "pnl" | "atr" | "strength";
+  role: "price" | "stop" | "entry" | "pnl" | "atr" | "strength" | "fund";
 };
 
 function rankedRps(rps?: number): number | undefined {
@@ -111,10 +115,24 @@ export function alertCardFields(view: AlertView): AlertCardField[] {
   if (view.rps != null) {
     fields.push({ label: "强度", value: strengthLabel(view.rps), role: "strength" });
   }
+  if (view.fund?.usable) {
+    fields.push({
+      label: "基本面",
+      value: view.fund.tier ? `${view.fund.tier} ${view.fund.total}` : String(view.fund.total),
+      sub: `${view.fund.filled}/6 维`,
+      role: "fund",
+    });
+  }
   return fields;
 }
 
-export function buildAlertView(p: AlertPayload, label: string, rps?: number): AlertView {
+export function fundDimLabels(fund: FundScore): string[] {
+  return fund.dims.map((dim) =>
+    `${dim.label} ${dim.value == null ? "—" : formatFundRatio(dim.id, dim.value)} ${dim.value == null ? "缺" : dim.points}`,
+  );
+}
+
+export function buildAlertView(p: AlertPayload, label: string, rps?: number, fund?: FundScore): AlertView {
   const atr = atrOf(p);
   if (p.event === "buy") {
     const stop = isNum(p.atr) && isNum(p.stopMult) ? p.price - p.stopMult * p.atr : undefined;
@@ -130,6 +148,7 @@ export function buildAlertView(p: AlertPayload, label: string, rps?: number): Al
       stopMult: isNum(p.stopMult) ? p.stopMult : undefined,
       ...atr,
       rps: rankedRps(rps),
+      fund: fund?.usable ? fund : undefined,
       chart: buyChartOf(p.chart, p.barTime, p.price),
     };
   }
@@ -146,6 +165,7 @@ export function buildAlertView(p: AlertPayload, label: string, rps?: number): Al
     pnl: isNum(p.pnl) ? p.pnl : undefined,
     ...atr,
     rps: rankedRps(rps),
+    fund: fund?.usable ? fund : undefined,
     chart: sellChartOf(p.chart, p.entryTime, p.entry, p.barTime, p.price),
     footer: isNum(p.stop) ? `触发：收盘跌破生效止损 ${money(p.stop)}` : undefined,
   };
@@ -159,15 +179,15 @@ function embedFieldsOf(view: AlertView): { name: string; value: string; inline: 
   }));
 }
 
-export function renderBuy(p: AlertPayload, label: string, rps: number): DiscordPayload {
+export function renderBuy(p: AlertPayload, label: string, rps: number, fund?: FundScore): DiscordPayload {
   return {
     content: `🟢 **${STRATEGY_NAME} 买点 · ${p.symbol}**${alertTimeframeSuffix(label)}`,
-    embeds: [{ color: 0x22c55e, fields: embedFieldsOf(buildAlertView(p, label, rps)) }],
+    embeds: [{ color: 0x22c55e, fields: embedFieldsOf(buildAlertView(p, label, rps, fund)) }],
   };
 }
 
-export function renderSell(p: AlertPayload, label: string, rps?: number): DiscordPayload {
-  const view = buildAlertView(p, label, rps);
+export function renderSell(p: AlertPayload, label: string, rps?: number, fund?: FundScore): DiscordPayload {
+  const view = buildAlertView(p, label, rps, fund);
   const head =
     view.tone === "take"
       ? { icon: "💰", color: 0x00897b }
