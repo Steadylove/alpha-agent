@@ -3,11 +3,12 @@
  * 本地有 MARKET_DATA_DIR 读本地；线上走 MARKET_DATA_BASE_URL。
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import { fetchMarketText } from "@/lib/backtest/marketRemote";
 import { marketBaseUrl, marketDataRoot } from "@/lib/backtest/marketStore";
+import { writeJsonAtomic } from "@/lib/files/atomicJson";
 
 export function snapshotDir(): string {
   const root = marketDataRoot();
@@ -20,14 +21,12 @@ export function snapshotFile(name: string): string {
 }
 
 export function writeSnapshot(name: string, value: unknown): void {
-  const dir = snapshotDir();
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(snapshotFile(name), `${JSON.stringify(value)}\n`);
+  writeJsonAtomic(snapshotFile(name), value);
 }
 
-export async function readSnapshot<T>(name: string): Promise<T | null> {
+export async function readSnapshot<T>(name: string, signal?: AbortSignal): Promise<T | null> {
   if (marketBaseUrl()) {
-    const text = await fetchMarketText(`snapshots/${name}.json`);
+    const text = await fetchMarketText(`snapshots/${name}.json`, signal);
     if (text.trim()) {
       try {
         return JSON.parse(text) as T;

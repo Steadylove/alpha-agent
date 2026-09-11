@@ -9,10 +9,11 @@ export type DailyBarRow = {
   volume: number;
 };
 
-export async function loadDailyBars(symbols: readonly string[]): Promise<Map<string, DailyBarRow[]>> {
+export async function loadDailyBars(symbols: readonly string[], signal?: AbortSignal): Promise<Map<string, DailyBarRow[]>> {
   const bySymbol = new Map<string, DailyBarRow[]>();
   for (const symbol of symbols) {
-    const panel = await loadMarketPanel("1d", symbol);
+    signal?.throwIfAborted();
+    const panel = await loadMarketPanel("1d", symbol, signal);
     if (!panel || panel.dates.length === 0) continue;
     bySymbol.set(
       symbol,

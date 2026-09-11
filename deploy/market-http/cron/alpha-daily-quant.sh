@@ -31,7 +31,7 @@ soft() {
   if "$@"; then
     log "ok $name"
   else
-    log "skip $name（不挡账本）"
+    log "skip ${name}（不挡账本）"
   fi
 }
 
@@ -77,5 +77,6 @@ log "推账本"
 curl -fsS -m 120 -X POST "$BOOK_PUSH_URL"
 
 soft gex-card npx --yes tsx scripts/push-gex-card.ts
+soft screener env SCREENER_SKIP_AI=true npm run screener:push
 
 log "结束"

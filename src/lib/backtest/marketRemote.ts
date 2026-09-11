@@ -12,8 +12,8 @@ function urlOf(relPath: string): string {
   return `${base}/${relPath}`;
 }
 
-export async function fetchMarketText(relPath: string): Promise<string> {
-  const response = await fetch(urlOf(relPath), { cache: "no-store" });
+export async function fetchMarketText(relPath: string, signal?: AbortSignal): Promise<string> {
+  const response = await fetch(urlOf(relPath), { cache: "no-store", signal });
   if (response.status === 404) return "";
   if (!response.ok) {
     throw new Error(`行情服务 ${relPath} HTTP ${response.status}`);
@@ -25,13 +25,14 @@ export async function fetchMarketText(relPath: string): Promise<string> {
 export async function loadMarketPanel(
   timeframe: MarketTimeframe,
   ticker: string,
+  signal?: AbortSignal,
 ): Promise<PanelBars | null> {
   if (timeframe === "2h") {
-    const hourly = await loadMarketPanel("1h", ticker);
+    const hourly = await loadMarketPanel("1h", ticker, signal);
     return hourly ? twoHourPanelFromHourly(hourly) : null;
   }
   if (marketBaseUrl()) {
-    return fetchRemoteCsvPanel(timeframe, ticker);
+    return fetchRemoteCsvPanel(timeframe, ticker, signal);
   }
   return readCsvPanel(csvDir(timeframe), ticker);
 }
@@ -39,12 +40,13 @@ export async function loadMarketPanel(
 export async function fetchRemoteCsvPanel(
   timeframe: MarketTimeframe,
   ticker: string,
+  signal?: AbortSignal,
 ): Promise<PanelBars | null> {
   if (timeframe === "2h") {
-    const hourly = await fetchRemoteCsvPanel("1h", ticker);
+    const hourly = await fetchRemoteCsvPanel("1h", ticker, signal);
     return hourly ? twoHourPanelFromHourly(hourly) : null;
   }
-  const text = await fetchMarketText(`${timeframe}/${ticker}.csv`);
+  const text = await fetchMarketText(`${timeframe}/${ticker}.csv`, signal);
   if (!text) return null;
   return parseCsvText(ticker, text);
 }
