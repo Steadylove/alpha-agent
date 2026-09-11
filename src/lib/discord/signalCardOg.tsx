@@ -2,7 +2,7 @@ import { ImageResponse } from "next/og";
 
 import { STRATEGY_NAME, STRATEGY_TAGLINE } from "./brand";
 import { loadOgFonts, OG_FONT } from "./ogFont";
-import { alertTimeframeSuffix, strengthLabel, type AlertView } from "./tvAlertCopy";
+import { alertCardFields, alertTimeframeSuffix, type AlertCardField, type AlertView } from "./tvAlertCopy";
 import {
   signalTradeChartLabels, signalTradeChartNote, signalTradeChartSvg,
   TRADE_CHART_EXTRA_HEIGHT, TRADE_CHART_HEIGHT, TRADE_CHART_WIDTH,
@@ -31,37 +31,22 @@ const ACCENT: Record<AlertView["tone"], string> = {
   sell: T.sell,
 };
 
-function money(v: number): string {
-  return `$${v.toFixed(2)}`;
-}
-
-function signed(v: number): string {
-  return `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
-}
-
-type Field = { label: string; value: string; sub?: string; color: string };
+type Field = AlertCardField & { color: string };
 
 function fieldsOf(view: AlertView, accent: string): Field[] {
-  const fields: Field[] = [{ label: "信号价", value: money(view.price), color: T.text }];
-  if (view.stop != null) {
-    fields.push({
-      label: "参考止损",
-      value: money(view.stop),
-      sub:
-        view.stopPct != null
-          ? `${signed(view.stopPct)}${view.stopMult != null ? ` · ${view.stopMult}×ATR` : ""}`
-          : undefined,
-      color: T.dim,
-    });
-  } else if (view.entry != null) {
-    fields.push({ label: "开仓价", value: money(view.entry), color: T.text });
-  }
-  if (view.rps != null) {
-    fields.push({ label: "强度", value: strengthLabel(view.rps), color: accent });
-  } else if (view.pnl != null) {
-    fields.push({ label: "盈亏", value: signed(view.pnl), color: view.pnl >= 0 ? T.buy : T.stop });
-  }
-  return fields;
+  return alertCardFields(view).map((field) => ({
+    ...field,
+    color:
+      field.role === "stop"
+        ? T.dim
+        : field.role === "pnl"
+          ? (view.pnl ?? 0) >= 0
+            ? T.buy
+            : T.stop
+          : field.role === "strength"
+            ? accent
+            : T.text,
+  }));
 }
 
 function SignalChart({ chart }: { chart: SignalTradeChart }) {
@@ -178,7 +163,7 @@ function SignalCard({ view }: { view: AlertView }) {
 function signalText(view: AlertView): string {
   const fields = fieldsOf(view, ACCENT[view.tone]);
   return [
-    `${STRATEGY_NAME} ${STRATEGY_TAGLINE} SIGNAL 买点 卖点 止盈 止损 信号价 参考止损 开仓价 强度 盈亏 相对大池 强于 触发 收盘跌破生效止损`,
+    `${STRATEGY_NAME} ${STRATEGY_TAGLINE} SIGNAL 买点 卖点 止盈 止损 信号价 参考止损 开仓价 强度 ATR 盈亏 相对大池 强于 触发 收盘跌破生效止损`,
     view.title,
     view.code,
     view.symbol,

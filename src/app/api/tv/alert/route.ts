@@ -8,7 +8,7 @@
  *
  * 买点：查不到 / 未排名 / 不过门槛 → 不转发。过门文案写该股相对大池的分位
  * （「强于 79%」），不写门槛、一买/二买、RPS 数字、「未达标」。
- * 卖点照推，标题也不带一买/二买。
+ * 卖点照推，同样补分位和 ATR，标题也不带一买/二买。
  */
 
 import { after, NextResponse } from "next/server";
@@ -61,17 +61,6 @@ export async function deliverTvAlert(payload: AlertPayload, webhookUrl: string):
   const tf = resolveAlertTimeframe(payload.tf);
   const rpsMin = rpsMinOf(tf);
 
-  if (payload.event === "sell") {
-    const view = buildAlertView(payload, label);
-    await postSignalImage(webhookUrl, {
-      filename: `signal-${payload.symbol}.png`,
-      eventKey,
-      bytes: await renderSignalOgPng(view),
-      content: `**${STRATEGY_NAME} ${view.title} · ${payload.symbol}**${alertTimeframeSuffix(label)}`,
-    });
-    return { ok: true, forwarded: true };
-  }
-
   let rps: number | null = null;
   let lookupError: string | null = null;
   try {
@@ -81,7 +70,7 @@ export async function deliverTvAlert(payload: AlertPayload, webhookUrl: string):
     lookupError = error instanceof Error ? error.message : String(error);
   }
 
-  if (!buyPassesGate(rps, rpsMin) || rps == null) {
+  if (payload.event === "buy" && (!buyPassesGate(rps, rpsMin) || rps == null)) {
     return {
       ok: true,
       forwarded: false,
@@ -91,14 +80,20 @@ export async function deliverTvAlert(payload: AlertPayload, webhookUrl: string):
     };
   }
 
-  const view = buildAlertView(payload, label, rps);
+  const view = buildAlertView(payload, label, rps ?? undefined);
   await postSignalImage(webhookUrl, {
     filename: `signal-${payload.symbol}.png`,
     eventKey,
     bytes: await renderSignalOgPng(view),
     content: `**${STRATEGY_NAME} ${view.title} · ${payload.symbol}**${alertTimeframeSuffix(label)}`,
   });
-  return { ok: true, forwarded: true, gate: "pass", rps, lookupError };
+  return {
+    ok: true,
+    forwarded: true,
+    gate: payload.event === "buy" ? "pass" : undefined,
+    rps,
+    lookupError,
+  };
 }
 
 export async function POST(request: Request) {

@@ -62,7 +62,7 @@ it('卖点快照进入渲染器并复用同一张图发送双平台，坏快照�
   expect((await deliverTvAlert(payload, hook)).forwarded).toBe(true);
   expect(mocks.render.mock.calls[0][0].chart).toMatchObject({ event: 'sell', entryTime: 1000, signalTime: 3000, bars: payload.chart.bars });
   expect(mocks.push.mock.calls[0][1].bytes).toBe(mocks.png);
-  expect(mocks.lookup).not.toHaveBeenCalled();
+  expect(mocks.lookup).toHaveBeenCalled();
   expect((await deliverTvAlert({ ...payload, chart: { ...payload.chart, bars: [] } }, hook)).forwarded).toBe(true);
   expect(mocks.render.mock.calls[1][0].chart).toBeUndefined();
   expect(mocks.push).toHaveBeenCalledTimes(2);

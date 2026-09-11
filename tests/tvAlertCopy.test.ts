@@ -37,6 +37,10 @@ describe("tv alert copy", () => {
     expect(svg).toContain("买点");
     expect(svg).toContain("强于 79%");
     expect(svg).toContain("$178.40");
+    expect(svg).toContain("ATR");
+    expect(svg).toContain(">4.20<");
+    expect(svg).not.toContain("$4.20");
+    expect(svg).toContain("2.35%");
     expect(svg).not.toContain("强于 30%");
     expect(svg).not.toMatch(/一买|二买|RPS|未达标/);
   });
@@ -49,5 +53,24 @@ describe("tv alert copy", () => {
     const text = JSON.stringify(msg);
     expect(msg.content).toBe("🛑 **TREND-ADAPTIVE 止损 · ADI**");
     expect(text).not.toMatch(/一买|二买/);
+  });
+
+  it("卖点同时写分位、ATR 和盈亏", () => {
+    const svg = signalCardSvg(
+      buildAlertView(
+        { event: "sell", symbol: "ADI", tf: "240", kind: 2, price: 90, entry: 100, pnl: -10, atr: 2.7 },
+        "4H",
+        64,
+      ),
+    );
+    expect(svg).toContain("止损");
+    expect(svg).toContain("强于 64%");
+    expect(svg).toContain("相对大池");
+    expect(svg).toContain("-10.00%");
+    expect(svg).toContain("ATR");
+    expect(svg).toContain(">2.70<");
+    expect(svg).not.toContain("$2.70");
+    expect(svg).toContain("3.00%");
+    expect(svg).not.toMatch(/一买|二买|RPS|未达标/);
   });
 });

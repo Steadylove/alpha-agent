@@ -455,5 +455,6 @@ if exitSignal and barstate.isconfirmed
        ',"entryTime":' + str.tostring(entryTime) +
        ',"stop":' + n4(math.max(stopLevel, trailLevel)) +
        ',"pnl":' + n2((close - entryPrice) / entryPrice * 100) +
+       ',"atr":' + n4(atrRisk) +
        ',"chart":' + chartPayload + '}'
     alert(sellPayload, alert.freq_once_per_bar_close)
