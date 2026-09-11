@@ -3,12 +3,8 @@ import { alertCardFields, alertTimeframeSuffix, type AlertView } from "./tvAlert
 import { formatFundRatio } from "@/lib/scoring/fundScore";
 import { signalTradeChartLabels, signalTradeChartNote, TRADE_CHART_HEIGHT, type SignalTradeChart } from "./signalTradeChart";
 
-export const SIGNAL_CARD_WIDTH = 960;
-export const SIGNAL_CARD_SCALE = 2;
-export const SIGNAL_INK = {
-  bg: "#0B1117", panel: "#121C25", line: "#293641", text: "#F0F4F7",
-  secondary: "#B6C3CD", muted: "#8C9EAE", buy: "#65DBAF", take: "#EBC47F", stop: "#F093A0", sell: "#B6C3CD",
-};
+import { CARD_WIDTH as SIGNAL_CARD_WIDTH, CARD_INK as SIGNAL_INK } from "./cardTheme";
+export { CARD_WIDTH as SIGNAL_CARD_WIDTH, CARD_SCALE as SIGNAL_CARD_SCALE, CARD_INK as SIGNAL_INK } from "./cardTheme";
 export type SignalCardItem =
   | { type: "rect"; x: number; y: number; width: number; height: number; fill: string; radius?: number; stroke?: string }
   | { type: "text"; x: number; y: number; width: number; height: number; text: string; size: number; color: string; weight: 400 | 700; align: "left" | "right" | "center"; numeric?: boolean }

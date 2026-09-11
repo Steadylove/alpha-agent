@@ -1,8 +1,7 @@
-import { FONT, MONO, T, esc, hudBackdrop, hudHeader, metricTile, svgToPng } from "@/lib/discord/terminalTheme";
-
+import { CARD_INK as T } from "@/lib/discord/cardTheme";
+import { reportCard } from "@/lib/discord/reportCardLayout";
+import { renderReportCardPng, reportCardSvg } from "@/lib/discord/reportCardImage";
 import type { OptionFlowLeg, OptionFlowPost } from "./types";
-
-const WIDTH = 840;
 
 export function formatPremium(n?: number): string {
   if (n == null || !Number.isFinite(n)) return "—";
@@ -27,139 +26,109 @@ export function formatExpiry(raw?: string): string {
 }
 
 function formatTime(iso: string): string {
-  return iso.replace("T", " ").slice(5, 16);
+  const offset = iso.match(/(Z|[+-]\d{2}:\d{2})$/)?.[1];
+  const zone = offset === "Z" || offset === "+00:00" ? " UTC" : offset ? ` ${offset}` : "";
+  return iso.replace("T", " ").slice(0, 16) + zone;
 }
 
 function rightLabel(right?: string): string {
-  if (right === "put") return "PUT";
-  if (right === "call") return "CALL";
-  return "—";
+  return right === "put" ? "PUT" : right === "call" ? "CALL" : "FLOW";
 }
 
 function rightColor(right?: string): string {
-  if (right === "put") return T.stop;
-  if (right === "call") return T.buy;
-  return T.cyan;
+  return right === "put" ? T.stop : right === "call" ? T.buy : T.take;
+}
+
+export function singleFlowLayout(post: OptionFlowPost) {
+  const card = reportCard(), { text, rect, line } = card;
+  const leg = post.legs[0], accent = rightColor(leg?.right);
+  const activity = leg?.note === "seller" ? "大额卖出" : leg?.note === "buyer" ? "大额买入" : "大额成交";
+  card.header(leg?.ticker ?? "期权流", rightLabel(leg?.right), `期权流 · ${activity}`, formatTime(post.postedAt), accent, 54);
+
+  text("成交金额", 40, 152, 360, 16, T.secondary);
+  text(formatPremium(leg?.premiumUsd), 40, 178, 366, 54, accent, 700, "left", true);
+  text(leg?.right === "call" ? "CALL · 看涨期权" : leg?.right === "put" ? "PUT · 看跌期权" : "合约类型待确认", 42, 259, 360, 16, T.muted);
+  rect(428, 158, 1, 134, T.line);
+  text("行权价格", 460, 163, 182, 15, T.muted);
+  text(leg?.strike != null ? `$${leg.strike}` : "—", 460, 194, 182, 32, T.text, 700, "left", true);
+  text("到期日", 680, 163, 240, 15, T.muted);
+  text(formatExpiry(leg?.expiry), 680, 194, 240, 28, T.text, 700, "left", true);
+
+  const details = [
+    ...(leg?.otmPct != null ? [{ label: "价外幅度", value: `${leg.otmPct}%`, sub: "OTM" }] : []),
+    ...(leg?.optionPrice != null ? [{ label: "期权成交价", value: `$${leg.optionPrice}`, sub: "每股权利金" }] : []),
+  ];
+  let y = 320;
+  if (details.length) {
+    line(y);
+    details.forEach((detail, i) => {
+      const x = 40 + 440 * i;
+      text(`${detail.label} · ${detail.sub}`, x, y + 16, 416, 14, T.muted);
+      text(detail.value, x, y + 43, 416, 27, T.secondary, 700, "left", true);
+    });
+    y += 100;
+  }
+  line(y);
+  text("期权资金观察 · 非策略买点", 40, y + 16, 880, 13, T.muted);
+  return card.finish(y + 57);
+}
+
+function flowListLayout(title: string, meta: string, legs: readonly OptionFlowLeg[], confirmed: boolean) {
+  const card = reportCard(), { text, rect, line } = card;
+  card.header(title, confirmed ? "OI" : "FLOW", confirmed ? "持仓量确认" : "当日汇总", meta, T.take);
+  const premiumLegs = legs.filter((leg) => leg.premiumUsd != null && Number.isFinite(leg.premiumUsd));
+  const total = premiumLegs.reduce((sum, leg) => sum + leg.premiumUsd!, 0);
+  text(premiumLegs.length === legs.length ? "合计成交金额" : "已知成交金额", 40, 151, 410, 15, T.secondary);
+  text(premiumLegs.length ? formatPremium(total) : "—", 40, 177, 410, 40, T.text, 700, "left", true);
+  text("合约记录", 556, 154, 364, 14, T.muted, 400, "right");
+  text(`${legs.length} 笔`, 556, 183, 364, 27, T.secondary, 700, "right");
+  line(254);
+  const cols = [
+    { title: "标的", x: 52, width: 154 }, { title: "类型", x: 226, width: 100 },
+    { title: "行权价格", x: 340, width: 152, end: true },
+    { title: "到期日", x: 520, width: 182, end: true }, { title: "成交金额", x: 722, width: 186, end: true },
+  ];
+  cols.forEach((c) => text(c.title, c.x, 268, c.width, 13, T.muted, 400, c.end ? "right" : "left"));
+  const startY = 303, rowH = 56;
+  line(startY - 1);
+  if (!legs.length) text("暂无合约记录", 40, startY + 16, 880, 18, T.secondary, 400, "center");
+  legs.forEach((leg, i) => {
+    const y = startY + rowH * i;
+    if (i % 2 === 1) rect(40, y, 880, rowH, T.panel, 6);
+    const values = [leg.ticker, leg.right ? rightLabel(leg.right) : "—", leg.strike != null ? `$${leg.strike}` : "—", formatExpiry(leg.expiry), formatPremium(leg.premiumUsd)];
+    cols.forEach((col, j) => text(values[j], col.x, y + 15, col.width, 18,
+      [1, 4].includes(j) ? rightColor(leg.right) : j === 0 ? T.text : T.secondary,
+      [0, 4].includes(j) ? 700 : 400, col.end ? "right" : "left", true));
+  });
+  const endY = startY + Math.max(legs.length, 1) * rowH + 16;
+  line(endY);
+  text(confirmed ? "OI Confirmed · 期权资金观察 · 非策略买点" : "当日汇总 · 已去重 · 期权资金观察 · 非策略买点", 40, endY + 16, 880, 13, T.muted);
+  return card.finish(endY + 57);
+}
+
+export function noteworthyLayout(post: OptionFlowPost) {
+  return flowListLayout("期权流 · 确认名单", formatTime(post.postedAt), post.legs, true);
+}
+
+export function sessionDigestLayout(title: string, asOf: string, legs: OptionFlowLeg[]) {
+  return flowListLayout(title, asOf, legs, false);
 }
 
 export function singleFlowSvg(post: OptionFlowPost): string {
-  const leg = post.legs[0];
-  const accent = rightColor(leg?.right);
-  const height = 320;
-  const y = 88;
-  const gap = 12;
-  const tileH = 84;
-  const inner = WIDTH - 64;
-  const tiles = [
-    { label: "标的", value: leg?.ticker ?? "—", color: T.text },
-    { label: "类型", value: rightLabel(leg?.right), color: accent },
-    { label: "资金", value: formatPremium(leg?.premiumUsd), color: accent },
-    { label: "行权", value: leg?.strike != null ? String(leg.strike) : "—", color: T.text },
-    { label: "到期", value: formatExpiry(leg?.expiry), color: T.dim },
-    ...(leg?.otmPct != null ? [{ label: "OTM", value: `${leg.otmPct}%`, color: T.dim }] : []),
-  ];
-  const tileW = (inner - gap * (tiles.length - 1)) / tiles.length;
-  const boxes = tiles
-    .map((tile, i) => metricTile(32 + i * (tileW + gap), y, tileW, tileH, tile.label, tile.value, undefined, tile.color))
-    .join("\n");
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<svg width="${WIDTH}" height="${height}" viewBox="0 0 ${WIDTH} ${height}" xmlns="http://www.w3.org/2000/svg">
-  ${hudBackdrop(WIDTH, height, accent)}
-  ${hudHeader(WIDTH, "FLOW", "期权流 · 单笔", formatTime(post.postedAt), accent)}
-  ${boxes}
-  <text x="32" y="220" font-size="15" fill="${T.dim}" font-family="${FONT}">${esc(leg?.note === "seller" ? "大额卖出" : leg?.right === "put" ? "大额 Put 成交" : "大额 Call 成交")}</text>
-  <text x="32" y="284" font-size="12" fill="${T.muted}" font-family="${FONT}">噪音标签 · 不是买点 · 不标注来源</text>
-</svg>`;
+  return reportCardSvg(singleFlowLayout(post));
 }
-
 export function noteworthySvg(post: OptionFlowPost): string {
-  const rows = post.legs;
-  const rowH = 44;
-  const headerH = 108;
-  const height = headerH + Math.max(rows.length, 1) * rowH + 56;
-  const col = { ticker: 56, right: 200, strike: 340, expiry: 500, premium: 800 };
-  const body =
-    rows.length === 0
-      ? `<text x="${WIDTH / 2}" y="${headerH + 28}" font-size="16" fill="${T.muted}" text-anchor="middle" font-family="${FONT}">无名单</text>`
-      : rows
-          .map((leg, i) => noteworthyRow(leg, i, headerH + i * rowH, col, rowH))
-          .join("\n");
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<svg width="${WIDTH}" height="${height}" viewBox="0 0 ${WIDTH} ${height}" xmlns="http://www.w3.org/2000/svg">
-  ${hudBackdrop(WIDTH, height, T.cyan)}
-  ${hudHeader(WIDTH, "FLOW", "期权流 · 确认名单", formatTime(post.postedAt), T.cyan)}
-  <text x="${col.ticker}" y="88" font-size="12" fill="${T.muted}" font-family="${FONT}">标的</text>
-  <text x="${col.right}" y="88" font-size="12" fill="${T.muted}" text-anchor="end" font-family="${FONT}">类型</text>
-  <text x="${col.strike}" y="88" font-size="12" fill="${T.muted}" text-anchor="end" font-family="${FONT}">行权</text>
-  <text x="${col.expiry}" y="88" font-size="12" fill="${T.muted}" text-anchor="end" font-family="${FONT}">到期</text>
-  <text x="${col.premium}" y="88" font-size="12" fill="${T.muted}" text-anchor="end" font-family="${FONT}">资金</text>
-  <line x1="32" y1="100" x2="${WIDTH - 32}" y2="100" stroke="${T.line}" stroke-width="1"/>
-  ${body}
-  <text x="32" y="${height - 24}" font-size="12" fill="${T.muted}" font-family="${FONT}">OI Confirmed · 噪音标签 · 不是买点</text>
-</svg>`;
+  return reportCardSvg(noteworthyLayout(post));
 }
-
-function noteworthyRow(
-  leg: OptionFlowLeg,
-  index: number,
-  y: number,
-  col: { ticker: number; right: number; strike: number; expiry: number; premium: number },
-  rowH: number,
-): string {
-  const bg = index % 2 === 0 ? T.bg : T.panel;
-  const accent = rightColor(leg.right);
-  return `
-  <rect x="20" y="${y}" width="${WIDTH - 40}" height="${rowH}" fill="${bg}"/>
-  <text x="${col.ticker}" y="${y + 29}" font-size="16" font-weight="bold" fill="${T.text}" font-family="${MONO}">${esc(leg.ticker)}</text>
-  <text x="${col.right}" y="${y + 29}" font-size="15" fill="${accent}" text-anchor="end" font-family="${MONO}">${rightLabel(leg.right)}</text>
-  <text x="${col.strike}" y="${y + 29}" font-size="15" fill="${T.dim}" text-anchor="end" font-family="${MONO}">${leg.strike ?? "—"}</text>
-  <text x="${col.expiry}" y="${y + 29}" font-size="15" fill="${T.dim}" text-anchor="end" font-family="${MONO}">${esc(formatExpiry(leg.expiry))}</text>
-  <text x="${col.premium}" y="${y + 29}" font-size="16" font-weight="bold" fill="${accent}" text-anchor="end" font-family="${MONO}">${formatPremium(leg.premiumUsd)}</text>
-  <line x1="32" y1="${y + rowH}" x2="${WIDTH - 32}" y2="${y + rowH}" stroke="${T.line}" stroke-width="1"/>
-`;
-}
-
 export function sessionDigestSvg(title: string, asOf: string, legs: OptionFlowLeg[]): string {
-  const rowH = 44;
-  const headerH = 108;
-  const height = headerH + Math.max(legs.length, 1) * rowH + 56;
-  const col = { ticker: 56, right: 200, strike: 360, expiry: 540, premium: 800 };
-  const body = legs
-    .map((leg, i) => {
-      const y = headerH + i * rowH;
-      const bg = i % 2 === 0 ? T.bg : T.panel;
-      const accent = rightColor(leg.right);
-      return `
-  <rect x="20" y="${y}" width="${WIDTH - 40}" height="${rowH}" fill="${bg}"/>
-  <text x="${col.ticker}" y="${y + 29}" font-size="16" font-weight="bold" fill="${T.text}" font-family="${MONO}">${esc(leg.ticker)}</text>
-  <text x="${col.right}" y="${y + 29}" font-size="15" fill="${accent}" text-anchor="end" font-family="${MONO}">${rightLabel(leg.right)}</text>
-  <text x="${col.strike}" y="${y + 29}" font-size="15" fill="${T.dim}" text-anchor="end" font-family="${MONO}">${leg.strike ?? "—"}</text>
-  <text x="${col.expiry}" y="${y + 29}" font-size="15" fill="${T.dim}" text-anchor="end" font-family="${MONO}">${esc(formatExpiry(leg.expiry))}</text>
-  <text x="${col.premium}" y="${y + 29}" font-size="16" font-weight="bold" fill="${accent}" text-anchor="end" font-family="${MONO}">${formatPremium(leg.premiumUsd)}</text>
-  <line x1="32" y1="${y + rowH}" x2="${WIDTH - 32}" y2="${y + rowH}" stroke="${T.line}" stroke-width="1"/>`;
-    })
-    .join("\n");
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<svg width="${WIDTH}" height="${height}" viewBox="0 0 ${WIDTH} ${height}" xmlns="http://www.w3.org/2000/svg">
-  ${hudBackdrop(WIDTH, height, T.cyan)}
-  ${hudHeader(WIDTH, "FLOW", title, asOf, T.cyan)}
-  <text x="${col.ticker}" y="88" font-size="12" fill="${T.muted}" font-family="${FONT}">标的</text>
-  <text x="${col.right}" y="88" font-size="12" fill="${T.muted}" text-anchor="end" font-family="${FONT}">类型</text>
-  <text x="${col.strike}" y="88" font-size="12" fill="${T.muted}" text-anchor="end" font-family="${FONT}">行权</text>
-  <text x="${col.expiry}" y="88" font-size="12" fill="${T.muted}" text-anchor="end" font-family="${FONT}">到期</text>
-  <text x="${col.premium}" y="88" font-size="12" fill="${T.muted}" text-anchor="end" font-family="${FONT}">资金</text>
-  <line x1="32" y1="100" x2="${WIDTH - 32}" y2="100" stroke="${T.line}" stroke-width="1"/>
-  ${body}
-  <text x="32" y="${height - 24}" font-size="12" fill="${T.muted}" font-family="${FONT}">当日汇总 · 已去重 · 噪音标签 · 不是买点</text>
-</svg>`;
+  return reportCardSvg(sessionDigestLayout(title, asOf, legs));
 }
-
 export function renderSingleFlowPng(post: OptionFlowPost): Promise<Buffer> {
-  return svgToPng(singleFlowSvg(post), WIDTH);
+  return renderReportCardPng(singleFlowLayout(post));
 }
 export function renderNoteworthyPng(post: OptionFlowPost): Promise<Buffer> {
-  return svgToPng(noteworthySvg(post), WIDTH);
+  return renderReportCardPng(noteworthyLayout(post));
 }
 export function renderSessionDigestPng(title: string, asOf: string, legs: OptionFlowLeg[]): Promise<Buffer> {
-  return svgToPng(sessionDigestSvg(title, asOf, legs), WIDTH);
+  return renderReportCardPng(sessionDigestLayout(title, asOf, legs));
 }
