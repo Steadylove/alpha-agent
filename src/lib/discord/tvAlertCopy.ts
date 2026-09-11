@@ -4,8 +4,7 @@ import { formatFundRatio, type FundScore } from "@/lib/scoring/fundScore";
 import { STRATEGY_NAME } from "./brand";
 import type { DiscordPayload } from "./sendWebhook";
 import { buyChartOf, sellChartOf, type SignalTradeChart } from "./signalTradeChart";
-
-export const FUND_STRIP_HEIGHT = 44;
+import { entryQualityOf, exitTitleOf, qualityPanel, signalReturnOf, tradeReviewOf, type AssessmentPanel, type EntryQuality, type ExitReason } from "@/lib/signals/assessment";
 
 export function rpsMinOf(tf: Timeframe): number {
   if (tf === "4h") return 30;
@@ -44,6 +43,15 @@ export type AlertPayload = {
   barTime?: number;
   /** 这笔持仓实际开仓的 K 线开盘时间，毫秒。 */
   entryTime?: number;
+  /** 参数签名 + 原始买点收盘时间用于精确关联，不按价格猜测交易。 */
+  strategyKey?: string;
+  entrySignalTime?: number;
+  initialRisk?: number;
+  highSinceEntry?: number;
+  lowSinceEntry?: number;
+  barsHeld?: number;
+  exitReason?: ExitReason;
+  target?: number;
   /** Pine 随买卖点携带的 K 线与 Vegas 通道快照，需校验后使用。 */
   chart?: unknown;
 };
@@ -72,6 +80,8 @@ export type AlertView = {
   fund?: FundScore;
   footer?: string;
   chart?: SignalTradeChart;
+  quality?: EntryQuality;
+  assessment?: AssessmentPanel;
 };
 
 export type AlertCardField = {
@@ -90,7 +100,19 @@ function atrOf(p: AlertPayload): { atr: number; atrPct: number } | undefined {
   return { atr: p.atr, atrPct: (p.atr / p.price) * 100 };
 }
 
-/** 卡片字段：强度与 ATR 可同时出现，卖点不再用强度顶掉盈亏。 */
+/** 波动按当前周期的 ATR/信号价描述；分档仅用于展示，不是历史分位或涨跌预测。 */
+function volatilityField(view: AlertView): AlertCardField | undefined {
+  if (!isNum(view.atr) || view.atr <= 0 || !isNum(view.atrPct) || view.atrPct <= 0) return;
+  const pct = view.atrPct;
+  return {
+    label: "近期波动",
+    value: pct < 1 ? "较小" : pct < 2 ? "适中" : pct < 4 ? "较大" : "很大",
+    sub: pct < .01 ? "单根平均波幅不足 0.01%" : `单根平均波幅约 ${pct.toFixed(2)}%`,
+    role: "atr",
+  };
+}
+
+/** 卡片字段：强度与波动可同时出现，卖点不再用强度顶掉盈亏。 */
 export function alertCardFields(view: AlertView): AlertCardField[] {
   const fields: AlertCardField[] = [{ label: "信号价", value: money(view.price), role: "price" }];
   if (view.stop != null) {
@@ -99,7 +121,7 @@ export function alertCardFields(view: AlertView): AlertCardField[] {
       value: money(view.stop),
       sub:
         view.stopPct != null
-          ? `${signed(view.stopPct)}${view.stopMult != null ? ` · ${view.stopMult}×ATR` : ""}`
+          ? `距信号价 ${signed(view.stopPct)}`
           : undefined,
       role: "stop",
     });
@@ -107,11 +129,10 @@ export function alertCardFields(view: AlertView): AlertCardField[] {
     fields.push({ label: "开仓价", value: money(view.entry), role: "entry" });
   }
   if (view.pnl != null) {
-    fields.push({ label: "盈亏", value: signed(view.pnl), role: "pnl" });
+    fields.push({ label: "信号浮盈亏", value: signed(view.pnl), role: "pnl" });
   }
-  if (view.atr != null && view.atrPct != null) {
-    fields.push({ label: "ATR", value: view.atr.toFixed(2), sub: `${view.atrPct.toFixed(2)}%`, role: "atr" });
-  }
+  const volatility = volatilityField(view);
+  if (volatility) fields.push(volatility);
   if (view.rps != null) {
     fields.push({ label: "强度", value: strengthLabel(view.rps), role: "strength" });
   }
@@ -136,6 +157,7 @@ export function buildAlertView(p: AlertPayload, label: string, rps?: number, fun
   const atr = atrOf(p);
   if (p.event === "buy") {
     const stop = isNum(p.atr) && isNum(p.stopMult) ? p.price - p.stopMult * p.atr : undefined;
+    const quality = entryQualityOf(p, rps, fund);
     return {
       tone: "buy",
       title: "买点",
@@ -150,24 +172,29 @@ export function buildAlertView(p: AlertPayload, label: string, rps?: number, fun
       rps: rankedRps(rps),
       fund: fund?.usable ? fund : undefined,
       chart: buyChartOf(p.chart, p.barTime, p.price),
+      quality,
+      assessment: qualityPanel(quality),
     };
   }
 
-  const won = isNum(p.pnl) ? p.pnl >= 0 : null;
+  const pnl = signalReturnOf(p);
+  const won = pnl != null ? pnl >= 0 : null;
   return {
     tone: won === null ? "sell" : won ? "take" : "stop",
-    title: won === null ? "卖点" : won ? "止盈" : "止损",
+    title: exitTitleOf(p),
     code: won === null ? "SELL" : won ? "TAKE" : "STOP",
     symbol: p.symbol,
     tfLabel: label,
     price: p.price,
     entry: isNum(p.entry) ? p.entry : undefined,
-    pnl: isNum(p.pnl) ? p.pnl : undefined,
+    pnl,
     ...atr,
     rps: rankedRps(rps),
     fund: fund?.usable ? fund : undefined,
     chart: sellChartOf(p.chart, p.entryTime, p.entry, p.barTime, p.price),
-    footer: isNum(p.stop) ? `触发：收盘跌破生效止损 ${money(p.stop)}` : undefined,
+    footer: p.exitReason === "target" && isNum(p.target) && p.price >= p.target ? `触发：收盘达到目标 ${money(p.target)}` :
+      isNum(p.stop) && p.price < p.stop ? `触发：收盘跌破生效止损 ${money(p.stop)}` : undefined,
+    assessment: tradeReviewOf(p),
   };
 }
 

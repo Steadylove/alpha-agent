@@ -38,8 +38,10 @@ describe("tv alert copy", () => {
     expect(svg).toContain("买点");
     expect(svg).toContain("强于 79%");
     expect(svg).toContain("$178.40");
-    expect(svg).toContain("ATR");
-    expect(svg).toContain(">4.20<");
+    expect(svg).toContain("近期波动");
+    expect(svg).toContain(">较大<");
+    expect(svg).not.toContain("ATR");
+    expect(svg).not.toContain(">4.20<");
     expect(svg).not.toContain("$4.20");
     expect(svg).toContain("2.35%");
     expect(svg).not.toContain("强于 30%");
@@ -48,18 +50,18 @@ describe("tv alert copy", () => {
 
   it("卖点标题也不带一买二买", () => {
     const msg = renderSell(
-      { event: "sell", symbol: "ADI", tf: "240", kind: 2, price: 90, entry: 100, pnl: -10 },
+      { event: "sell", symbol: "ADI", tf: "240", kind: 2, price: 90, entry: 100, pnl: -10, exitReason: "initial_stop", stop: 92 },
       "4H",
     );
     const text = JSON.stringify(msg);
-    expect(msg.content).toBe("🛑 **TREND-ADAPTIVE 止损 · ADI**");
+    expect(msg.content).toBe("🛑 **TREND-ADAPTIVE 初始止损 · ADI**");
     expect(text).not.toMatch(/一买|二买/);
   });
 
-  it("卖点同时写分位、ATR 和盈亏", () => {
+  it("卖点同时写分位、波动描述和盈亏", () => {
     const svg = signalCardSvg(
       buildAlertView(
-        { event: "sell", symbol: "ADI", tf: "240", kind: 2, price: 90, entry: 100, pnl: -10, atr: 2.7 },
+        { event: "sell", symbol: "ADI", tf: "240", kind: 2, price: 90, entry: 100, pnl: -10, atr: 2.7, exitReason: "initial_stop", stop: 92 },
         "4H",
         64,
       ),
@@ -68,8 +70,11 @@ describe("tv alert copy", () => {
     expect(svg).toContain("强于 64%");
     expect(svg).toContain("相对大池");
     expect(svg).toContain("-10.00%");
-    expect(svg).toContain("ATR");
-    expect(svg).toContain(">2.70<");
+    expect(svg).toContain("近期波动");
+    expect(svg).toContain(">较大<");
+    expect(svg).toContain("单根平均波幅约 3.00%");
+    expect(svg).not.toContain("ATR");
+    expect(svg).not.toContain(">2.70<");
     expect(svg).not.toContain("$2.70");
     expect(svg).toContain("3.00%");
     expect(svg).not.toMatch(/一买|二买|RPS|未达标/);

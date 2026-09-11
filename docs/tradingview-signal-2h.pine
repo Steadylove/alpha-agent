@@ -221,6 +221,12 @@ var float maxPnlPct    = 0.0
 var int   pendingEntry = 0
 var float pendingAtr   = 0.0
 var bool  pendingExit  = false
+// 仅供评分关联和复盘，不参与买卖条件；入场评分由服务器在买点发生时保存。
+var int   pendingSignalTime = na
+var int   entrySignalTime = na
+var float reviewHigh = na
+var float reviewLow = na
+var float initialRisk = na
 
 bool didExit = false
 
@@ -231,6 +237,10 @@ if pendingExit and not na(entryPrice)
     entryPrice := na
     entryBar   := na
     entryTime  := na
+    entrySignalTime := na
+    reviewHigh := na
+    reviewLow := na
+    initialRisk := na
     stopLevel  := na
     trailLevel := na
     highWater  := na
@@ -243,11 +253,20 @@ if pendingEntry != 0
     entryPrice   := open
     entryBar     := bar_index
     entryTime    := time
+    entrySignalTime := pendingSignalTime
+    reviewHigh := open
+    reviewLow := open
+    initialRisk := stopMult * pendingAtr
     stopLevel    := open - stopMult * pendingAtr
     trailLevel   := open - trailMult * pendingAtr
     highWater    := open
     maxPnlPct    := 0.0
     pendingEntry := 0
+
+// 独立统计整段持仓的最高/最低价，不从压缩附图估算。
+if sigType != 0 and not na(entryPrice)
+    reviewHigh := math.max(reviewHigh, high)
+    reviewLow := math.min(reviewLow, low)
 
 // 持仓管理：开仓当根同样执行。出场不受入场窗口限制，每根都判。
 if sigType != 0 and not na(entryPrice) and not na(atrRisk)
@@ -267,6 +286,7 @@ if sigType == 0 and not pendingExit and entryWindowOk and not na(atrRisk) and at
     if fired != 0
         pendingEntry := fired
         pendingAtr   := atrRisk
+        pendingSignalTime := time_close
 
 // 本根是否产生了信号：pendingEntry 要到下一根开盘才消费，故非 0 即本根点火
 bool fire1       = pendingEntry == 1 and barstate.isconfirmed
@@ -391,6 +411,8 @@ if barstate.islast
 n4(float v) => str.tostring(v, "#.####")
 n2(float v) => str.tostring(v, "#.##")
 
+string strategyKey = "aa-2h-v1|" + syminfo.tickerid + "|" + timeframe.period + "|" + n4(stopMult) + "|" + n4(trailMult) + "|" + str.tostring(useBuy1Input) + "|" + str.tostring(useBuy2Input) + "|" + str.tostring(requireRsi) + "|" + str.tostring(minRsi) + "|" + str.tostring(requireVegas) + "|" + str.tostring(entryAtDayCloseOnly)
+
 // 买卖点附图快照：最多 120 根显示柱，长持仓合并 OHLC；只取已确认的本根及历史。
 // 列：[开盘毫秒,收盘毫秒,O,H,L,C,EMA166,EMA169,EMA576,EMA676]。
 // 使用图表本身的数据与 EMA，服务端不猜入场日期，也不拼接滞后的日更行情。
@@ -420,6 +442,8 @@ if entrySignal and barstate.isconfirmed
        '","tf":"' + timeframe.period +
        '","kind":' + str.tostring(pendingEntry) +
        ',"barTime":' + str.tostring(time_close) +
+       ',"strategyKey":"' + strategyKey + '"' +
+       ',"entrySignalTime":' + str.tostring(time_close) +
        ',"price":' + n4(close) +
        ',"atr":' + n4(atrRisk) +
        ',"stopMult":' + n2(stopMult) +
@@ -428,10 +452,18 @@ if entrySignal and barstate.isconfirmed
 
 if exitSignal and barstate.isconfirmed
     string chartPayload = barstate.isrealtime ? signalChartJson(entryBar) : "null"
+    string exitReason = trailLevel > stopLevel ? "trailing_stop" : (stopLevel > entryPrice ? "protective_stop" : "initial_stop")
     string sellPayload = '{"event":"sell","symbol":"' + syminfo.ticker +
        '","tf":"' + timeframe.period +
        '","kind":' + str.tostring(sigType) +
        ',"barTime":' + str.tostring(time_close) +
+       ',"strategyKey":"' + strategyKey + '"' +
+       ',"entrySignalTime":' + str.tostring(entrySignalTime) +
+       ',"initialRisk":' + chartNumber(initialRisk) +
+       ',"highSinceEntry":' + chartNumber(reviewHigh) +
+       ',"lowSinceEntry":' + chartNumber(reviewLow) +
+       ',"barsHeld":' + str.tostring(bar_index - entryBar + 1) +
+       ',"exitReason":"' + exitReason + '"' +
        ',"price":' + n4(close) +
        ',"entry":' + n4(entryPrice) +
        ',"entryTime":' + str.tostring(entryTime) +

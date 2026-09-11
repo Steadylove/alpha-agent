@@ -29,8 +29,8 @@ async function fetchDesk(file: string, init?: RequestInit): Promise<Response> {
   return res;
 }
 
-export async function readDeskJson(file: string): Promise<unknown> {
-  const res = await fetchDesk(file);
+export async function readDeskJson(file: string, signal?: AbortSignal): Promise<unknown> {
+  const res = await fetchDesk(file, { signal });
   if (!res.ok) throw new Error(`VPS 读取失败 HTTP ${res.status}`);
   const text = await res.text();
   if (!text.trim()) return null;
@@ -53,9 +53,10 @@ export async function postComputeLiveBooks(): Promise<unknown> {
   return json;
 }
 
-export async function writeDeskJson(file: string, value: unknown, expectedUpdatedAt?: string): Promise<void> {
+export async function writeDeskJson(file: string, value: unknown, expectedUpdatedAt?: string, signal?: AbortSignal): Promise<void> {
   const res = await fetchDesk(file, {
     method: "PUT",
+    signal,
     headers: { "content-type": "application/json", ...(expectedUpdatedAt != null ? { "if-match": JSON.stringify(expectedUpdatedAt) } : {}) },
     body: `${JSON.stringify(value, null, 2)}\n`,
   });

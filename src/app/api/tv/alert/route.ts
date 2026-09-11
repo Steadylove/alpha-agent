@@ -18,7 +18,6 @@ import { ensureRpsSnapshot, lookupAlertRps, resolveAlertTimeframe } from "@/lib/
 import { renderSignalOgPng } from "@/lib/discord/signalCardOg";
 import {
   alertTimeframeSuffix,
-  buildAlertView,
   buyPassesGate,
   rpsMinOf,
   type AlertPayload,
@@ -26,6 +25,8 @@ import {
 import { STRATEGY_NAME } from "@/lib/discord/brand";
 import { lookupAlertFundScore } from "@/lib/jobs/fundScore";
 import { postSignalImage } from "@/lib/notifications/postSignalImage";
+import { assessedAlertView } from "@/lib/signals/journal";
+import { EXIT_REASONS } from "@/lib/signals/assessment";
 
 function tfLabel(period: string): string {
   const mins = Number(period);
@@ -43,7 +44,8 @@ function parsePayload(raw: unknown): AlertPayload | null {
   if (p.event !== "buy" && p.event !== "sell") return null;
   if (typeof p.symbol !== "string" || !p.symbol) return null;
   if (typeof p.tf !== "string") return null;
-  if (!isNum(p.price)) return null;
+  if (!isNum(p.price) || p.price <= 0) return null;
+  if (p.exitReason != null && (typeof p.exitReason !== "string" || !Object.hasOwn(EXIT_REASONS, p.exitReason))) return null;
   return p as unknown as AlertPayload;
 }
 
@@ -82,12 +84,14 @@ export async function deliverTvAlert(payload: AlertPayload, webhookUrl: string):
   }
 
   let fund;
-  try {
-    fund = await lookupAlertFundScore(payload.symbol);
-  } catch {
-    fund = undefined;
+  // 重放旧买点不能把今天的财务/截面排名写成历史入场评分。
+  // 已存快照由 journal 原样复用；没存过的旧信号仅评可核对的技术部分。
+  const timely = !isNum(payload.barTime) || (Date.now() - payload.barTime >= -60_000 && Date.now() - payload.barTime <= 15 * 60_000);
+  if (payload.event !== "buy" || timely) {
+    try { fund = await lookupAlertFundScore(payload.symbol); }
+    catch { fund = undefined; }
   }
-  const view = buildAlertView(payload, label, rps ?? undefined, fund);
+  const view = await assessedAlertView(payload, label, payload.event === "buy" && !timely ? undefined : rps ?? undefined, fund);
   await postSignalImage(webhookUrl, {
     filename: `signal-${payload.symbol}.png`,
     eventKey,

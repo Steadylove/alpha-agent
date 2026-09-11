@@ -63,6 +63,13 @@ it('旧版没有 K 线时间时不误吞另一笔同价位交易', async () => {
   await deliverTvAlert(payload, hook); await deliverTvAlert(payload, hook);
   expect(mocks.push.mock.calls[0][1].eventKey).not.toBe(mocks.push.mock.calls[1][1].eventKey);
 });
+it('重放旧买点不会将当前财务和强度当作历史评分资料', async () => {
+  mocks.lookup.mockReturnValue({ rps: 90 });
+  await deliverTvAlert({ event: 'buy', symbol: 'CF', tf: '240', kind: 1, price: 100, barTime: 1000 }, hook);
+  expect(mocks.fund).not.toHaveBeenCalled();
+  expect(mocks.render.mock.calls[0][0].quality.available).toBe(0);
+  expect(mocks.render.mock.calls[0][0].rps).toBeUndefined();
+});
 it('卖点快照进入渲染器并复用同一张图发送双平台，坏快照仍发原卡片', async () => {
   const payload = { event: 'sell', symbol: 'CF', tf: '240', price: 110, entry: 100, kind: 1, entryTime: 1000, barTime: 3000,
     chart: { version: 1, stride: 1, bars: [[1000, 2000, 100, 105, 99, 104, 98, 97, 92, 90], [2000, 3000, 104, 112, 100, 110, 99, 98, 93, 91]] } };

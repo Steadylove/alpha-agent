@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { signalCardSvg } from "@/lib/discord/signalCardImage";
 import { buildAlertView } from "@/lib/discord/tvAlertCopy";
-import { buyChartOf, sellChartOf, signalTradeChartLayout, signalTradeChartNote, signalTradeChartSvg, type SignalCandle } from "@/lib/discord/signalTradeChart";
+import { buyChartOf, sellChartOf, signalTradeChartCallouts, signalTradeChartLayout, signalTradeChartNote, signalTradeChartSvg, TRADE_CHART_WIDTH, type SignalCandle } from "@/lib/discord/signalTradeChart";
 
 const start = Date.parse("2026-09-08T13:30:00Z"), hour = 3_600_000;
 function fixture() {
@@ -42,6 +42,21 @@ describe("买卖点交易图", () => {
     expect(signalTradeChartNote(chart)).toContain("每根合并 2 根");
   });
 
+  it("同根相近买卖价的价签不重叠，仍指向真实价位且不超出图宽", () => {
+    const p = fixture(); p.entry = 109.9;
+    const chart = parse(p)!;
+    const [buy, sell] = signalTradeChartCallouts(chart);
+    const overlaps = buy.x < sell.x + sell.width && buy.x + buy.width > sell.x && buy.y < sell.y + sell.height && buy.y + buy.height > sell.y;
+    expect(overlaps).toBe(false);
+    for (const c of [buy, sell]) {
+      expect(c.x).toBeGreaterThanOrEqual(0);
+      expect(c.x + c.width).toBeLessThanOrEqual(TRADE_CHART_WIDTH);
+    }
+    const layout = signalTradeChartLayout(chart);
+    expect(buy.point).toEqual({ x: layout.x(2), y: layout.y(109.9) });
+    expect(sell.point).toEqual({ x: layout.x(2), y: layout.y(110) });
+  });
+
   it("买入早于窗口时只画参考线，不捏造窗口内的买点", () => {
     const p = fixture(); p.entryTime = start - 24 * hour;
     const chart = parse(p)!;
@@ -54,7 +69,7 @@ describe("买卖点交易图", () => {
     const p = fixture(); p.chart.bars[1][6] = null;
     const chart = parse(p)!;
     const svg = signalTradeChartSvg(chart);
-    expect(svg.match(/fill="#22D3EE"/g)).toHaveLength(2);
+    expect(svg.match(/<polygon /g)).toHaveLength(3);
     expect(svg).not.toMatch(/NaN|Infinity|null/);
   });
 
@@ -77,7 +92,7 @@ describe("买卖点交易图", () => {
     expect(parse(p)).toBeUndefined();
     const view = buildAlertView(p, "4H");
     expect(view.chart).toBeUndefined();
-    expect(view.title).toBe("止盈");
+    expect(view.title).toBe("卖点");
   });
 
   it("旧买卖点告警没有快照仍兼容", () => {

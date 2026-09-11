@@ -5,10 +5,30 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { bookCache } from "./liveBooksFixtures";
+import { tradeIdOf } from "@/lib/signals/journal";
+import { entryQualityOf } from "@/lib/signals/assessment";
 
 let dir: string;
 let child: ChildProcessWithoutNullStreams;
 let base: string;
+
+it("入场快照按交易身份隔离、鉴权、不可覆盖，并发重试不丢数据", async () => {
+  const payload = { event: "buy", symbol: "CF", tf: "240", kind: 1, price: 100, strategyKey: "rules-v1", entrySignalTime: 1000, barTime: 1000 };
+  const id = tradeIdOf(payload)!;
+  const url = `${base}/signal-entries/${id}.json`;
+  const headers = { authorization: "Bearer test-secret", "content-type": "application/json" };
+  expect((await fetch(url)).status).toBe(401);
+  expect(await (await fetch(url, { headers })).json()).toBeNull();
+  const value = { version: 1, id, capturedAt: "2026-09-11T00:00:00Z", payload, quality: entryQualityOf(payload, 80) };
+  const put = (body: unknown) => fetch(url, { method: "PUT", headers, body: JSON.stringify(body) });
+  expect((await put({ ...value, id: "bad" })).status).toBe(400);
+  const responses = await Promise.all([put(value), put({ ...value, quality: entryQualityOf(payload, 20) })]);
+  expect(responses.map((r) => r.status).sort()).toEqual([200, 409]);
+  const stored = await (await fetch(url, { headers })).json();
+  expect((await put(stored)).status).toBe(200);
+  expect((await put({ ...stored, capturedAt: "later" })).status).toBe(409);
+  expect(await (await fetch(url, { headers })).json()).toEqual(stored);
+});
 beforeAll(async () => {
   dir = mkdtempSync(path.join(tmpdir(), "desk-http-"));
   child = spawn(process.execPath, [path.join(process.cwd(), "deploy/market-http/desk-http.mjs")], {

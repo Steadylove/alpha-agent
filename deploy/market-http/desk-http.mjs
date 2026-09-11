@@ -14,6 +14,7 @@ const EMPTY = {
 };
 const MAX = 8 * 1024 * 1024;
 const VERSION = /^book-versions\/([a-zA-Z0-9-]{1,80})\.json$/;
+const SIGNAL = /^signal-(entries|reviews)\/([a-f0-9]{64})\.json$/;
 
 function atomic(file, raw) {
   mkdirSync(file.slice(0, file.lastIndexOf("/")), { recursive: true });
@@ -109,14 +110,19 @@ createServer((req, res) => {
     } catch { deny(res, 500, "cannot read book version"); }
     return;
   }
-  if (!FILES.has(name)) {
+  const signal = SIGNAL.exec(name);
+  if (!FILES.has(name) && !signal) {
     deny(res, 404, "not found");
     return;
   }
   const file = `${DIR}/${name}`;
+  if (signal && !authorized(req)) {
+    deny(res, 401, "unauthorized");
+    return;
+  }
   if (req.method === "GET") {
     try {
-      const body = existsSync(file) ? readFileSync(file) : Buffer.from(EMPTY[name] ?? "{}\n");
+      const body = existsSync(file) ? readFileSync(file) : Buffer.from(signal ? "null\n" : EMPTY[name] ?? "{}\n");
       res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
       res.end(body);
     } catch { deny(res, 500, "cannot read desk data"); }
@@ -153,6 +159,26 @@ createServer((req, res) => {
         return;
       }
       try {
+        if (signal) {
+          const next = JSON.parse(raw);
+          const p = next?.payload;
+          const expected = p && createHash("sha256").update(JSON.stringify([p.symbol?.toUpperCase(), p.tf, p.strategyKey, p.entrySignalTime])).digest("hex");
+          if (next?.version !== 1 || next?.id !== signal[2] || next.id !== expected ||
+              p?.event !== (signal[1] === "entries" ? "buy" : "sell") || !Number.isSafeInteger(p.entrySignalTime) ||
+              !p.strategyKey || !next.capturedAt || (signal[1] === "entries" ? !next.quality : !next.assessment)) {
+            deny(res, 400, "invalid signal snapshot");
+            return;
+          }
+          if (existsSync(file)) {
+            if (JSON.stringify(JSON.parse(readFileSync(file, "utf8"))) !== JSON.stringify(next)) {
+              deny(res, 409, "signal snapshot is immutable");
+              return;
+            }
+            res.writeHead(200, { "content-type": "application/json" });
+            res.end('{"ok":true}\n');
+            return;
+          }
+        }
         if (name === "book-epoch.json") {
           const previous = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
           const next = JSON.parse(raw);
