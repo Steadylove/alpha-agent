@@ -2,6 +2,8 @@ import { STRATEGY_NAME, STRATEGY_TAGLINE } from "./brand";
 import { alertCardFields, alertTimeframeSuffix, type AlertView } from "./tvAlertCopy";
 import { formatFundRatio } from "@/lib/scoring/fundScore";
 import { signalTradeChartLabels, signalTradeChartNote, TRADE_CHART_HEIGHT, type SignalTradeChart } from "./signalTradeChart";
+import { qualityDimensionLabel, qualityReasonText } from "@/lib/signals/qualityCopy";
+import { CARD_DISCLAIMER, CARD_DISCLAIMER_HEIGHT, CARD_DISCLAIMER_SIZE } from "./cardDisclaimer";
 
 import { CARD_WIDTH as SIGNAL_CARD_WIDTH, CARD_INK as SIGNAL_INK } from "./cardTheme";
 export { CARD_WIDTH as SIGNAL_CARD_WIDTH, CARD_SCALE as SIGNAL_CARD_SCALE, CARD_INK as SIGNAL_INK } from "./cardTheme";
@@ -12,7 +14,7 @@ export type SignalCardItem =
 
 function readableText(text: string): string {
   // 仅改展示用语，兼容已经冻结的评分文本，不改入场快照或评分结果。
-  return text.replace(/(\d+(?:\.\d+)?) ATR\b/g, "$1 倍平均波幅").replace(/\bATR\b/g, "波动数据");
+  return qualityReasonText(text).replace(/(\d+(?:\.\d+)?) ATR\b/g, "$1 倍平均波幅").replace(/\bATR\b/g, "波动数据");
 }
 /** 保守字宽估计用于固定图片换行；正文不靠裁切隐藏。 */
 function textWidth(text: string, size: number): number {
@@ -109,7 +111,7 @@ export function signalCardLayout(view: AlertView): { width: number; height: numb
     const start = left + 216, w = (inner - 236) / 5;
     q.dimensions.forEach((d, i) => {
       const x = start + i * w;
-      text(d.name, x, y + 28, w - 18, 15, T.secondary);
+      text(qualityDimensionLabel(d.name), x, y + 28, w - 18, 15, T.secondary);
       text(d.points == null ? "—" : String(d.points), x, y + 57, w - 18, 26, d.points == null ? T.muted : T.text, 700, "left", true);
       text(`/ ${d.max}`, x + 75, y + 65, w - 89, 12, T.muted);
       rect(x, y + 108, w - 22, 3, T.line, 1);
@@ -187,5 +189,8 @@ export function signalCardLayout(view: AlertView): { width: number; height: numb
     y += 12;
     y += paragraph(panel.note, y, 13, T.muted, left, inner, 21);
   }
-  return { width: SIGNAL_CARD_WIDTH, height: Math.ceil(y + 24), items };
+  const contentHeight = Math.ceil(y + 24);
+  line(contentHeight);
+  text(CARD_DISCLAIMER, left, contentHeight + 12, inner, CARD_DISCLAIMER_SIZE, T.muted);
+  return { width: SIGNAL_CARD_WIDTH, height: contentHeight + CARD_DISCLAIMER_HEIGHT, items };
 }

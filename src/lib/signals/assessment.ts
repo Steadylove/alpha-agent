@@ -1,6 +1,7 @@
 import type { FundScore } from "@/lib/scoring/fundScore";
 import { buyChartOf } from "@/lib/discord/signalTradeChart";
 import type { AlertPayload } from "@/lib/discord/tvAlertCopy";
+import { qualityDimensionLabel, qualityReasonText } from "./qualityCopy";
 
 export const QUALITY_VERSION = "quality-v1";
 export type QualityDimension = { name: string; points: number | null; max: number; reason: string };
@@ -73,8 +74,8 @@ export function qualityPanel(q: EntryQuality, note?: string): AssessmentPanel {
   const trend = q.dimensions.find((d) => d.name === "趋势")!;
   const risk = q.dimensions.find((d) => d.name === "风险")!;
   return { heading: "买点评分 · V1", headline: q.available ? `${q.points} / ${q.available} · ${q.label}` : "暂无评分 · 资料未齐",
-    lines: [q.dimensions.map((d) => `${d.name} ${d.points == null ? "缺" : d.points}/${d.max}`).join(" · "),
-      trend.reason, `${position.reason} · ${risk.reason}`],
+    lines: [q.dimensions.map((d) => `${qualityDimensionLabel(d.name)} ${d.points == null ? "缺" : d.points}/${d.max}`).join(" · "),
+      trend.reason, `${position.reason} · ${qualityReasonText(risk.reason)}`],
     note: note ? `观察分非胜率；${note}` : "规则观察分，非胜率；缺项不补分、不折算为百分制" };
 }
 

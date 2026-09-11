@@ -1,5 +1,6 @@
 import sharp from "sharp";
 import type { ScreenerResult, ScreenerRow } from "@/lib/jobs/alphaScreener";
+import { CARD_DISCLAIMER, CARD_DISCLAIMER_HEIGHT, CARD_DISCLAIMER_SIZE } from "./cardDisclaimer";
 
 /** 一张图展示，金融终端数据表风格（TradingView / Bloomberg 风格），极简、高密度、对齐 */
 const WIDTH = 840;
@@ -100,11 +101,12 @@ export async function renderScreenerCardPng(
   subtitleInfo: string,
   options: { overlapSymbols?: Set<string> } = {},
 ): Promise<Buffer> {
-  const height = HEADER_H + Math.max(rows.length, 1) * ROW_H;
+  const contentHeight = HEADER_H + Math.max(rows.length, 1) * ROW_H;
+  const height = contentHeight + CARD_DISCLAIMER_HEIGHT;
 
   const body =
     rows.length === 0
-      ? `<text x="${WIDTH / 2}" y="${HEADER_H + 60}" font-size="16" fill="${C.subtitle}" text-anchor="middle" font-family="${FONT}">今日无命中</text>`
+      ? `<text x="${WIDTH / 2}" y="${HEADER_H + 34}" font-size="16" fill="${C.subtitle}" text-anchor="middle" font-family="${FONT}">今日无命中</text>`
       : rows
           .map((row, i) =>
             rowSvg(row, i, HEADER_H + i * ROW_H, options.overlapSymbols?.has(row.symbol) ?? false),
@@ -135,6 +137,8 @@ export async function renderScreenerCardPng(
   ${titleSvg}
   ${colHeaders}
   ${body}
+  <line x1="32" y1="${contentHeight}" x2="${WIDTH - 32}" y2="${contentHeight}" stroke="${C.border}" stroke-width="1" />
+  <text x="32" y="${contentHeight + 27}" font-size="${CARD_DISCLAIMER_SIZE}" fill="${C.industry}" font-family="${FONT}">${esc(CARD_DISCLAIMER)}</text>
 </svg>`;
 
   return sharp(Buffer.from(svg))

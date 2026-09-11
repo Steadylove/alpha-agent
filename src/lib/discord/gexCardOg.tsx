@@ -3,6 +3,8 @@ import { ImageResponse } from "next/og";
 import { STRATEGY_NAME, STRATEGY_TAGLINE, STRATEGY_TITLE } from "./brand";
 import type { GexCardView } from "./gexCopy";
 import { loadOgFonts, OG_FONT } from "./ogFont";
+import { CARD_DISCLAIMER, CARD_DISCLAIMER_HEIGHT } from "./cardDisclaimer";
+import { CardWithDisclaimer } from "./cardDisclaimerOg";
 
 const S = 1;
 const px = (n: number) => n * S;
@@ -223,10 +225,12 @@ function GexCard({ input }: { input: GexCardView }) {
 
 export async function renderGexOgPng(input: GexCardView): Promise<Buffer> {
   const height = HEADER_H + Math.max(input.rows.length, 1) * ROW_H + FOOTER_H;
-  const image = new ImageResponse(<GexCard input={input} />, {
+  const image = new ImageResponse(<CardWithDisclaimer width={WIDTH} contentHeight={height} background={T.bg} color={T.muted} border={T.line}>
+    <GexCard input={input} />
+  </CardWithDisclaimer>, {
     width: WIDTH,
-    height,
-    fonts: await loadOgFonts(gexText(input)),
+    height: height + CARD_DISCLAIMER_HEIGHT,
+    fonts: await loadOgFonts(`${gexText(input)} ${CARD_DISCLAIMER}`),
   });
   return Buffer.from(await image.arrayBuffer());
 }

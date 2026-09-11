@@ -4,6 +4,8 @@ import { STRATEGY_NAME, STRATEGY_TAGLINE, STRATEGY_TITLE } from "./brand";
 import type { GexCardView, GexRowView } from "./gexCopy";
 import type { GexBriefView, MarketStateView } from "./marketStateCopy";
 import { loadOgFonts, OG_FONT } from "./ogFont";
+import { CARD_DISCLAIMER, CARD_DISCLAIMER_HEIGHT } from "./cardDisclaimer";
+import { CardWithDisclaimer } from "./cardDisclaimerOg";
 
 const px = (n: number) => n;
 const WIDTH = px(960);
@@ -261,10 +263,12 @@ export async function renderGexBriefOgPng(input: GexBriefView): Promise<Buffer> 
   const levels = Math.max(input.state.levels.length, 1);
   const closeLines = Math.max(input.state.close.split(/(?<=。)/).filter((line) => line.trim()).length, 1);
   const height = px(248) + rows * ROW_H + px(92) + levels * LEVEL_H + px(56) + closeLines * px(22);
-  const image = new ImageResponse(<GexBriefCard input={input} />, {
+  const image = new ImageResponse(<CardWithDisclaimer width={WIDTH} contentHeight={height} background={T.bg} color={T.muted} border={T.line}>
+    <GexBriefCard input={input} />
+  </CardWithDisclaimer>, {
     width: WIDTH,
-    height,
-    fonts: await loadOgFonts(briefText(input)),
+    height: height + CARD_DISCLAIMER_HEIGHT,
+    fonts: await loadOgFonts(`${briefText(input)} ${CARD_DISCLAIMER}`),
   });
   return Buffer.from(await image.arrayBuffer());
 }

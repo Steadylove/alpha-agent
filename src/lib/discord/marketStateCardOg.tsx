@@ -3,6 +3,8 @@ import { ImageResponse } from "next/og";
 import { STRATEGY_NAME, STRATEGY_TAGLINE, STRATEGY_TITLE } from "./brand";
 import type { MarketStateView } from "./marketStateCopy";
 import { loadOgFonts, OG_FONT } from "./ogFont";
+import { CARD_DISCLAIMER, CARD_DISCLAIMER_HEIGHT } from "./cardDisclaimer";
+import { CardWithDisclaimer } from "./cardDisclaimerOg";
 
 const px = (n: number) => n;
 const WIDTH = px(960);
@@ -169,10 +171,12 @@ function MarketStateCard({ input }: { input: MarketStateView }) {
 
 export async function renderMarketStateOgPng(input: MarketStateView): Promise<Buffer> {
   const height = px(214) + px(90) + input.levels.length * px(48) + input.peers.length * px(28) + px(120);
-  const image = new ImageResponse(<MarketStateCard input={input} />, {
+  const image = new ImageResponse(<CardWithDisclaimer width={WIDTH} contentHeight={height} background={T.bg} color={T.muted} border={T.line}>
+    <MarketStateCard input={input} />
+  </CardWithDisclaimer>, {
     width: WIDTH,
-    height,
-    fonts: await loadOgFonts(stateText(input)),
+    height: height + CARD_DISCLAIMER_HEIGHT,
+    fonts: await loadOgFonts(`${stateText(input)} ${CARD_DISCLAIMER}`),
   });
   return Buffer.from(await image.arrayBuffer());
 }
