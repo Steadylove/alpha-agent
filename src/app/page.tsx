@@ -1,9 +1,8 @@
 import { MacroPhaseBanner } from "@/components/MacroPhaseBanner";
 import { getMprData } from "@/lib/dashboard/mpr";
 import { getRotationData } from "@/lib/dashboard/rotation";
-import { getStockPanelData } from "@/lib/dashboard/stockPanel";
 import Link from "next/link";
-import { ArrowRight, Microscope, Radar, Repeat } from "lucide-react";
+import { ArrowRight, Radar, Repeat } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 /**
@@ -75,25 +74,16 @@ function ModuleCard({
 }
 
 export default async function DashboardPage() {
-  const [mpr, rotation, panel] = await Promise.all([
-    getMprData(),
-    getRotationData(),
-    getStockPanelData(),
-  ]);
-
-  const leadSector = panel.sectorClock.find((s) => s.rank === 1);
-  const actionable = panel.rows.filter((r) =>
-    ["enter_standard", "enter_light", "breakout_follow"].includes(r.tacticalAction),
-  ).length;
-  const asOf = mpr.latest?.date ?? rotation.latestDate ?? panel.latestDate;
+  const [mpr, rotation] = await Promise.all([getMprData(), getRotationData()]);
+  const asOf = mpr.latest?.date ?? rotation.latestDate;
 
   return (
     <div className="space-y-8">
       <div className="rise-in">
         <h1 className="text-3xl font-semibold tracking-tight text-zinc-50">市场罗盘</h1>
         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-400">
-          跟踪 40 只美股核心标的的宏观环境、轮动动能与个股买卖点。
-          三个模块回答三个问题：现在能不能重仓、该拿哪几只、这一只今天该怎么办。
+          跟踪 40 只美股核心标的的宏观环境与轮动动能。
+          两个模块回答两个问题：现在能不能重仓、该拿哪几只。
         </p>
         {asOf ? (
           <p className="mt-2 font-mono text-xs text-zinc-600">数据截至 {asOf}</p>
@@ -104,7 +94,7 @@ export default async function DashboardPage() {
         <MacroPhaseBanner latest={mpr.latest} />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 lg:grid-cols-2">
         <ModuleCard
           delay={140}
           href="/mpr"
@@ -140,26 +130,6 @@ export default async function DashboardPage() {
                     label: "年内胜率",
                     value: `${rotation.stats.winRatePct.toFixed(0)}%`,
                     hint: `${rotation.stats.trades} 笔交易`,
-                  },
-                ]
-              : [{ label: "数据生成中", value: "—" }]
-          }
-        />
-
-        <ModuleCard
-          delay={300}
-          href="/depth"
-          icon={Microscope}
-          title="个股深度面板"
-          question="逐只看：现在是建仓、持有、还是回避？"
-          stats={
-            panel.latestDate
-              ? [
-                  { label: "今日可建仓", value: `${actionable}`, hint: `共跟踪 ${panel.rows.length} 只` },
-                  {
-                    label: "领涨行业",
-                    value: leadSector?.name ?? "—",
-                    hint: leadSector?.symbol,
                   },
                 ]
               : [{ label: "数据生成中", value: "—" }]

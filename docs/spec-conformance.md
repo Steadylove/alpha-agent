@@ -111,12 +111,10 @@ Compass Pine 里内嵌了一套简化版 MPR，与 MPR Pine 的完整版口径�
 先跑三个 backfill 补日线，再由 `npm run jobs:daily` 按依赖顺序执行：
 
 ```
-macro-phase → short-interest → rotation-radar → stock-panel → stock-valuation
+macro-phase → rotation-radar → fund-score
 ```
 
-顺序约束有两条：`macro-phase` 的产出被后面三个读取（低吸带 Path 4 冻结、估值的 fsmState/pathId、提前保本的宏观条件）；`short-interest` 必须早于 `stock-valuation`，否则轧空档位读到上一期。
-
-`short-interest` 是唯一的软失败步骤——它依赖 FINRA 与 SEC 两个外部免费接口且双月才换一期，挂掉时估值沿用上一期缓存即可，不该拖垮整条链。
+`macro-phase` 的产出被 `rotation-radar` 读取。`fund-score` 是软失败步骤，挂掉不应拖垮整条链。
 
 ### 调度相关的已知问题
 

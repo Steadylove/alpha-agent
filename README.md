@@ -1,6 +1,6 @@
 # Market Compass
 
-美股中短线波段分析 MVP：公开数据源采集、量化评分、中文日报、Discord 推送和 Next.js 前端看板。
+美股中短线波段分析：公开数据源采集、量化评分、Discord 推送和 Next.js 前端看板。
 
 ## 本地启动
 
@@ -11,18 +11,9 @@ npm run prisma:generate
 npm run dev
 ```
 
-未配置 `DATABASE_URL` 时，前端会使用 demo fallback 数据，方便先查看界面。
-
 ## 每日任务
 
-配置数据库和 `CRON_SECRET` 后，可以手动触发：
-
-```bash
-curl -X POST http://localhost:3000/api/jobs/daily-report \
-  -H "x-cron-secret: $CRON_SECRET"
-```
-
-部署到 Vercel 时，可用 Vercel Cron 调用 `/api/jobs/daily-report`，并在请求头携带 `x-cron-secret`。
+VPS cron 跑 `npm run jobs:daily`（宏观相变、轮动雷达、基本面评分）以及账本、GEX、筛选推送。
 
 ## 傻瓜式部署（Vercel）
 

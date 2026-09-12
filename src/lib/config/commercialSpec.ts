@@ -17,7 +17,7 @@
  * 需要对齐商业化文档时在这里逐项打开，改完重跑对应任务即可，无需改代码。
  *
  * 打开后必须重跑受影响的任务才会体现到库里：前三项改的是 `rotation-radar`
- * 与 `stock-panel` 的写入结果，第四项只影响读取时的看板计算。
+ * 的写入结果，第四项只影响读取时的看板计算。
  *
  * ## 一处有反向证据的开关
  *
@@ -38,7 +38,7 @@ export type CommercialSpecFlags = {
   rsEntryVeto: boolean;
   /**
    * Path 2 或 5 日下跌概率 >= 60% 时，保本触发从 +10% 提前到 +5%。
-   * 生效于 `jobs/rotationRadar.ts` 与 `jobs/stockPanel.ts` 两套风控引擎。
+   * 生效于 `jobs/rotationRadar.ts`。
    */
   earlyBreakeven: boolean;
   /**

@@ -94,34 +94,6 @@ export type ExecutionPlan = {
   valuation: Valuation;
 };
 
-export type DailyReportInput = {
-  date: string;
-  marketMetric: MarketMetric;
-  sectorScores: SectorScore[];
-  stockScores: StockScore[];
-  watchlistChanges: WatchlistChange[];
-  newsItems: NewsItem[];
-  insights?: ReportInsights | null;
-  execution?: ExecutionPlan | null;
-  executions?: ExecutionPlan[];
-};
-
-export type ReportInsights = {
-  marketNarrative: string;
-  themeChain: string[];
-  beneficiarySectors: string[];
-  sectorHeadlines?: Record<string, string>;
-  featuredQuality?: string | null;
-};
-
-export type DailyReport = {
-  date: string;
-  title: string;
-  summary: string;
-  body: string;
-  version: string;
-};
-
 export type NewsItem = {
   externalId: string;
   date: string;

@@ -28,7 +28,6 @@
     "backtest:portfolio": "npx --yes tsx scripts/backtest-portfolio.ts",
     "backtest:rotation": "npx --yes tsx scripts/backtest-rotation.ts",
     "calibrate:rotation": "npx --yes tsx scripts/calibrate-rotation.ts",
-    "calibrate:stock-panel": "npx --yes tsx scripts/calibrate-stock-panel.ts",
     "compare:mpr": "npx --yes tsx scripts/compare-mpr-tradingview.ts",
     "smallfund:fetch": "npx --yes tsx scripts/fetch-smallfund-csv.ts",
     "smallfund:fetch-4h": "npx --yes tsx scripts/fetch-smallfund-4h.ts",
