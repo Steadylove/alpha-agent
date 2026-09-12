@@ -1,9 +1,9 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
-import { groupStocksBySector } from "@/lib/opportunity/groupStocks";
+import { flattenStocksBySector, matchStock, pageSlice } from "@/lib/opportunity/groupStocks";
 import type { OpportunityData, OpportunitySectorRow, OpportunityStock } from "@/lib/opportunity/types";
 import type { SectorClockStatus } from "@/lib/scoring/sectorClock";
 
@@ -100,7 +100,73 @@ function SectorTable({ rows }: { rows: OpportunitySectorRow[] }) {
   );
 }
 
-function StockGroups({
+const PAGE_SIZE = 20;
+
+function sectorTitle(stock: OpportunityStock, sectors: OpportunitySectorRow[]): string {
+  return sectors.find((s) => s.id === stock.sectorId)?.name ?? "未分类";
+}
+
+function StockTable({
+  rows,
+  sectors,
+  showPoolMark,
+}: {
+  rows: OpportunityStock[];
+  sectors: OpportunitySectorRow[];
+  showPoolMark: boolean;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="table-fixed">
+        <colgroup>
+          <col className="w-20" />
+          <col className="w-24" />
+          <col />
+          <col className="w-24" />
+          <col className="w-16" />
+          <col className="w-40" />
+        </colgroup>
+        <thead>
+          <tr>
+            <th>代码</th>
+            <th>行业</th>
+            <th>细分</th>
+            <th className="text-right">RPS250</th>
+            <th className="text-right">Δ</th>
+            <th>标记</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((s) => (
+            <tr key={s.symbol}>
+              <td>
+                <Link
+                  href={`/desk?q=${encodeURIComponent(s.symbol)}`}
+                  className="font-mono text-zinc-100 underline decoration-zinc-700 underline-offset-2 hover:decoration-(--accent)"
+                >
+                  {s.symbol}
+                </Link>
+              </td>
+              <td className="text-zinc-400">{sectorTitle(s, sectors)}</td>
+              <td className="truncate text-zinc-400">{s.industryLabel || "—"}</td>
+              <td className="text-right font-mono">
+                {s.rps250 == null ? "—" : s.rps250.toFixed(0)}
+              </td>
+              <td className="text-right font-mono">
+                <Delta value={s.rpsDelta} />
+              </td>
+              <td className="whitespace-nowrap">
+                <Marks stock={s} showPool={showPoolMark} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function PagedStockList({
   stocks,
   sectors,
   showPoolMark,
@@ -111,66 +177,61 @@ function StockGroups({
   showPoolMark: boolean;
   empty?: string;
 }) {
-  if (stocks.length === 0) {
-    return <p className="text-xs text-zinc-600">{empty ?? "没有符合条件的票。"}</p>;
-  }
-  const groups = groupStocksBySector(stocks, sectors);
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const matched = useMemo(() => {
+    return flattenStocksBySector(stocks, sectors).filter((s) =>
+      matchStock(s, query, sectorTitle(s, sectors)),
+    );
+  }, [stocks, sectors, query]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [query, stocks]);
+
+  const slice = pageSlice(matched, page, PAGE_SIZE);
+
   return (
-    <div className="overflow-x-auto">
-      <table className="table-fixed">
-        <colgroup>
-          <col className="w-20" />
-          <col />
-          <col className="w-24" />
-          <col className="w-16" />
-          <col className="w-40" />
-        </colgroup>
-        <thead>
-          <tr>
-            <th>代码</th>
-            <th>细分</th>
-            <th className="text-right">RPS250</th>
-            <th className="text-right">Δ</th>
-            <th>标记</th>
-          </tr>
-        </thead>
-        <tbody>
-          {groups.map((g, i) => (
-            <Fragment key={g.key}>
-              <tr className="bg-transparent! hover:bg-transparent!">
-                <td
-                  colSpan={5}
-                  className={`border-transparent bg-transparent! text-xs text-zinc-500 ${i === 0 ? "pt-0" : "pt-5"} pb-1`}
-                >
-                  {g.title} · {g.rows.length} 只
-                </td>
-              </tr>
-              {g.rows.map((s) => (
-                <tr key={s.symbol}>
-                  <td>
-                    <Link
-                      href={`/desk?q=${encodeURIComponent(s.symbol)}`}
-                      className="font-mono text-zinc-100 underline decoration-zinc-700 underline-offset-2 hover:decoration-(--accent)"
-                    >
-                      {s.symbol}
-                    </Link>
-                  </td>
-                  <td className="truncate text-zinc-400">{s.industryLabel || "—"}</td>
-                  <td className="text-right font-mono">
-                    {s.rps250 == null ? "—" : s.rps250.toFixed(0)}
-                  </td>
-                  <td className="text-right font-mono">
-                    <Delta value={s.rpsDelta} />
-                  </td>
-                  <td className="whitespace-nowrap">
-                    <Marks stock={s} showPool={showPoolMark} />
-                  </td>
-                </tr>
-              ))}
-            </Fragment>
-          ))}
-        </tbody>
-      </table>
+    <div>
+      <label className="mb-4 block text-xs text-zinc-500">
+        搜索代码 / 名称 / 行业
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="NVDA 或 能源"
+          className="mt-1 block h-11 w-full max-w-xs rounded-lg border border-(--border-subtle) bg-(--surface-sunken) px-3 text-sm text-zinc-100"
+        />
+      </label>
+      {slice.rows.length === 0 ? (
+        <p className="text-xs text-zinc-600">{empty ?? "没有符合条件的票。"}</p>
+      ) : (
+        <StockTable rows={slice.rows} sectors={sectors} showPoolMark={showPoolMark} />
+      )}
+      {matched.length > 0 ? (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-zinc-500">
+          <p>
+            第 {slice.page} / {slice.pages} 页 · {matched.length} 只 · 每页 {PAGE_SIZE} 只
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={slice.page <= 1}
+              onClick={() => setPage(slice.page - 1)}
+              className="inline-flex min-h-11 items-center rounded-lg border border-(--border-subtle) px-3 text-zinc-200 disabled:opacity-40"
+            >
+              上一页
+            </button>
+            <button
+              type="button"
+              disabled={slice.page >= slice.pages}
+              onClick={() => setPage(slice.page + 1)}
+              className="inline-flex min-h-11 items-center rounded-lg border border-(--border-subtle) px-3 text-zinc-200 disabled:opacity-40"
+            >
+              下一页
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -182,13 +243,10 @@ function UniverseSection({
   stocks: OpportunityStock[];
   sectors: OpportunitySectorRow[];
 }) {
-  const [query, setQuery] = useState("");
   const [scope, setScope] = useState<"all" | "strong" | "pool">("all");
-  const q = query.trim().toUpperCase();
   const strongCount = stocks.filter((s) => (s.rps250 ?? 0) >= 80).length;
   const poolCount = stocks.filter((s) => s.inLivePool).length;
   const shown = stocks.filter((s) => {
-    if (q && !s.symbol.includes(q)) return false;
     if (scope === "strong") return (s.rps250 ?? 0) >= 80;
     if (scope === "pool") return s.inLivePool;
     return true;
@@ -200,45 +258,29 @@ function UniverseSection({
       <p className="mb-4 text-xs text-zinc-500">
         标普日线截面 {stocks.length} 只，不是现网 55 只。点代码只去信号台，不加池。
       </p>
-      <div className="mb-4 flex flex-wrap items-end gap-3">
-        <label className="block text-xs text-zinc-500">
-          找代码
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value.toUpperCase())}
-            placeholder="NVDA"
-            className="mt-1 block h-9 w-32 rounded-lg border border-(--border-subtle) bg-(--surface-sunken) px-2 font-mono text-sm text-zinc-100"
-          />
-        </label>
-        <div className="flex flex-wrap gap-2">
-          {(
-            [
-              ["all", `全部 ${stocks.length}`],
-              ["strong", `强势 ${strongCount}`],
-              ["pool", `在池 ${poolCount}`],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setScope(id)}
-              className={`h-9 rounded-lg border px-3 text-xs ${
-                scope === id
-                  ? "border-(--border-strong) bg-(--surface-hover) text-zinc-100"
-                  : "border-(--border-subtle) text-zinc-400"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+      <div className="mb-4 flex flex-wrap gap-2">
+        {(
+          [
+            ["all", `全部 ${stocks.length}`],
+            ["strong", `强势 ${strongCount}`],
+            ["pool", `在池 ${poolCount}`],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setScope(id)}
+            className={`inline-flex min-h-11 items-center rounded-lg border px-3 text-xs ${
+              scope === id
+                ? "border-(--border-strong) bg-(--surface-hover) text-zinc-100"
+                : "border-(--border-subtle) text-zinc-400"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
-      <StockGroups
-        stocks={shown}
-        sectors={sectors}
-        showPoolMark
-        empty={q ? "名单里没有这个代码" : "没有符合条件的票"}
-      />
+      <PagedStockList stocks={shown} sectors={sectors} showPoolMark empty="没有符合条件的票" />
     </section>
   );
 }
@@ -279,7 +321,7 @@ export function OpportunityBoard({ data }: { data: OpportunityData }) {
         <section className="rounded-xl border border-(--border-subtle) bg-(--surface-raised) p-5">
           <h2 className="mb-2 text-sm font-semibold text-zinc-100">现网池对照</h2>
           <p className="mb-4 text-xs text-zinc-500">这 {data.pool.length} 只是现网名单，只对照，不改。</p>
-          <StockGroups stocks={data.pool} sectors={data.sectors} showPoolMark={false} />
+          <PagedStockList stocks={data.pool} sectors={data.sectors} showPoolMark={false} />
         </section>
       ) : null}
     </div>

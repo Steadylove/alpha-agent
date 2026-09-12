@@ -1,4 +1,4 @@
-import { groupStocksBySector } from "@/lib/opportunity/groupStocks";
+import { groupStocksBySector, matchStock, pageSlice } from "@/lib/opportunity/groupStocks";
 import type { OpportunitySectorRow, OpportunityStock } from "@/lib/opportunity/types";
 import { describe, expect, it } from "vitest";
 
@@ -51,5 +51,22 @@ describe("groupStocksBySector", () => {
       ["ENERGY", ["XOM"]],
       ["none", ["ZZZZ"]],
     ]);
+  });
+});
+
+describe("matchStock", () => {
+  it("匹配代码、名称、细分和行业名", () => {
+    const nvda = stock({ symbol: "NVDA", name: "NVIDIA", industryLabel: "半导体" });
+    expect(matchStock(nvda, "nvd", "信息科技")).toBe(true);
+    expect(matchStock(nvda, "半导体", "信息科技")).toBe(true);
+    expect(matchStock(nvda, "科技", "信息科技")).toBe(true);
+    expect(matchStock(nvda, "XOM", "信息科技")).toBe(false);
+  });
+});
+
+describe("pageSlice", () => {
+  it("按页切开并夹紧页码", () => {
+    expect(pageSlice(["a", "b", "c"], 2, 2)).toEqual({ page: 2, pages: 2, rows: ["c"] });
+    expect(pageSlice(["a", "b"], 9, 2)).toEqual({ page: 1, pages: 1, rows: ["a", "b"] });
   });
 });
