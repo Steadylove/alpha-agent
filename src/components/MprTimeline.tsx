@@ -2,6 +2,7 @@
 
 import { Card } from "@/components/Card";
 import type { MprHistoryPoint } from "@/lib/dashboard/mpr";
+import { MPR_PATH_LABEL } from "@/lib/scoring/mprReading";
 import { Group, Stack, Text } from "@mantine/core";
 import { useState } from "react";
 
@@ -12,14 +13,6 @@ const PATH_COLOR: Record<number, string> = {
   2: "#f97316",
   3: "#eab308",
   4: "#ef4444",
-};
-
-const PATH_LABEL: Record<number, string> = {
-  0: "P0 稳态自洽",
-  1: "P1 跨市场暗流",
-  2: "P2 相变扩散",
-  3: "P3 微观漂移",
-  4: "P4 破位确认",
 };
 
 /**
@@ -61,10 +54,10 @@ export function MprTimeline({ history }: { history: MprHistoryPoint[] }) {
       title={
         <Stack gap={2}>
           <Text size="sm" fw={700} c="gray.1">
-            路径与风险分历史
+            区制与压力分历史
           </Text>
           <Text size="xs" c="dimmed">
-            近 {history.length} 个交易日 · 柱高为风险分，颜色为传导路径，白线为 SPY 走势
+            近 {history.length} 个交易日 · 柱高为压力分，颜色为区制，白线为 SPY 走势
           </Text>
         </Stack>
       }
@@ -74,10 +67,10 @@ export function MprTimeline({ history }: { history: MprHistoryPoint[] }) {
             {active.date}
           </Text>
           <Text size="xs" fw={600} style={{ color: PATH_COLOR[active.pathId] }}>
-            {PATH_LABEL[active.pathId]}
+            {MPR_PATH_LABEL[active.pathId]}
           </Text>
           <Text size="xs" ff="monospace" c="gray.3">
-            Risk {active.marketRiskScore.toFixed(0)}
+            压力 {active.marketRiskScore.toFixed(0)}
           </Text>
           {active.spyClose != null ? (
             <Text size="xs" ff="monospace" c="dimmed">
@@ -118,7 +111,7 @@ export function MprTimeline({ history }: { history: MprHistoryPoint[] }) {
               onMouseEnter={() => setHovered(index)}
               onFocus={() => setHovered(index)}
               title={
-                `${day.date} · ${PATH_LABEL[day.pathId]} · Risk ${day.marketRiskScore.toFixed(0)}` +
+                `${day.date} · ${MPR_PATH_LABEL[day.pathId]} · 压力 ${day.marketRiskScore.toFixed(0)}` +
                 (day.spyClose != null ? ` · SPY ${day.spyClose.toFixed(2)}` : "")
               }
               className="min-w-0 flex-1 cursor-default rounded-sm p-0 transition-opacity hover:opacity-100"
@@ -151,7 +144,7 @@ export function MprTimeline({ history }: { history: MprHistoryPoint[] }) {
                   style={{ backgroundColor: PATH_COLOR[pathId] }}
                 />
                 <Text size="xs" c="dimmed">
-                  {PATH_LABEL[pathId]}
+                  {MPR_PATH_LABEL[pathId]}
                 </Text>
                 <Text size="xs" c="gray.3" ff="monospace">
                   {count} 天 · {((count / history.length) * 100).toFixed(0)}%

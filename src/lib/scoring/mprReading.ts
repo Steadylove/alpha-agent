@@ -28,18 +28,18 @@ export type MacroReading = {
 /** σ 分级的「异动」门槛，与 Pine 一致。 */
 const SIGMA_ACTIVE = 50;
 
-const PATH_LABEL: Record<number, string> = {
-  0: "P0 稳态自洽",
-  1: "P1 跨市场暗流",
-  2: "P2 相变扩散",
-  3: "P3 微观漂移",
-  4: "P4 破位确认",
+export const MPR_PATH_LABEL: Record<number, string> = {
+  0: "P0 环境安静",
+  1: "P1 衍生品/信用先动",
+  2: "P2 压力扩散",
+  3: "P3 仅现货异动",
+  4: "P4 高波动",
 };
 
 export function macroPhaseReading(day: MacroPhaseSnapshot): MacroReading {
   const activeDomains = [day.domVol, day.domCred, day.domSpot].filter((v) => v >= SIGMA_ACTIVE);
   const isPathZeroFallthrough = day.pathId === 0 && activeDomains.length > 0;
-  const pathLabel = PATH_LABEL[day.pathId] ?? `P${day.pathId}`;
+  const pathLabel = MPR_PATH_LABEL[day.pathId] ?? `P${day.pathId}`;
 
   if (isPathZeroFallthrough) {
     return {

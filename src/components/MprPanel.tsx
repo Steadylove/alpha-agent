@@ -2,12 +2,7 @@
 
 import { Card } from "@/components/Card";
 import type { MacroPhaseSnapshot } from "@/lib/dashboard/mpr";
-import {
-  actionText,
-  pathTopology,
-  topRiskFactors,
-  transitionGrade,
-} from "@/lib/scoring/mprGuidance";
+import { MPR_PATH_LABEL, macroPhaseReading } from "@/lib/scoring/mprReading";
 import {
   Alert,
   Group,
@@ -23,33 +18,29 @@ import type { ReactNode } from "react";
 
 /** 与 Pine 的 state_color 对应：S0 绿 / S1 黄 / S2 橙 / S3 红。 */
 const STATE_META: Record<number, { label: string; color: string }> = {
-  0: { label: "S0 多头稳态", color: "teal" },
-  1: { label: "S1 动能减弱", color: "yellow" },
-  2: { label: "S2 承压下行", color: "orange" },
-  3: { label: "S3 破位危机", color: "red" },
+  0: { label: "S0 环境安静", color: "teal" },
+  1: { label: "S1 局部异动", color: "yellow" },
+  2: { label: "S2 压力扩散", color: "orange" },
+  3: { label: "S3 高波动", color: "red" },
 };
 
-const PATH_META: Record<number, { label: string; color: string; note: string }> = {
+const PATH_META: Record<number, { color: string; note: string }> = {
   0: {
-    label: "P0 稳态自洽",
     color: "teal",
     note: "兜底分支。原版判定树在此处有覆盖空洞，破坏度落在 60~70 且三域承压时也会落到这里，不等于「安全」。",
   },
   1: {
-    label: "P1 跨市场暗流",
     color: "yellow",
-    note: "衍生品或信用域异动、现货尚未反应。历史校准显示该路径后续 5 日下跌频率 29.1%，低于 39.1% 的基准。",
+    note: "衍生品或信用域异动、现货尚未反应。历史校准显示该路径后续 5 日下跌频率 29.1%，低于 39.1% 的基准，并非看空。",
   },
   2: {
-    label: "P2 相变扩散",
     color: "orange",
     note: "压力已扩散至现货。占全部交易日 35.3%，触发过于频繁，历史下跌频率 38.0% 与基准无异。",
   },
-  3: { label: "P3 微观漂移", color: "yellow", note: "仅现货域异动，衍生品与信用域平静。" },
+  3: { color: "yellow", note: "仅现货域异动，衍生品与信用域平静。" },
   4: {
-    label: "P4 破位确认",
     color: "red",
-    note: "唯一有统计意义的路径：后续 5 日跌幅超 3% 的概率 11.9%，约为其他路径的 3~4 倍。但同时平均收益也最高（+0.59%），应理解为「高波动区制」而非「看跌」。",
+    note: "唯一有统计意义的路径：后续 5 日跌幅超 3% 的概率 11.9%，约为其他路径的 3~4 倍。同时平均收益也最高（+0.59%），是高波动区制，不是看跌。",
   },
 };
 
@@ -169,90 +160,6 @@ function ForceBar({ force, day }: { force: ForceDef; day: MacroPhaseSnapshot }) 
 /** Pine 的 σ 分级：压力分位跨过 50 记异动、跨过 75 记极端。 */
 const SIGMA_LABEL: Record<number, string> = { 0: "静", 1: "异动", 2: "极端" };
 
-const TONE_COLOR: Record<string, string> = {
-  positive: "teal",
-  caution: "yellow",
-  warning: "orange",
-  danger: "red",
-};
-
-/**
- * Pine 第 246~289 行的实战指引与致险因子排序。
- *
- * 这是原版口径，会直接给方向与仓位。项目自己的校准判读（mprReading）刻意不给，
- * 因为 3928 日回测显示路径分级对 5 日方向没有预测力。两者并列展示，标签写清来源。
- */
-function GuidanceCard({ day }: { day: MacroPhaseSnapshot }) {
-  const topo = pathTopology(day.pathId);
-  const trans = transitionGrade(day.pathId);
-  const top = topRiskFactors(day);
-  const act = actionText(day.pathId);
-
-  return (
-    <Card
-      title={
-        <Stack gap={2}>
-          <Text size="sm" fw={700} c="gray.1">
-            原版实战指引
-          </Text>
-          <Text size="xs" c="dimmed">
-            按原始策略的口径直译 · 本项目的历史校准并不支持据此判断方向，仅作对照
-          </Text>
-        </Stack>
-      }
-    >
-      <Stack gap="sm">
-        <Text size="sm" fw={600} c={`${TONE_COLOR[topo.tone]}.4`}>
-          {act}
-        </Text>
-
-        <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="sm">
-          <Stack gap={2}>
-            <Text size="xs" c="dimmed">
-              拓扑判定
-            </Text>
-            <Text size="xs" c={`${TONE_COLOR[topo.tone]}.4`} fw={500}>
-              {topo.label}
-            </Text>
-          </Stack>
-          <Stack gap={2}>
-            <Text size="xs" c="dimmed">
-              相变分级
-            </Text>
-            <Text size="xs" c={`${TONE_COLOR[trans.tone]}.4`} fw={500}>
-              {trans.label}
-            </Text>
-            <Text size="xs" c="dimmed">
-              {trans.desc}
-            </Text>
-          </Stack>
-          <Stack gap={2}>
-            <Text size="xs" c="dimmed">
-              建议总敞口
-            </Text>
-            <Text size="xs" c="gray.2" fw={500} ff="monospace">
-              {topo.exposureText}
-            </Text>
-          </Stack>
-        </SimpleGrid>
-
-        <Stack gap={2}>
-          <Text size="xs" c="dimmed">
-            当前压力最高的两个力场
-          </Text>
-          <Group gap="xs">
-            {top.map((f) => (
-              <Text key={f.name} size="xs" c="gray.2" ff="monospace">
-                {f.name} {f.value.toFixed(1)}%
-              </Text>
-            ))}
-          </Group>
-        </Stack>
-      </Stack>
-    </Card>
-  );
-}
-
 function Stat({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
     <Group justify="space-between">
@@ -283,6 +190,8 @@ export function MprPanel({
 
   const state = STATE_META[latest.fsmState];
   const path = PATH_META[latest.pathId];
+  const pathLabel = MPR_PATH_LABEL[latest.pathId] ?? `P${latest.pathId}`;
+  const reading = macroPhaseReading(latest);
 
   return (
     <Stack gap="lg">
@@ -312,7 +221,7 @@ export function MprPanel({
                     {latest.marketRiskScore.toFixed(0)}
                   </Text>
                   <Text size="xs" c="dimmed">
-                    Risk
+                    压力分
                   </Text>
                 </Stack>
               }
@@ -327,31 +236,30 @@ export function MprPanel({
               trigger={
                 <Stack gap={2} className="rounded px-2 py-1 -mx-2 hover:bg-[var(--surface-hover)] transition-colors">
                   <Text size="xs" c="dimmed">
-                    传导路径
+                    区制
                   </Text>
                   <Text size="sm" fw={600} c={`${path.color}.4`}>
-                    {path.label}
+                    {pathLabel}
+                  </Text>
+                  <Text size="xs" c="gray.2">
+                    {reading.headline}
                   </Text>
                 </Stack>
               }
             >
               <Stack gap={4}>
                 <Text size="xs" c="dimmed" fw={600}>
-                  {path.label}
+                  {pathLabel}
                 </Text>
                 <Text size="xs" c="gray.2">
+                  {reading.detail}
+                </Text>
+                <Text size="xs" c="dimmed">
                   {path.note}
                 </Text>
               </Stack>
             </ClickPopover>
 
-            <Stat
-              label="5 日下跌概率"
-              value={`${latest.prob5dDown.toFixed(1)}%`}
-              color={
-                latest.prob5dDown >= 60 ? "red.4" : latest.prob5dDown >= 45 ? "orange.4" : undefined
-              }
-            />
             <Stat label="现货破坏度" value={`${latest.spyDamage.toFixed(1)}%`} />
             <Stat
               label="领先质量分"
@@ -409,8 +317,6 @@ export function MprPanel({
         </Stack>
       </Card>
       </SimpleGrid>
-
-      <GuidanceCard day={latest} />
     </Stack>
   );
 }

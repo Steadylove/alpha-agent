@@ -122,27 +122,6 @@ export function RotationBoard({ data }: { data: RotationData }) {
           已落袋收益按平均满仓 8 只摊薄到组合层面。这是模型跟踪的结果，不是实盘记录。
         </Text>
 
-        {data.macroExposure ? (
-          <Alert color="gray" variant="light" mt="md">
-            <Stack gap={4}>
-              <Group gap="xs">
-                <Text size="xs" c="dimmed">
-                  MPR 建议总敞口（Path {data.macroExposure.pathId}）
-                </Text>
-                <Text size="xs" fw={700} c="gray.2" ff="monospace">
-                  {data.macroExposure.minPct}% ~ {data.macroExposure.maxPct}%
-                </Text>
-                <Text size="xs" c="dimmed">
-                  {data.macroExposure.stance}
-                </Text>
-              </Group>
-              <Text size="xs" c="dimmed">
-                仅作参考，上表仓位并未按此缩放。回测显示照此机械减仓虽然能把最大回撤从
-                39% 收窄到 19%，但让出的收益更多，风险调整后的收益反而下降。
-              </Text>
-            </Stack>
-          </Alert>
-        ) : null}
       </Card>
 
       <Card

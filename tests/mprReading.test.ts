@@ -62,6 +62,8 @@ describe("macroPhaseReading", () => {
   it("Path 4 判为高波动区制而非看跌", () => {
     const r = macroPhaseReading(snapshot({ pathId: 4, fsmState: 3, spyDamage: 85 }));
     expect(r.tone).toBe("danger");
+    expect(r.pathLabel).toContain("高波动");
+    expect(r.pathLabel).not.toContain("破位");
     expect(r.headline).toContain("高波动");
     expect(r.headline).not.toContain("看跌");
   });

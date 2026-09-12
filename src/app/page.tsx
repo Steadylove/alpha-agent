@@ -100,7 +100,7 @@ export default async function DashboardPage() {
           href="/mpr"
           icon={Radar}
           title="市场相变雷达"
-          question="现在的市场环境健康吗？该不该降低仓位？"
+          question="衍生品、信用、现货现在紧不紧？波动会不会变大？"
           stats={
             mpr.latest
               ? [

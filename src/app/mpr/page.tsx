@@ -13,8 +13,7 @@ export default async function MprPage() {
       <div className="rise-in">
         <h1 className="text-3xl font-semibold tracking-tight text-zinc-50">市场相变雷达</h1>
         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-400">
-          从五个维度监测美股整体环境，判断风险是否正在从衍生品、信用市场扩散到现货。
-          它回答的是「现在该不该重仓」，不预测涨跌方向。
+          从五个维度看衍生品、信用、现货紧不紧。路径是区制标签，不预测涨跌，也不给仓位。
         </p>
       </div>
 
