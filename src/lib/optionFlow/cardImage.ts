@@ -23,6 +23,8 @@ export function formatExpiry(raw?: string): string {
   if (raw === "LEAPS") return "LEAPS";
   if (raw === "two weeks") return "两周内";
   if (raw === "next week") return "一周内";
+  const weeks = raw.match(/^(\d+) weeks$/);
+  if (weeks) return `${weeks[1]}周内`;
   if (/^\d{2}$/.test(raw)) return `${Number(raw)}月`;
   return raw;
 }

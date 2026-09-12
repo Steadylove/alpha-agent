@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { isCalendarExpiry } from "./config";
@@ -31,7 +31,7 @@ export async function enrichFromChart(post: OptionFlowPost): Promise<OptionFlowP
   if (!needsChart(post)) return post;
   const url = post.imageProxyUrls[0] || post.imageUrls[0];
   const file = cacheFile(post.id);
-  await download(url, file);
+  if (!existsSync(file)) await download(url, file);
   const chart = parseChartText(ocrImageFile(file));
   if (!chart) return post;
   return { ...post, legs: post.legs.map((leg) => mergeChartLeg(leg, chart)) };

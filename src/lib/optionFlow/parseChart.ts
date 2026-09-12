@@ -2,6 +2,7 @@ import { isCalendarExpiry } from "./config";
 import type { OptionFlowLeg, OptionRight } from "./types";
 
 const HEAD_RE = /^([A-Z]{1,5})\s+(\d+(?:\.\d+)?)\s+(Call|Put)\b/im;
+const TABLE_RE = /^([A-Z]{1,5})\s+(\d{1,2}\/\d{1,2}\/\d{2,4})\s+(\d+(?:\.\d+)?)\s+(Call|Put)\b/im;
 const EXP_RE = /Exp(?:iration)?\.?\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/im;
 const PREM_RE = /^Prem(?:ium)?[:\s]+\$?([\d.]+)\s*(K|M|B)/im;
 const OTM_RE = /^OTM[:\s]+([\d.]+)\s*%/im;
@@ -13,6 +14,15 @@ function premiumOf(n: string, unit: string): number {
 }
 
 export function parseChartText(text: string): Partial<OptionFlowLeg> | null {
+  const table = text.match(TABLE_RE);
+  if (table) {
+    return {
+      ticker: table[1],
+      expiry: table[2],
+      strike: Number(table[3]),
+      right: table[4].toLowerCase() as OptionRight,
+    };
+  }
   const head = text.match(HEAD_RE);
   if (!head) return null;
   const expiry = text.match(EXP_RE)?.[1];

@@ -37,8 +37,10 @@ function rightOf(word: string): OptionRight {
 
 function expiryHint(text: string): string | undefined {
   if (/\b0DTE\b/i.test(text)) return "0DTE";
-  if (/\bexpir(?:y|ing|es)\s+in\s+(?:a|one|1)\s+week\b/i.test(text) || /\bnext week\b/i.test(text)) return "next week";
-  if (/\bexpir(?:y|ing|es)\s+in\s+two weeks\b/i.test(text) || /\bin two weeks\b/i.test(text)) return "two weeks";
+  if (/\bexpir(?:e|es|y|ing)\s+in\s+(?:a|one|1)\s+week\b/i.test(text) || /\bnext week\b/i.test(text)) return "next week";
+  if (/\bexpir(?:e|es|y|ing)\s+in\s+two weeks\b/i.test(text) || /\bin two weeks\b/i.test(text)) return "two weeks";
+  const weeks = text.match(/\bexpir(?:e|es|y|ing)\s+in\s+(\d+)\s+weeks?\b/i);
+  if (weeks) return Number(weeks[1]) === 1 ? "next week" : Number(weeks[1]) === 2 ? "two weeks" : `${weeks[1]} weeks`;
   const monthYear = text.match(
     /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+(?:'(?:20)?(\d{2})|(20\d{2}))\b/i,
   );

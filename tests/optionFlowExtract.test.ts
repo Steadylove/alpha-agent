@@ -64,6 +64,12 @@ describe("option flow extract", () => {
     });
     expect(shouldForward(orcl, { minPremiumUsd: 0, dropAds: true, dropPaid: true })).toBe(true);
 
+    expect(extractCard("$5M worth of OTM $AAPL calls that expire in 5 weeks").legs[0]).toMatchObject({
+      ticker: "AAPL",
+      expiry: "5 weeks",
+      premiumUsd: 5_000_000,
+      right: "call",
+    });
     const meta = extractCard("$4.2 million into these $META $660 strike calls expiring in two weeks");
     expect(meta.legs[0]).toMatchObject({
       ticker: "META",
@@ -171,6 +177,12 @@ describe("option flow extract", () => {
       expiry: "12/17/27",
       premiumUsd: 15_500_000,
       otmPct: 11.4,
+    });
+    expect(parseChartText("AAPL 10/16/2026 340 Call Above BUY 321.98 5,220 $4.23 $2.2M Sweep")).toMatchObject({
+      ticker: "AAPL",
+      expiry: "10/16/2026",
+      strike: 340,
+      right: "call",
     });
   });
 
