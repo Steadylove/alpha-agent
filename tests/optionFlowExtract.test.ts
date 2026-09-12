@@ -53,6 +53,49 @@ describe("option flow extract", () => {
     });
   });
 
+  it("认 $TICKER $strike strike 和月份 / 两周到期，并允许转发", () => {
+    const orcl = extractCard("$3.5 million into these $ORCL $230 strike March calls. 46% OTM.");
+    expect(orcl.legs[0]).toMatchObject({
+      ticker: "ORCL",
+      strike: 230,
+      right: "call",
+      expiry: "March",
+      premiumUsd: 3_500_000,
+    });
+    expect(shouldForward(orcl, { minPremiumUsd: 0, dropAds: true, dropPaid: true })).toBe(true);
+
+    const meta = extractCard("$4.2 million into these $META $660 strike calls expiring in two weeks");
+    expect(meta.legs[0]).toMatchObject({
+      ticker: "META",
+      strike: 660,
+      expiry: "two weeks",
+      premiumUsd: 4_200_000,
+    });
+    expect(shouldForward(meta, { minPremiumUsd: 0, dropAds: true, dropPaid: true })).toBe(true);
+
+    const avgo = extractCard("$14 million into these $AVGO $650 strike December call LEAPs. 78% OTM.");
+    expect(avgo.legs[0]).toMatchObject({
+      ticker: "AVGO",
+      strike: 650,
+      expiry: "December",
+      right: "call",
+      premiumUsd: 14_000_000,
+    });
+    expect(shouldForward(avgo, { minPremiumUsd: 0, dropAds: true, dropPaid: true })).toBe(true);
+  });
+
+  it("拆 $TICKER $strike call (Sept 25) 这种确认名单", () => {
+    const card = extractCard(
+      "Noteworthy flow today\n$ASTS $65 call (Sept 25) - $1M @ 1.6\n$ORCL $230 call (Mar '27) - $3.4M @ 8.7",
+    );
+    expect(card.kind).toBe("noteworthy");
+    expect(card.legs).toEqual([
+      { ticker: "ASTS", strike: 65, right: "call", expiry: "Sept 25", premiumUsd: 1_000_000, optionPrice: 1.6 },
+      { ticker: "ORCL", strike: 230, right: "call", expiry: "Mar '27", premiumUsd: 3_400_000, optionPrice: 8.7 },
+    ]);
+    expect(shouldForward(card, { minPremiumUsd: 0, dropAds: true, dropPaid: true })).toBe(true);
+  });
+
   it("付费墙和广告能分出来", () => {
     expect(extractCard("🔒 Seems like posted a tweet for paid guys\n\nHeatmaps").kind).toBe("paid");
     expect(extractCard("Great week to get funded! 70% off any eval account").kind).toBe("ad");

@@ -20,12 +20,17 @@ export function optionFlowConfig(): OptionFlowConfig {
   };
 }
 
-function hintExpiry(expiry?: string): boolean {
-  return !expiry || /^(next-year|\d{2}|0DTE|LEAPS)$/.test(expiry);
+/** 只有「次年 / LEAPS」这种没有窗口的到期，才算没写清。月份、两周、0DTE 可以转发。 */
+export function isVagueExpiry(expiry?: string): boolean {
+  return !expiry || /^(next-year|LEAPS)$/i.test(expiry);
+}
+
+export function isCalendarExpiry(expiry?: string): boolean {
+  return Boolean(expiry && /\d{1,2}\/\d{1,2}/.test(expiry));
 }
 
 export function isCompleteLeg(leg: { ticker?: string; strike?: number; expiry?: string }): boolean {
-  return Boolean(leg.ticker && leg.strike != null && leg.expiry && !hintExpiry(leg.expiry));
+  return Boolean(leg.ticker && leg.strike != null && !isVagueExpiry(leg.expiry));
 }
 
 export function shouldForward(

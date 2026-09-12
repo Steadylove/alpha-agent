@@ -21,6 +21,8 @@ export function formatExpiry(raw?: string): string {
   if (raw === "next-year") return "次年";
   if (raw === "0DTE") return "0DTE";
   if (raw === "LEAPS") return "LEAPS";
+  if (raw === "two weeks") return "两周内";
+  if (raw === "next week") return "一周内";
   if (/^\d{2}$/.test(raw)) return `${Number(raw)}月`;
   return raw;
 }

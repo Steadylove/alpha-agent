@@ -1,7 +1,8 @@
+import { isCalendarExpiry } from "./config";
 import type { OptionFlowLeg, OptionRight } from "./types";
 
 const HEAD_RE = /^([A-Z]{1,5})\s+(\d+(?:\.\d+)?)\s+(Call|Put)\b/im;
-const EXP_RE = /^Exp\.?\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/im;
+const EXP_RE = /Exp(?:iration)?\.?\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/im;
 const PREM_RE = /^Prem(?:ium)?[:\s]+\$?([\d.]+)\s*(K|M|B)/im;
 const OTM_RE = /^OTM[:\s]+([\d.]+)\s*%/im;
 
@@ -34,7 +35,7 @@ export function mergeChartLeg(leg: OptionFlowLeg, chart: Partial<OptionFlowLeg>)
     ticker: same ? leg.ticker : chart.ticker ?? leg.ticker,
     right: leg.right ?? chart.right,
     strike: leg.strike ?? chart.strike,
-    expiry: leg.expiry && !/^(next-year|\d{2}|0DTE|LEAPS)$/.test(leg.expiry) ? leg.expiry : chart.expiry ?? leg.expiry,
+    expiry: isCalendarExpiry(leg.expiry) ? leg.expiry : chart.expiry ?? leg.expiry,
     premiumUsd: leg.premiumUsd ?? chart.premiumUsd,
     otmPct: leg.otmPct ?? chart.otmPct,
   };

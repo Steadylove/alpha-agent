@@ -6,29 +6,16 @@ const PAID_RE = /posted a tweet for paid guys|🔒/;
 const NOTEWORTHY_RE = /noteworthy flow|oi confirmed/i;
 const GEX_RE = /\b(?:heatmaps?|gamma|gex|put wall)\b/i;
 const LINE_RE =
-  /\$([A-Z]{1,5})\s+(\d+(?:\.\d+)?)\s+(Call|Put)s?\s+\((\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\)\s*[-–]\s*(\$?[\d.]+(?:\s*(?:K|M|B|million|billion))?)\s*(?:@\s*([\d.]+))?/gi;
+  /\$([A-Z]{1,5})\s+\$?(\d+(?:\.\d+)?)\s+(Call|Put)s?\s+\(([^)]+)\)\s*[-–]\s*(\$?[\d.]+(?:\s*(?:K|M|B|million|billion))?)\s*(?:@\s*([\d.]+))?/gi;
 const CALL_BUYER_RE = /\$([A-Z]{1,5})\s*[-–]\s*\$?\s*([\d.]+)\s*(K|M|B|million|billion)?\s+(Call|Put)\s+(buyer|seller)/i;
 const INTO_RE =
-  /\$?\s*([\d.]+)\s*(K|M|B|million|billion)\+?\s+(?:worth of\s+)?(?:into these\s+)?\$([A-Z]{1,5})\s+(calls?|puts?)/i;
+  /\$?\s*([\d.]+)\s*(K|M|B|million|billion)\+?\s+(?:[\w+%.\s]{0,24}?)\$([A-Z]{1,5})\b[\s\S]{0,48}?(calls?|puts?)/i;
 const INTO_FRONT_RE =
   /\$([A-Z]{1,5}).{0,40}?(?:\$?\s*([\d.]+)\s*(K|M|B|million|billion)\+?).{0,20}(calls?|puts?)/i;
 const STRIKE_RE = /\$(\d+(?:\.\d+)?)\s+strike/i;
 const TICKER_RE = /\$([A-Z]{1,5})\b/g;
-
-const MONTHS: Record<string, string> = {
-  january: "01",
-  february: "02",
-  march: "03",
-  april: "04",
-  may: "05",
-  june: "06",
-  july: "07",
-  august: "08",
-  september: "09",
-  october: "10",
-  november: "11",
-  december: "12",
-};
+const MONTH_NAME_RE =
+  /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\b/i;
 
 export function parsePremiumUsd(raw: string): number | undefined {
   const cleaned = raw.replace(/[~+,]/g, "").trim();
@@ -49,19 +36,30 @@ function rightOf(word: string): OptionRight {
 }
 
 function expiryHint(text: string): string | undefined {
-  if (/\bnext year\b/i.test(text)) return "next-year";
-  const month = text.match(
-    /\b(January|February|March|April|May|June|July|August|September|October|November|December)\b/i,
-  );
-  if (month) return MONTHS[month[1].toLowerCase()];
   if (/\b0DTE\b/i.test(text)) return "0DTE";
+  if (/\bexpir(?:y|ing|es)\s+in\s+(?:a|one|1)\s+week\b/i.test(text) || /\bnext week\b/i.test(text)) return "next week";
+  if (/\bexpir(?:y|ing|es)\s+in\s+two weeks\b/i.test(text) || /\bin two weeks\b/i.test(text)) return "two weeks";
+  const monthYear = text.match(
+    /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+(?:'(?:20)?(\d{2})|(20\d{2}))\b/i,
+  );
+  if (monthYear) return `${monthYear[1]} '${(monthYear[2] || monthYear[3] || "").replace(/^20/, "")}`;
+  const monthDay = text.match(
+    /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b/i,
+  );
+  if (monthDay) return `${monthDay[1]} ${monthDay[2]}`;
+  const month = text.match(MONTH_NAME_RE);
+  if (month) return month[1];
+  if (/\bnext year\b/i.test(text)) return "next-year";
   if (/\bLEAPS?\b/i.test(text)) return "LEAPS";
   return undefined;
 }
 
 function firstStrike(text: string): number | undefined {
-  const m = text.match(STRIKE_RE);
-  return m ? Number(m[1]) : undefined;
+  const named = text.match(STRIKE_RE);
+  if (named) return Number(named[1]);
+  const beside = text.match(/\$[A-Z]{1,5}\s+\$(\d+(?:\.\d+)?)\s+(?:strike|calls?|puts?)/i);
+  if (beside) return Number(beside[1]);
+  return undefined;
 }
 
 function uniqTickers(text: string): string[] {
@@ -84,7 +82,7 @@ function noteworthyLegs(text: string): OptionFlowLeg[] {
       ticker: m[1],
       strike: Number(m[2]),
       right: rightOf(m[3]),
-      expiry: m[4],
+      expiry: m[4].trim(),
       premiumUsd: parsePremiumUsd(m[5]),
       optionPrice: m[6] ? Number(m[6]) : undefined,
     });

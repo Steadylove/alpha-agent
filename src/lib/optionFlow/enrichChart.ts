@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
+import { isCalendarExpiry } from "./config";
 import { discordBotToken } from "./discordFetch";
 import { ocrImageFile } from "./ocr";
 import { mergeChartLeg, parseChartText } from "./parseChart";
@@ -13,7 +14,7 @@ function cacheFile(id: string): string {
 export function needsChart(post: OptionFlowPost): boolean {
   if (post.kind !== "flow" || post.legs.length !== 1) return false;
   const leg = post.legs[0];
-  return (leg.strike == null || !leg.expiry || /^(next-year|\d{2}|0DTE|LEAPS)$/.test(leg.expiry)) &&
+  return (leg.strike == null || !isCalendarExpiry(leg.expiry)) &&
     Boolean(post.imageProxyUrls[0] || post.imageUrls[0]);
 }
 
