@@ -7,7 +7,7 @@ import {
   DEFAULT_BACKTEST_CONFIG,
   prepareUniverse,
 } from "@/lib/backtest/engine";
-import { scanDesk } from "@/lib/backtest/deskScan";
+import { scanDeskBoard } from "@/lib/backtest/deskScan";
 import { deskDecisionId, readLedger, upsertDecision } from "@/lib/backtest/deskLedger";
 import type { PanelBars } from "@/lib/backtest/panel";
 
@@ -33,7 +33,7 @@ function rising(ticker: string, dates: string[], start = 50, step = 0.4): PanelB
 }
 
 describe("deskScan", () => {
-  it("最新一根点火且未持仓 → 待执行，仓位=RPS，其余是现金", () => {
+  it("列出全池：本根点火记 lastSignal，未持仓则为空仓", () => {
     const dates = axisDates(320);
     const panels = [rising("A", dates, 80, 0.2), rising("B", dates, 80, 0.15)];
     const all = { start: dates[0], end: null };
@@ -44,7 +44,7 @@ describe("deskScan", () => {
     a.rps[last] = 40;
     u.symbols.find((s) => s.ticker === "B")!.rps[last] = 20;
 
-    const snap = scanDesk(u, {
+    const snap = scanDeskBoard(u, {
       ...DEFAULT_BACKTEST_CONFIG,
       from: dates[260],
       to: dates[last],
@@ -58,10 +58,13 @@ describe("deskScan", () => {
     });
 
     expect(snap.asOf).toBe(dates[last]);
-    expect(snap.pending).toHaveLength(1);
-    expect(snap.pending[0]).toMatchObject({ symbol: "A", sigType: 1, rawWeightPct: 40, weightPct: 40 });
-    expect(snap.holdings).toHaveLength(0);
-    expect(snap.cashPct).toBeCloseTo(60, 6);
+    expect(snap.rows).toHaveLength(2);
+    expect(snap.rows.find((r) => r.symbol === "A")).toMatchObject({
+      lastSignal: 1,
+      holding: null,
+      rps: 40,
+    });
+    expect(snap.rows.find((r) => r.symbol === "B")).toMatchObject({ lastSignal: 0, holding: null });
   });
 });
 

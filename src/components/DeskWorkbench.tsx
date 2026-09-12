@@ -1,82 +1,220 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Badge, Button, Group, Loader, SegmentedControl, Table, Text, TextInput } from "@mantine/core";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Group, Loader, SegmentedControl, Table, Text, TextInput } from "@mantine/core";
 
-import { Card, MetricCard } from "@/components/Card";
+import { Card } from "@/components/Card";
 import { LabSymbolChart, type ChartTarget } from "@/components/LabSymbolChart";
-import { LiveBookCard } from "@/components/LiveBookCard";
-import type { DeskDecision } from "@/lib/backtest/deskLedger";
-import type { DeskHolding, DeskSignal } from "@/lib/backtest/deskScan";
-import {
-  DEFAULT_SMALL_FUND_POOL,
-  SMALL_FUND_POOLS,
-  SMALL_FUND_POOL_IDS,
-  type SmallFundPoolId,
-} from "@/lib/backtest/smallFundPools";
+import type { DeskBarState, DeskBoardRow } from "@/lib/backtest/deskScan";
 
-type Timeframe = "1d" | "4h";
-
-type PendingRow = DeskSignal & { decision: DeskDecision | null };
-
-type Snapshot = {
-  timeframe: Timeframe;
-  poolId: SmallFundPoolId;
-  poolLabel: string;
-  asOf: string;
-  universeSize: number;
-  holdings: DeskHolding[];
-  pending: PendingRow[];
-  holdingExposurePct: number;
-  pendingExposurePct: number;
-  cashPct: number;
-  ledger: DeskDecision[];
+type Board = {
+  poolSize: number;
+  h4: { asOf: string; universeSize: number };
+  h2: { asOf: string; universeSize: number };
+  rows: DeskBoardRow[];
   elapsedMs: number;
 };
 
-const POOL_OPTIONS = SMALL_FUND_POOL_IDS.map((id) => ({
-  value: id,
-  label: SMALL_FUND_POOLS[id].label,
-}));
+const H4_CHART = {
+  index: "SMALLFUND",
+  timeframe: "4h",
+  poolId: "sf-broad",
+  stopMult: 4,
+  trailMult: 6,
+  takeProfitR: 3,
+  rpsMin: 30,
+  requireRsi: true,
+  minRsi: 30,
+  rpsExit: null,
+} as const;
 
-const pct = (v: number) => `${v.toFixed(1)}%`;
-
-/** 日线是 YYYY-MM-DD；4H 轴带 T，展示成日期 + 时刻。 */
-function axisParts(raw: string): { day: string; time: string | null } {
-  const [day, time] = raw.split("T");
-  return { day, time: time ?? null };
-}
+const H2_CHART = {
+  index: "SMALLFUND",
+  timeframe: "2h",
+  poolId: "sf-broad",
+  stopMult: 6,
+  trailMult: 8,
+  takeProfitR: null,
+  rpsMin: 0,
+  requireRsi: true,
+  minRsi: 30,
+  rpsExit: 10,
+} as const;
 
 function axisLabel(raw: string): string {
-  const { day, time } = axisParts(raw);
+  const [day, time] = raw.split("T");
   return time ? `${day} ${time}` : day;
 }
 
+function specRows(chart: typeof H4_CHART | typeof H2_CHART): [string, string][] {
+  const rows: [string, string][] = [
+    ["止损", `${chart.stopMult} × ATR`],
+    ["吊灯", `${chart.trailMult} × ATR`],
+    ["止盈", chart.takeProfitR == null ? "无固定止盈" : `${chart.takeProfitR}R`],
+    ["RPS 门槛", chart.rpsMin > 0 ? `≥ ${chart.rpsMin}` : "不设"],
+    ["RSI", chart.requireRsi ? `≥ ${chart.minRsi}` : "不设"],
+  ];
+  if (chart.rpsExit != null) rows.push(["转弱离场", `RPS < ${chart.rpsExit}`]);
+  return rows;
+}
+
+function isLive(row: DeskBoardRow): boolean {
+  return Boolean(row.h4?.lastSignal || row.h4?.holding || row.h2?.lastSignal || row.h2?.holding);
+}
+
+function matchRows(rows: DeskBoardRow[], query: string): DeskBoardRow[] {
+  const q = query.trim().toUpperCase();
+  return q ? rows.filter((r) => r.symbol.includes(q)) : rows.filter(isLive);
+}
+
+function sigName(n: 1 | 2): string {
+  return n === 1 ? "一买" : "二买";
+}
+
+const BUY1 = "#ff4976";
+const BUY2 = "#fbbf24";
+
+function TfCell({ state }: { state: DeskBarState | null }) {
+  if (!state) return <span className="text-zinc-600">—</span>;
+  if (!state.lastSignal && !state.holding) return <span className="text-zinc-600">空</span>;
+
+  const sig = state.lastSignal || state.holding?.sigType;
+  const sigColor = sig === 1 ? BUY1 : sig === 2 ? BUY2 : undefined;
+  const pnl = state.holding?.floatPnlPct;
+  const pnlColor = pnl == null ? undefined : pnl >= 0 ? "var(--pos)" : "var(--neg)";
+
+  return (
+    <span className="inline-flex items-baseline gap-2 font-mono text-xs leading-none">
+      {state.lastSignal ? (
+        <span
+          className="rounded px-1 py-px font-semibold"
+          style={{ color: sigColor, background: "var(--accent-soft)" }}
+        >
+          本根{sigName(state.lastSignal)}
+        </span>
+      ) : sig ? (
+        <span className="font-medium" style={{ color: sigColor }}>
+          {sigName(sig)}
+        </span>
+      ) : null}
+      {pnl != null ? (
+        <span className="font-semibold" style={{ color: pnlColor }}>
+          {`${pnl >= 0 ? "+" : ""}${pnl.toFixed(1)}%`}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+function SpecPane({
+  title,
+  asOf,
+  rows,
+}: {
+  title: string;
+  asOf: string | null;
+  rows: [string, string][];
+}) {
+  return (
+    <div className="rounded-lg border border-(--border-subtle) bg-(--surface-sunken) p-4">
+      <div className="mb-3 flex items-baseline justify-between gap-3">
+        <Text size="sm" fw={600} c="gray.1">
+          {title}
+        </Text>
+        <Text size="xs" c="dimmed" ff={asOf ? "monospace" : undefined}>
+          {asOf ? `截至 ${asOf}` : "扫描中…"}
+        </Text>
+      </div>
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5 sm:grid-cols-3">
+        {rows.map(([label, value]) => (
+          <div key={label}>
+            <dt>
+              <Text size="xs" c="dimmed">
+                {label}
+              </Text>
+            </dt>
+            <dd className="m-0">
+              <Text size="sm" fw={600} c="gray.1">
+                {value}
+              </Text>
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+function QuietStrip({
+  rows,
+  onOpen,
+}: {
+  rows: DeskBoardRow[];
+  onOpen: (row: DeskBoardRow) => void;
+}) {
+  if (rows.length === 0) return null;
+  return (
+    <div className="mb-3 rounded-lg border border-(--border-subtle) bg-(--surface-sunken) px-3 py-2.5">
+      <Text size="xs" c="dimmed" mb={8}>
+        其余 {rows.length} 只 · 这根没有仓也没有买点
+      </Text>
+      <div className="flex flex-wrap gap-x-3 gap-y-1.5">
+        {rows.map((row) => (
+          <button
+            key={row.symbol}
+            type="button"
+            title={`查看 ${row.symbol}`}
+            className="cursor-pointer font-mono text-xs text-zinc-400 underline decoration-zinc-700 underline-offset-2 hover:text-zinc-100 hover:decoration-(--accent)"
+            onClick={() => onOpen(row)}
+          >
+            {row.symbol}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TfButton({
+  label,
+  onClick,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      onClick={onClick}
+      className="w-full cursor-pointer rounded-md px-1.5 py-1 text-left transition-colors duration-150 hover:bg-[var(--accent-soft)]"
+    >
+      {children}
+    </button>
+  );
+}
+
 export function DeskWorkbench() {
-  const [timeframe, setTimeframe] = useState<Timeframe>("1d");
-  const [poolId, setPoolId] = useState<SmallFundPoolId>(DEFAULT_SMALL_FUND_POOL);
-  const [data, setData] = useState<Snapshot | null>(null);
+  const [data, setData] = useState<Board | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [chartTf, setChartTf] = useState<"4h" | "2h">("4h");
   const [chartTarget, setChartTarget] = useState<ChartTarget | null>(null);
-  const chartRequest = useMemo(
-    () => ({ index: "SMALLFUND", timeframe, poolId }),
-    [timeframe, poolId],
-  );
+  const [query, setQuery] = useState("");
+  const [scope, setScope] = useState<"live" | "all">("live");
+  const request = useMemo(() => (chartTf === "2h" ? H2_CHART : H4_CHART), [chartTf]);
 
-  const openChart = (symbol: string, entryDate: string | null | undefined) => {
-    setChartTarget({ symbol, entryDate: entryDate ?? "" });
-  };
-
-  const load = useCallback(async (tf: Timeframe, pool: SmallFundPoolId) => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/desk/signals?timeframe=${tf}&poolId=${pool}`);
+      const res = await fetch("/api/desk/signals");
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "扫描失败");
-      setData(json as Snapshot);
+      setData(json as Board);
     } catch (e) {
       setError(e instanceof Error ? e.message : "扫描失败");
     } finally {
@@ -85,62 +223,35 @@ export function DeskWorkbench() {
   }, []);
 
   useEffect(() => {
-    void load(timeframe, poolId);
-  }, [timeframe, poolId, load]);
+    void load();
+  }, [load]);
 
-  const decide = async (row: PendingRow, decision: "confirm" | "reject") => {
-    const key = `${row.date}|${row.symbol}|${row.sigType}`;
-    await fetch("/api/desk/decision", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...row,
-        timeframe,
-        poolId,
-        decision,
-        note: notes[key] ?? "",
-      }),
-    });
-    await load(timeframe, poolId);
+  const open = (symbol: string, tf: "4h" | "2h", state: DeskBarState | null) => {
+    setChartTf(tf);
+    setChartTarget({ symbol, entryDate: state?.holding?.entryDate ?? "" });
   };
 
-  const rule =
-    timeframe === "4h"
-      ? "Vegas+RSI · RPS≥50 · 止损 6 · 吊灯 6 · 不止盈 · 等权 · 单票 15%"
-      : "Vegas+RSI · RPS≥40 · 止损 4 · 吊灯 5.5 · 不止盈 · 等权 · 单票 15%";
+  const liveCount = data?.rows.filter(isLive).length ?? 0;
+  const rest = data?.rows.filter((r) => !isLive(r)) ?? [];
+  const shown = data ? matchRows(data.rows, query) : [];
 
   return (
-    <StackLike>
-      <Card
-        title="当前池"
-        action={
-          <Group gap="xs">
-            {loading ? <Loader size="xs" color="gray" /> : null}
-            <Text size="xs" c="dimmed" ff="monospace">
-              {data ? `${data.elapsedMs}ms` : ""}
-            </Text>
-          </Group>
-        }
-      >
-        <Group gap="sm" align="center" wrap="wrap">
-          <SegmentedControl
-            size="xs"
-            value={timeframe}
-            onChange={(v) => setTimeframe(v as Timeframe)}
-            data={[
-              { value: "1d", label: "日线" },
-              { value: "4h", label: "4小时" },
-            ]}
+    <div className="space-y-6">
+      <Card title="定档">
+        <div className="grid gap-4 md:grid-cols-2">
+          <SpecPane
+            title="4 小时"
+            asOf={data ? axisLabel(data.h4.asOf) : null}
+            rows={specRows(H4_CHART)}
           />
-          <SegmentedControl
-            size="xs"
-            value={poolId}
-            onChange={(v) => setPoolId(v as SmallFundPoolId)}
-            data={POOL_OPTIONS}
+          <SpecPane
+            title="2 小时"
+            asOf={data ? axisLabel(data.h2.asOf) : null}
+            rows={specRows(H2_CHART)}
           />
-        </Group>
-        <Text size="xs" c="dimmed" mt="sm">
-          {rule}。开局就是当前 195 只，账本暂无加减。下一根开盘成交。人不改公式，只拍板。
+        </div>
+        <Text size="xs" c="dimmed" mt="md">
+          股票池与资金账本同一份。
         </Text>
       </Card>
 
@@ -152,195 +263,101 @@ export function DeskWorkbench() {
         </Card>
       ) : null}
 
-      {poolId === "sf-live" ? (
-        <LiveBookCard asOf={data?.asOf} onChanged={() => void load(timeframe, poolId)} />
-      ) : null}
-
       {data ? (
-        <>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <MetricCard
-              label="最新一根"
-              value={axisParts(data.asOf).day}
-              hint={axisParts(data.asOf).time ?? undefined}
+        <Card title="4H / 2H">
+          <Group justify="space-between" align="flex-end" wrap="wrap" gap="sm" mb="sm">
+            <TextInput
+              size="xs"
+              label="找代码"
+              placeholder="NVDA"
+              value={query}
+              onChange={(e) => setQuery(e.currentTarget.value.toUpperCase())}
+              w={140}
             />
-            <MetricCard label="待执行" value={String(data.pending.length)} />
-            <MetricCard label="已持仓" value={String(data.holdings.length)} />
-            <MetricCard label="现金" value={pct(data.cashPct)} hint={`持仓 ${pct(data.holdingExposurePct)} · 新开 ${pct(data.pendingExposurePct)}`} />
-          </div>
-
-          <Card title={`待执行 · ${data.poolLabel} · ${data.universeSize} 只`}>
-            {data.pending.length === 0 ? (
-              <Text size="sm" c="dimmed">
-                本根无新买点。现金 {pct(data.cashPct)}。
-              </Text>
-            ) : (
-              <Table verticalSpacing={6} horizontalSpacing={6} fz="xs">
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>标的</Table.Th>
-                    <Table.Th>信号</Table.Th>
-                    <Table.Th ta="right">RPS</Table.Th>
-                    <Table.Th ta="right">仓位</Table.Th>
-                    <Table.Th ta="right">收盘</Table.Th>
-                    <Table.Th>状态</Table.Th>
-                    <Table.Th>备注</Table.Th>
-                    <Table.Th />
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {data.pending.map((row) => {
-                    const key = `${row.date}|${row.symbol}|${row.sigType}`;
-                    return (
-                      <Table.Tr key={key}>
-                        <Table.Td ff="monospace" fw={600}>
-                          <TickerLink symbol={row.symbol} onClick={() => openChart(row.symbol, row.date)} />
-                        </Table.Td>
-                        <Table.Td>{row.sigType === 1 ? "一买" : "二买"}</Table.Td>
-                        <Table.Td ta="right" ff="monospace">
-                          {row.rps.toFixed(0)}
-                        </Table.Td>
-                        <Table.Td ta="right" ff="monospace">
-                          {pct(row.weightPct)}
-                        </Table.Td>
-                        <Table.Td ta="right" ff="monospace">
-                          {row.close.toFixed(2)}
-                        </Table.Td>
-                        <Table.Td>
-                          {row.decision ? (
-                            <Badge size="xs" color={row.decision.decision === "confirm" ? "teal" : "red"} variant="light">
-                              {row.decision.decision === "confirm" ? "已确认" : "已否决"}
-                            </Badge>
-                          ) : (
-                            <Badge size="xs" color="gray" variant="light">
-                              待拍板
-                            </Badge>
-                          )}
-                        </Table.Td>
-                        <Table.Td>
-                          <TextInput
-                            size="xs"
-                            placeholder="理由"
-                            value={notes[key] ?? row.decision?.note ?? ""}
-                            onChange={(e) =>
-                              setNotes((prev) => ({ ...prev, [key]: e.currentTarget.value }))
-                            }
-                          />
-                        </Table.Td>
-                        <Table.Td>
-                          <Group gap={4} justify="flex-end">
-                            <Button size="compact-xs" color="teal" variant="light" onClick={() => void decide(row, "confirm")}>
-                              确认
-                            </Button>
-                            <Button size="compact-xs" color="red" variant="light" onClick={() => void decide(row, "reject")}>
-                              否决
-                            </Button>
-                          </Group>
-                        </Table.Td>
-                      </Table.Tr>
-                    );
-                  })}
-                </Table.Tbody>
-              </Table>
-            )}
-          </Card>
-
-          <Card title="回测账本持仓（机器按纪律拿到现在）">
-            {data.holdings.length === 0 ? (
-              <Text size="sm" c="dimmed">
-                当前空仓。
-              </Text>
-            ) : (
-              <Table verticalSpacing={6} horizontalSpacing={6} fz="xs">
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>标的</Table.Th>
-                    <Table.Th>信号</Table.Th>
-                    <Table.Th>开仓</Table.Th>
-                    <Table.Th ta="right">仓位</Table.Th>
-                    <Table.Th ta="right">浮盈</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {data.holdings.map((row) => (
-                    <Table.Tr
-                      key={row.symbol}
-                      className="cursor-pointer"
-                      onClick={() => openChart(row.symbol, row.entryDate)}
-                    >
-                      <Table.Td ff="monospace" fw={600}>
-                        <span className="underline decoration-zinc-600 underline-offset-2">
-                          {row.symbol}
-                        </span>
-                      </Table.Td>
-                      <Table.Td>{row.sigType === 1 ? "一买" : "二买"}</Table.Td>
-                      <Table.Td ff="monospace" c="dimmed">
-                        {row.entryDate ? axisLabel(row.entryDate) : "—"}
-                      </Table.Td>
-                      <Table.Td ta="right" ff="monospace">
-                        {pct(row.weightPct)}
-                      </Table.Td>
-                      <Table.Td ta="right" ff="monospace" c={row.floatPnlPct >= 0 ? "teal.4" : "red.4"}>
-                        {`${row.floatPnlPct >= 0 ? "+" : ""}${row.floatPnlPct.toFixed(2)}%`}
-                      </Table.Td>
-                    </Table.Tr>
-                  ))}
-                </Table.Tbody>
-              </Table>
-            )}
-          </Card>
-
-          {data.ledger.length > 0 ? (
-            <Card title="拍板记录">
-              <Table verticalSpacing={4} horizontalSpacing={6} fz="xs">
-                <Table.Tbody>
-                  {data.ledger.map((row) => (
-                    <Table.Tr key={row.id}>
-                      <Table.Td ff="monospace">{axisLabel(row.date)}</Table.Td>
-                      <Table.Td ff="monospace" fw={600}>
-                        <TickerLink symbol={row.symbol} onClick={() => openChart(row.symbol, row.date)} />
-                      </Table.Td>
-                      <Table.Td>{row.decision === "confirm" ? "确认" : "否决"}</Table.Td>
-                      <Table.Td c="dimmed">{row.note || "—"}</Table.Td>
-                    </Table.Tr>
-                  ))}
-                </Table.Tbody>
-              </Table>
-            </Card>
+            <SegmentedControl
+              size="xs"
+              value={scope}
+              onChange={(v) => setScope(v as "live" | "all")}
+              disabled={Boolean(query.trim())}
+              data={[
+                { value: "live", label: `有动作 ${liveCount}` },
+                { value: "all", label: `全部 ${data.rows.length}` },
+              ]}
+            />
+          </Group>
+          <Text size="xs" c="dimmed" mb="sm">
+            {query
+              ? `找到 ${shown.length} 只`
+              : scope === "live"
+                ? "默认只看有仓或本根买点的。搜代码或切全部，看其余的。"
+                : `池 ${data.poolSize} 只。有动作在表里，其余 ${rest.length} 只在上面。`}
+          </Text>
+          {!query && scope === "all" ? (
+            <QuietStrip rows={rest} onOpen={(row) => open(row.symbol, "4h", row.h4)} />
           ) : null}
-        </>
+          <div className="max-h-[420px] overflow-y-auto" style={{ scrollbarGutter: "stable" }}>
+            {shown.length === 0 ? (
+              <Text size="sm" c="dimmed" py="md">
+                {query ? "名单里没有这个代码" : "这根没有持仓也没有买点"}
+              </Text>
+            ) : (
+              <Table verticalSpacing={0} horizontalSpacing={8} fz="xs" className="[&_td]:py-1.5 [&_th]:py-2">
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>标的</Table.Th>
+                    <Table.Th>4 小时</Table.Th>
+                    <Table.Th>2 小时</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {shown.map((row) => (
+                    <Table.Tr key={row.symbol}>
+                      <Table.Td>
+                        <button
+                          type="button"
+                          title={`查看 ${row.symbol} 4小时图`}
+                          aria-label={`查看 ${row.symbol} 4小时图`}
+                          className="cursor-pointer font-mono text-sm font-semibold text-zinc-100 underline decoration-zinc-600 underline-offset-2 hover:text-white hover:decoration-(--accent)"
+                          onClick={() => open(row.symbol, "4h", row.h4)}
+                        >
+                          {row.symbol}
+                        </button>
+                      </Table.Td>
+                      <Table.Td>
+                        <TfButton
+                          label={`查看 ${row.symbol} 4小时图${row.h4 ? ` · RPS ${row.h4.rps.toFixed(0)} · ${row.h4.close.toFixed(2)}` : ""}`}
+                          onClick={() => open(row.symbol, "4h", row.h4)}
+                        >
+                          <TfCell state={row.h4} />
+                        </TfButton>
+                      </Table.Td>
+                      <Table.Td>
+                        <TfButton
+                          label={`查看 ${row.symbol} 2小时图${row.h2 ? ` · RPS ${row.h2.rps.toFixed(0)} · ${row.h2.close.toFixed(2)}` : ""}`}
+                          onClick={() => open(row.symbol, "2h", row.h2)}
+                        >
+                          <TfCell state={row.h2} />
+                        </TfButton>
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            )}
+          </div>
+        </Card>
       ) : loading ? (
         <Card>
           <Group gap="sm">
             <Loader size="sm" color="gray" />
             <Text size="sm" c="dimmed">
-              首次要预处理全池（十几秒），之后换周期还会再准备一份。
+              正在扫 4H 和 2H，首次可能要十几秒。
             </Text>
           </Group>
         </Card>
       ) : null}
 
-      <LabSymbolChart
-        target={chartTarget}
-        request={chartRequest}
-        onClose={() => setChartTarget(null)}
-      />
-    </StackLike>
+      <LabSymbolChart target={chartTarget} request={request} onClose={() => setChartTarget(null)} />
+    </div>
   );
-}
-
-function TickerLink({ symbol, onClick }: { symbol: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      className="font-mono font-semibold underline decoration-zinc-600 underline-offset-2 hover:text-zinc-100"
-      onClick={onClick}
-    >
-      {symbol}
-    </button>
-  );
-}
-
-function StackLike({ children }: { children: React.ReactNode }) {
-  return <div className="space-y-6">{children}</div>;
 }
