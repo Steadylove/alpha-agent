@@ -1,6 +1,6 @@
 import sharp from "sharp";
 import type { ScreenerResult, ScreenerRow } from "@/lib/jobs/alphaScreener";
-import { CARD_DISCLAIMER, CARD_DISCLAIMER_HEIGHT, CARD_DISCLAIMER_SIZE } from "./cardDisclaimer";
+import { withDisclaimer } from "./cardDisclaimer";
 
 /** 一张图展示，金融终端数据表风格（TradingView / Bloomberg 风格），极简、高密度、对齐 */
 const WIDTH = 840;
@@ -101,8 +101,7 @@ export async function renderScreenerCardPng(
   subtitleInfo: string,
   options: { overlapSymbols?: Set<string> } = {},
 ): Promise<Buffer> {
-  const contentHeight = HEADER_H + Math.max(rows.length, 1) * ROW_H;
-  const height = contentHeight + CARD_DISCLAIMER_HEIGHT;
+  const height = HEADER_H + Math.max(rows.length, 1) * ROW_H;
 
   const body =
     rows.length === 0
@@ -128,7 +127,7 @@ export async function renderScreenerCardPng(
   const titleSvg = `
   <text x="32" y="44" font-size="22" font-weight="bold" fill="${C.title}" font-family="${MONO}">MARKET COMPASS</text>
   <text x="230" y="42" font-size="14" fill="${C.subtitle}" font-family="${FONT}">${title}</text>
-  <text x="${WIDTH - 32}" y="43" font-size="14" fill="${C.subtitle}" text-anchor="end" font-family="${MONO}">${subtitleInfo}</text>
+  <text x="${WIDTH - 32}" y="43" font-size="14" fill="${C.subtitle}" text-anchor="end" font-family="${MONO}">${esc(withDisclaimer(subtitleInfo))}</text>
   `;
 
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
@@ -137,8 +136,6 @@ export async function renderScreenerCardPng(
   ${titleSvg}
   ${colHeaders}
   ${body}
-  <line x1="32" y1="${contentHeight}" x2="${WIDTH - 32}" y2="${contentHeight}" stroke="${C.border}" stroke-width="1" />
-  <text x="32" y="${contentHeight + 27}" font-size="${CARD_DISCLAIMER_SIZE}" fill="${C.industry}" font-family="${FONT}">${esc(CARD_DISCLAIMER)}</text>
 </svg>`;
 
   return sharp(Buffer.from(svg))

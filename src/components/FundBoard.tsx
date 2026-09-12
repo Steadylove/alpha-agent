@@ -197,17 +197,26 @@ function LiveBookCard({
 
   return (
     <Card title={`${name} · ${stamp(view.asOf)}`}>
-      <div className="mb-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
+      <div className="mb-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <MetricCard label="累计" value={view.pnl} valueColor={view.equity >= 1 ? "teal.4" : "red.4"} hint={`自 ${view.since}`} />
         <MetricCard
           label={s.ytdYear != null ? `${s.ytdYear} YTD` : "YTD"}
           value={s.ytdPct == null ? "—" : pnlLabel(s.ytdPct)}
           valueColor={s.ytdPct == null ? "gray.0" : s.ytdPct >= 0 ? "teal.4" : "red.4"}
         />
+        <MetricCard
+          label="CAGR"
+          value={`${s.cagr >= 0 ? "+" : ""}${s.cagr.toFixed(1)}%`}
+          valueColor={s.cagr >= 0 ? "teal.4" : "red.4"}
+          hint="年化"
+        />
         <MetricCard label="回撤" value={`${s.dd.toFixed(0)}%`} valueColor="red.4" />
+        <MetricCard label="MAR" value={s.mar.toFixed(2)} hint="年化 / 回撤" />
         <MetricCard label="胜率" value={s.winRatePct == null ? "—" : `${s.winRatePct.toFixed(0)}%`} />
+        <MetricCard label="均持" value={s.avgHoldings.toFixed(1)} />
         <MetricCard label="敞口" value={`${view.exposurePct.toFixed(0)}%`} hint={`均 ${s.avgExposure.toFixed(0)}%`} />
         <MetricCard label="持仓" value={`${view.rows.length}`} hint={`${s.entries} 笔入场`} />
+        <MetricCard label="年换手" value={s.tradesPerYear.toFixed(0)} />
       </div>
 
       {curve.length >= 2 ? (

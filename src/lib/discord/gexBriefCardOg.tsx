@@ -4,7 +4,7 @@ import { STRATEGY_NAME, STRATEGY_TAGLINE, STRATEGY_TITLE } from "./brand";
 import type { GexCardView, GexRowView } from "./gexCopy";
 import type { GexBriefView, MarketStateView } from "./marketStateCopy";
 import { loadOgFonts, OG_FONT } from "./ogFont";
-import { CARD_DISCLAIMER, CARD_DISCLAIMER_HEIGHT } from "./cardDisclaimer";
+import { CARD_DISCLAIMER, CARD_DISCLAIMER_HEIGHT, withDisclaimer } from "./cardDisclaimer";
 import { CardWithDisclaimer } from "./cardDisclaimerOg";
 
 const px = (n: number) => n;
@@ -229,7 +229,7 @@ function GexBriefCard({ input }: { input: GexBriefView }) {
             <div style={{ display: "flex", color: T.dim, fontSize: px(16) }}>{STRATEGY_TAGLINE}</div>
           </div>
           <div style={{ display: "flex", color: T.muted, fontSize: px(13) }}>
-            {`近月 ${gex.dte}  ·  ${gex.asOf} 快照`}
+            {withDisclaimer(`近月 ${gex.dte}  ·  ${gex.asOf} 快照`)}
           </div>
         </div>
         <div

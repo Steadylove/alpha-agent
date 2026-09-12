@@ -1,4 +1,5 @@
 import { bookPnlLabel, daysOpenLabel, daysOpenOf, pnlLabel, winRateLabel, type CashBookView } from "./bookCopy";
+import { formatUtcStamp } from "./cardTime";
 import { CARD_INK as T } from "./cardTheme";
 import { reportCard } from "./reportCardLayout";
 import { strengthLabel } from "./tvAlertCopy";
@@ -31,7 +32,7 @@ export function cashBookLayout(input: CashBookView) {
   const cashPct = Math.max(0, 100 - input.exposurePct);
   const gainColor = (v: number | null | undefined) => v == null ? T.text : v >= 0 ? T.buy : T.stop;
   const equityColor = gainColor(input.equity == null ? null : input.equity - 1);
-  const asOf = input.asOf.replace("T", " ").slice(0, 16);
+  const asOf = formatUtcStamp(input.asOf);
   card.header(bookTitle(input.label), "NAV", "持仓快照", `截至 ${asOf}`, T.buy);
 
   rect(40, 150, 880, 178, T.panel, 12, T.line);

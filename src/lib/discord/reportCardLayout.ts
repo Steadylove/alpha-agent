@@ -1,6 +1,6 @@
 import { STRATEGY_NAME, STRATEGY_TAGLINE } from "./brand";
 import { CARD_INK as T, CARD_WIDTH } from "./cardTheme";
-import { CARD_DISCLAIMER, CARD_DISCLAIMER_HEIGHT, CARD_DISCLAIMER_SIZE } from "./cardDisclaimer";
+import { withDisclaimer } from "./cardDisclaimer";
 
 export type ReportCardItem =
   | { type: "rect"; x: number; y: number; width: number; height: number; fill: string; radius: number; stroke?: string }
@@ -31,14 +31,9 @@ export function reportCard() {
     rect(40, 90, badgeWidth, 25, T.panel, 4, accent);
     text(badge, 40, 92.5, badgeWidth, 14, accent, 700, "center", true);
     text(subtitle, 40 + badgeWidth + 14, 89, 280, 18, accent, 700);
-    text(meta, 480, 94, 440, 13, T.muted, 400, "right");
+    text(withDisclaimer(meta), 480, 94, 440, 13, T.muted, 400, "right");
     line(130);
   };
   return { items, rect, text, line, header,
-    finish: (height: number): ReportCardLayout => {
-      const contentHeight = Math.ceil(height);
-      line(contentHeight);
-      text(CARD_DISCLAIMER, 40, contentHeight + 12, 880, CARD_DISCLAIMER_SIZE, T.muted);
-      return { width: CARD_WIDTH, height: contentHeight + CARD_DISCLAIMER_HEIGHT, items };
-    } };
+    finish: (height: number): ReportCardLayout => ({ width: CARD_WIDTH, height: Math.ceil(height), items }) };
 }

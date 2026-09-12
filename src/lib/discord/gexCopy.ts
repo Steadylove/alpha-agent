@@ -1,4 +1,5 @@
 import { STRATEGY_TITLE } from "./brand";
+import { formatEtStamp } from "./cardTime";
 
 export type GexSnapshotItem = {
   symbol: string;
@@ -69,7 +70,7 @@ export function netGexTone(value: number): "pos" | "neg" | "flat" {
 
 export function fmtAsOf(value: string | undefined): string {
   if (!value) return "—";
-  return value.replace("T", " ").slice(0, 16);
+  return formatEtStamp(value);
 }
 
 export function gexImpact(row: GexSnapshotItem): string {

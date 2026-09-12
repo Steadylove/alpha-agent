@@ -1,4 +1,5 @@
 import type { DiscordPayload } from "./sendWebhook";
+import { formatUtcStamp } from "./cardTime";
 import { strengthLabel } from "./tvAlertCopy";
 
 export type BookRowView = {
@@ -124,7 +125,7 @@ export function renderCashBook(input: CashBookView): DiscordPayload {
   const headline = [
     `📒 **${input.label} 现金账本**`,
     `记账自 ${input.since.slice(0, 10)}`,
-    `截至 ${input.asOf}`,
+    `截至 ${formatUtcStamp(input.asOf)}`,
     input.equity != null ? `累计 ${bookPnlLabel(input.equity)}` : null,
     input.dd != null ? `回撤 ${input.dd.toFixed(0)}%` : null,
     input.mar != null ? `MAR ${input.mar.toFixed(2)}` : null,

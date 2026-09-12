@@ -3,7 +3,8 @@ import { alertCardFields, alertTimeframeSuffix, type AlertView } from "./tvAlert
 import { formatFundRatio } from "@/lib/scoring/fundScore";
 import { signalTradeChartLabels, signalTradeChartNote, TRADE_CHART_HEIGHT, type SignalTradeChart } from "./signalTradeChart";
 import { qualityDimensionLabel, qualityReasonText } from "@/lib/signals/qualityCopy";
-import { CARD_DISCLAIMER, CARD_DISCLAIMER_HEIGHT, CARD_DISCLAIMER_SIZE } from "./cardDisclaimer";
+import { withDisclaimer } from "./cardDisclaimer";
+import { CARD_TZ_ET } from "./cardTime";
 
 import { CARD_WIDTH as SIGNAL_CARD_WIDTH, CARD_INK as SIGNAL_INK } from "./cardTheme";
 export { CARD_WIDTH as SIGNAL_CARD_WIDTH, CARD_SCALE as SIGNAL_CARD_SCALE, CARD_INK as SIGNAL_INK } from "./cardTheme";
@@ -62,7 +63,7 @@ export function signalCardLayout(view: AlertView): { width: number; height: numb
   text(view.code, left, 92.5, badgeWidth, 14, accent, 700, "center", true);
   text(title, left + badgeWidth + 14, 86, 400, 22, accent, 700);
   const context = meta.join(" · ") || (view.chart ? `${dateLabel(view.chart.signalTime)} · 美东收盘信号` : "");
-  if (context) text(context, 500, 92, 420, 14, T.muted, 400, "right");
+  text(withDisclaimer(context), 500, 92, 420, 14, T.muted, 400, "right");
   line(130);
 
   const fields = alertCardFields(view);
@@ -157,7 +158,7 @@ export function signalCardLayout(view: AlertView): { width: number; height: numb
 
   if (view.chart) {
     text("价格走势", left, y, 200, 16, T.text, 700);
-    text(`${dateLabel(view.chart.bars[0][0])} — ${dateLabel(view.chart.signalTime)}`, 560, y + 2, 360, 13, T.muted, 400, "right");
+    text(`${dateLabel(view.chart.bars[0][0])} — ${dateLabel(view.chart.signalTime)} ${CARD_TZ_ET}`, 560, y + 2, 360, 13, T.muted, 400, "right");
     y += 33;
     items.push({ type: "chart", x: left, y, chart: view.chart });
     for (const label of signalTradeChartLabels(view.chart)) {
@@ -190,7 +191,5 @@ export function signalCardLayout(view: AlertView): { width: number; height: numb
     y += paragraph(panel.note, y, 13, T.muted, left, inner, 21);
   }
   const contentHeight = Math.ceil(y + 24);
-  line(contentHeight);
-  text(CARD_DISCLAIMER, left, contentHeight + 12, inner, CARD_DISCLAIMER_SIZE, T.muted);
-  return { width: SIGNAL_CARD_WIDTH, height: contentHeight + CARD_DISCLAIMER_HEIGHT, items };
+  return { width: SIGNAL_CARD_WIDTH, height: contentHeight, items };
 }

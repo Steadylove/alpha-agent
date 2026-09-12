@@ -118,7 +118,7 @@ export async function sendAlphaScreenerToDiscord(
   webhookUrl: string,
   result: ScreenerResult,
 ): Promise<void> {
-  const dateStr = result.generatedAt.toISOString().slice(0, 10);
+  const dateStr = `${result.generatedAt.toISOString().slice(0, 10)} UTC`;
   const eliteSymbols = new Set(result.elite.map((row) => row.symbol));
   const overlapSymbols = new Set(
     result.newHighs.filter((row) => eliteSymbols.has(row.symbol)).map((row) => row.symbol),

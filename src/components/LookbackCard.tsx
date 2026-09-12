@@ -469,7 +469,7 @@ function LookbackResult({
 
 function Stat({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
-    <Stack gap={2} w={64}>
+    <Stack gap={2} miw={80}>
       <Text size="xs" c="dimmed">
         {label}
       </Text>

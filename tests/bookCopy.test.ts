@@ -67,7 +67,8 @@ describe("cash book card", () => {
   it("强度列是每股分位，表头不写门槛", () => {
     const svg = cashBookSvg(sample);
     expect(svg).toContain("记账自 2021-08-24");
-    expect(svg).toContain("截至 2026-08-21 17:30");
+    expect(svg).toContain("截至 2026-08-21 17:30 UTC");
+    expect(svg).toContain("仅供信息参考，不构成投资建议");
     expect(svg).toContain("强度");
     expect(svg).toContain("强于 79%");
     expect(svg).toContain("NVDA");

@@ -58,7 +58,7 @@ describe("gex copy", () => {
 
   it("卡片带 10Y，不写 4H/2H", () => {
     const view = gexCardFromSnapshot(snapshot);
-    expect(view.asOf).toBe("2026-09-04 16:14");
+    expect(view.asOf).toBe("2026-09-04 16:14 美东");
     expect(view.tnx).toBe("4.78");
     expect(view.note).toContain("SPX 在 Flip 上方偏稳");
     expect(view.rows[0]).toMatchObject({ symbol: "SPX", spot: "7719", netGex: "+$12.2B", flip: "7702" });

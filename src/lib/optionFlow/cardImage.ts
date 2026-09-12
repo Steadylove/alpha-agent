@@ -1,3 +1,4 @@
+import { formatUtcStamp } from "@/lib/discord/cardTime";
 import { CARD_INK as T } from "@/lib/discord/cardTheme";
 import { reportCard } from "@/lib/discord/reportCardLayout";
 import { renderReportCardPng, reportCardSvg } from "@/lib/discord/reportCardImage";
@@ -30,9 +31,7 @@ export function formatExpiry(raw?: string): string {
 }
 
 function formatTime(iso: string): string {
-  const offset = iso.match(/(Z|[+-]\d{2}:\d{2})$/)?.[1];
-  const zone = offset === "Z" || offset === "+00:00" ? " UTC" : offset ? ` ${offset}` : "";
-  return iso.replace("T", " ").slice(0, 16) + zone;
+  return formatUtcStamp(iso);
 }
 
 function rightLabel(right?: string): string {
@@ -115,7 +114,7 @@ export function noteworthyLayout(post: OptionFlowPost) {
 }
 
 export function sessionDigestLayout(title: string, asOf: string, legs: OptionFlowLeg[]) {
-  return flowListLayout(title, asOf, legs, false);
+  return flowListLayout(title, formatUtcStamp(asOf), legs, false);
 }
 
 export function singleFlowSvg(post: OptionFlowPost): string {
