@@ -53,6 +53,7 @@ describe("mergeScreener", () => {
       rising: 1,
     });
     expect(data.candidates).toHaveLength(1);
+    expect(data.universe.map((s) => s.symbol)).toEqual(["NVDA"]);
     expect(data.pool[0]?.inLivePool).toBe(true);
   });
 });

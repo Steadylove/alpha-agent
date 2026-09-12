@@ -1,4 +1,4 @@
-import { candidatesOf, overlayPool } from "@/lib/opportunity/poolOverlay";
+import { candidatesOf, overlayPool, universeOf } from "@/lib/opportunity/poolOverlay";
 import { describe, expect, it } from "vitest";
 
 describe("overlayPool", () => {
@@ -50,5 +50,21 @@ describe("candidatesOf", () => {
     const rows = candidatesOf(ranked, new Set(["A"]));
     expect(rows.map((r) => r.symbol)).toEqual(["A"]);
     expect(rows[0]).toMatchObject({ sectorId: "ENERGY", inLivePool: true, elite: true });
+  });
+});
+
+describe("universeOf", () => {
+  it("收下全截面，并把池里不在截面的票补进去", () => {
+    const ranked = [
+      {
+        symbol: "A",
+        sector: "Energy",
+        industry: null,
+        rps: { 20: 10, 50: 10, 120: 10, 250: 10 },
+      },
+    ];
+    const rows = universeOf(ranked, new Set(["A", "RKLB"]));
+    expect(rows.map((r) => r.symbol)).toEqual(["A", "RKLB"]);
+    expect(rows.find((r) => r.symbol === "RKLB")?.inLivePool).toBe(true);
   });
 });

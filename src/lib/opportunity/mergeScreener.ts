@@ -1,7 +1,7 @@
 import { mapSectorToClock } from "@/lib/scoring/sectorUniverse";
 
 import { breadthOf } from "./breadthOf";
-import { candidatesOf, overlayPool, type RankedLite } from "./poolOverlay";
+import { candidatesOf, overlayPool, universeOf, type RankedLite } from "./poolOverlay";
 import type { OpportunityData } from "./types";
 
 export function mergeScreener(
@@ -10,9 +10,11 @@ export function mergeScreener(
   members: readonly string[],
 ): OpportunityData {
   if (!ranked?.length) {
+    const pool = overlayPool(members, []);
     return {
       ...clock,
-      pool: overlayPool(members, []),
+      pool,
+      universe: pool,
     };
   }
 
@@ -29,5 +31,6 @@ export function mergeScreener(
     sectors: clock.sectors.map((row) => ({ ...row, breadth: breadth[row.id] ?? { sample: 0, strong: 0, rising: 0 } })),
     pool: overlayPool(members, ranked),
     candidates: candidatesOf(ranked, new Set(members)),
+    universe: universeOf(ranked, new Set(members)),
   };
 }

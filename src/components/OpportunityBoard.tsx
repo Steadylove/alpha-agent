@@ -1,4 +1,6 @@
-import { Fragment } from "react";
+"use client";
+
+import { Fragment, useState } from "react";
 import Link from "next/link";
 
 import { groupStocksBySector } from "@/lib/opportunity/groupStocks";
@@ -102,11 +104,16 @@ function StockGroups({
   stocks,
   sectors,
   showPoolMark,
+  empty,
 }: {
   stocks: OpportunityStock[];
   sectors: OpportunitySectorRow[];
   showPoolMark: boolean;
+  empty?: string;
 }) {
+  if (stocks.length === 0) {
+    return <p className="text-xs text-zinc-600">{empty ?? "没有符合条件的票。"}</p>;
+  }
   const groups = groupStocksBySector(stocks, sectors);
   return (
     <div className="overflow-x-auto">
@@ -168,6 +175,74 @@ function StockGroups({
   );
 }
 
+function UniverseSection({
+  stocks,
+  sectors,
+}: {
+  stocks: OpportunityStock[];
+  sectors: OpportunitySectorRow[];
+}) {
+  const [query, setQuery] = useState("");
+  const [scope, setScope] = useState<"all" | "strong" | "pool">("all");
+  const q = query.trim().toUpperCase();
+  const strongCount = stocks.filter((s) => (s.rps250 ?? 0) >= 80).length;
+  const poolCount = stocks.filter((s) => s.inLivePool).length;
+  const shown = stocks.filter((s) => {
+    if (q && !s.symbol.includes(q)) return false;
+    if (scope === "strong") return (s.rps250 ?? 0) >= 80;
+    if (scope === "pool") return s.inLivePool;
+    return true;
+  });
+
+  return (
+    <section className="rounded-xl border border-(--border-subtle) bg-(--surface-raised) p-5">
+      <h2 className="mb-2 text-sm font-semibold text-zinc-100">全市场截面</h2>
+      <p className="mb-4 text-xs text-zinc-500">
+        标普日线截面 {stocks.length} 只，不是现网 55 只。点代码只去信号台，不加池。
+      </p>
+      <div className="mb-4 flex flex-wrap items-end gap-3">
+        <label className="block text-xs text-zinc-500">
+          找代码
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value.toUpperCase())}
+            placeholder="NVDA"
+            className="mt-1 block h-9 w-32 rounded-lg border border-(--border-subtle) bg-(--surface-sunken) px-2 font-mono text-sm text-zinc-100"
+          />
+        </label>
+        <div className="flex flex-wrap gap-2">
+          {(
+            [
+              ["all", `全部 ${stocks.length}`],
+              ["strong", `强势 ${strongCount}`],
+              ["pool", `在池 ${poolCount}`],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setScope(id)}
+              className={`h-9 rounded-lg border px-3 text-xs ${
+                scope === id
+                  ? "border-(--border-strong) bg-(--surface-hover) text-zinc-100"
+                  : "border-(--border-subtle) text-zinc-400"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <StockGroups
+        stocks={shown}
+        sectors={sectors}
+        showPoolMark
+        empty={q ? "名单里没有这个代码" : "没有符合条件的票"}
+      />
+    </section>
+  );
+}
+
 export function OpportunityBoard({ data }: { data: OpportunityData }) {
   if (!data.asOf) {
     return (
@@ -194,14 +269,8 @@ export function OpportunityBoard({ data }: { data: OpportunityData }) {
         <SectorTable rows={data.sectors} />
       </section>
 
-      {data.candidates.length > 0 ? (
-        <section className="rounded-xl border border-(--border-subtle) bg-(--surface-raised) p-5">
-          <h2 className="mb-2 text-sm font-semibold text-zinc-100">今日候选</h2>
-          <p className="mb-4 text-xs text-zinc-500">
-            全市场截面里的强势/新高，不是现网账本。点代码只去信号台，不加池。
-          </p>
-          <StockGroups stocks={data.candidates} sectors={data.sectors} showPoolMark />
-        </section>
+      {data.universe.length > 0 ? (
+        <UniverseSection stocks={data.universe} sectors={data.sectors} />
       ) : (
         <p className="text-xs text-zinc-600">今日个股截面未生成。行业时钟仍可用。</p>
       )}
@@ -209,7 +278,7 @@ export function OpportunityBoard({ data }: { data: OpportunityData }) {
       {data.pool.length > 0 ? (
         <section className="rounded-xl border border-(--border-subtle) bg-(--surface-raised) p-5">
           <h2 className="mb-2 text-sm font-semibold text-zinc-100">现网池对照</h2>
-          <p className="mb-4 text-xs text-zinc-500">只对照，不改名单。</p>
+          <p className="mb-4 text-xs text-zinc-500">这 {data.pool.length} 只是现网名单，只对照，不改。</p>
           <StockGroups stocks={data.pool} sectors={data.sectors} showPoolMark={false} />
         </section>
       ) : null}

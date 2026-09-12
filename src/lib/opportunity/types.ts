@@ -38,6 +38,8 @@ export type OpportunityData = {
   bottoming: SectorClockId[];
   pool: OpportunityStock[];
   candidates: OpportunityStock[];
+  /** 全截面，供改池对照；不是现网 55 只 */
+  universe: OpportunityStock[];
 };
 
 export function emptyOpportunity(): OpportunityData {
@@ -49,5 +51,6 @@ export function emptyOpportunity(): OpportunityData {
     bottoming: [],
     pool: [],
     candidates: [],
+    universe: [],
   };
 }

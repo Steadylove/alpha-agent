@@ -43,24 +43,33 @@ export function overlayPool(members: readonly string[], ranked: readonly RankedL
   });
 }
 
+function stockOf(r: RankedLite, pool: ReadonlySet<string>): OpportunityStock {
+  return {
+    symbol: r.symbol,
+    name: r.name ?? r.symbol,
+    sectorId: r.sector ? mapSectorToClock(r.sector) : null,
+    industryLabel: r.industryLabel || formatIndustryLabel(r.sector, r.industry) || "未分类",
+    rps20: r.rps[20],
+    rps50: r.rps[50],
+    rps120: r.rps[120],
+    rps250: r.rps[250],
+    rpsDelta: rpsDelta(r.rps[250], r.prevRps250),
+    inLivePool: pool.has(r.symbol),
+    elite: Boolean(r.elite),
+    newHigh: Boolean(r.newHigh),
+  };
+}
+
+export function universeOf(ranked: readonly RankedLite[], pool: ReadonlySet<string>): OpportunityStock[] {
+  const fromRanked = ranked.map((r) => stockOf(r, pool));
+  const have = new Set(fromRanked.map((s) => s.symbol));
+  const extras = overlayPool(
+    [...pool].filter((s) => !have.has(s)),
+    ranked,
+  );
+  return [...fromRanked, ...extras];
+}
+
 export function candidatesOf(ranked: readonly RankedLite[], pool: ReadonlySet<string>): OpportunityStock[] {
-  return ranked
-    .filter((r) => r.elite || r.newHigh)
-    .map((r) => {
-      const sectorId = r.sector ? mapSectorToClock(r.sector) : null;
-      return {
-        symbol: r.symbol,
-        name: r.name ?? r.symbol,
-        sectorId,
-        industryLabel: r.industryLabel || formatIndustryLabel(r.sector, r.industry) || "未分类",
-        rps20: r.rps[20],
-        rps50: r.rps[50],
-        rps120: r.rps[120],
-        rps250: r.rps[250],
-        rpsDelta: rpsDelta(r.rps[250], r.prevRps250),
-        inLivePool: pool.has(r.symbol),
-        elite: Boolean(r.elite),
-        newHigh: Boolean(r.newHigh),
-      };
-    });
+  return ranked.filter((r) => r.elite || r.newHigh).map((r) => stockOf(r, pool));
 }

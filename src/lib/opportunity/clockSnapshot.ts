@@ -51,5 +51,6 @@ export function buildClockSnapshot(bars: Map<string, CloseBar[]>): OpportunityDa
     bottoming: last.bottoming,
     pool: [],
     candidates: [],
+    universe: [],
   };
 }

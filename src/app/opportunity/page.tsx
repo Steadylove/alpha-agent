@@ -11,7 +11,7 @@ export default async function OpportunityPage() {
       <div className="rise-in">
         <h1 className="text-3xl font-semibold tracking-tight text-zinc-50">机会</h1>
         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-400">
-          哪个行业在抬头、现网池里谁落在这些行业。改池时看，不改买点，也不改账本。
+          哪个行业在抬头、截面里谁在变强。现网池只是标记，不是这份名单。改池时看，不改买点，也不改账本。
         </p>
       </div>
       <OpportunityBoard data={data} />
