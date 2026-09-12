@@ -12,6 +12,7 @@ BOOK_PUSH_URL=${BOOK_PUSH_URL:-https://alpha-agent-eight.vercel.app/api/jobs/pus
 
 export TZ=Asia/Shanghai
 export MARKET_DATA_DIR=$MARKET
+export SIGNAL_POOL_PATH=${SIGNAL_POOL_PATH:-$ROOT/desk/signal-pool.json}
 export ALPACA_FEED=${ALPACA_FEED:-sip}
 
 mkdir -p "$ROOT/logs" "$MARKET/snapshots"
