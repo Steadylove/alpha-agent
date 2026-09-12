@@ -41,6 +41,20 @@ export type ScreenerResult = {
   dailyFetchErrors: number;
 };
 
+export type RankedScreener = {
+  symbol: string;
+  name: string;
+  sector: string | null;
+  industry: string | null;
+  industryLabel: string;
+  rps: Record<(typeof RPS_WINDOWS)[number], number>;
+  prevRps250: number | null;
+  elite: boolean;
+  newHigh: boolean;
+};
+
+export const RPS_LOOKBACK_BARS = 5;
+
 function returnOverWindow(bars: DailyBar[], window: number): number | null {
   return percentChange(
     bars.map((b) => b.close),
@@ -121,6 +135,10 @@ export async function runAlphaScreenerJob(
     .filter((c) => c.bars.length >= 250);
 
   const rpsMap = computeMultiRps(dailyCandidates);
+  const prevCandidates = dailyCandidates
+    .map((c) => ({ symbol: c.symbol, bars: c.bars.slice(0, -RPS_LOOKBACK_BARS) }))
+    .filter((c) => c.bars.length >= 250);
+  const prevRps = computeMultiRps(prevCandidates);
 
   const eliteBase: ScreenerRow[] = [];
   const newHighsBase: ScreenerRow[] = [];
@@ -229,9 +247,33 @@ export async function runAlphaScreenerJob(
     dailyFetchErrors: Object.keys(dailyErrors).length,
   };
 
+  const eliteSet = new Set(eliteBase.map((r) => r.symbol));
+  const newHighSet = new Set(newHighsBase.map((r) => r.symbol));
+  const ranked: RankedScreener[] = dailyCandidates.flatMap(({ symbol }) => {
+    const rps = rpsMap.get(symbol);
+    if (!rps) return [];
+    const inst = instrumentBySymbol.get(symbol);
+    const sector = inst?.sector ?? null;
+    const industry = inst?.industry ?? null;
+    return [
+      {
+        symbol,
+        name: inst?.name ?? symbol,
+        sector,
+        industry,
+        industryLabel: formatIndustryLabel(sector, industry),
+        rps,
+        prevRps250: prevRps.get(symbol)?.[250] ?? null,
+        elite: eliteSet.has(symbol),
+        newHigh: newHighSet.has(symbol),
+      },
+    ];
+  });
+
   writeSnapshot("screener", {
     date: generatedAt.toISOString().slice(0, 10),
     ...result,
+    ranked,
   });
 
   return result;

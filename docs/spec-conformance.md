@@ -111,10 +111,10 @@ Compass Pine 里内嵌了一套简化版 MPR，与 MPR Pine 的完整版口径�
 先跑三个 backfill 补日线，再由 `npm run jobs:daily` 按依赖顺序执行：
 
 ```
-macro-phase → rotation-radar → fund-score
+macro-phase → rotation-radar → opportunity → fund-score
 ```
 
-`macro-phase` 的产出被 `rotation-radar` 读取。`fund-score` 是软失败步骤，挂掉不应拖垮整条链。
+`macro-phase` 的产出被 `rotation-radar` 读取。`opportunity` 写行业时钟快照，失败不应拖垮账本链。`fund-score` 是软失败步骤。
 
 ### 调度相关的已知问题
 

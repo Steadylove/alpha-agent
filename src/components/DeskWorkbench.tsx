@@ -197,13 +197,13 @@ function TfButton({
   );
 }
 
-export function DeskWorkbench() {
+export function DeskWorkbench({ initialQuery = "" }: { initialQuery?: string }) {
   const [data, setData] = useState<Board | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [chartTf, setChartTf] = useState<"4h" | "2h">("4h");
   const [chartTarget, setChartTarget] = useState<ChartTarget | null>(null);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery.trim().toUpperCase());
   const [scope, setScope] = useState<"live" | "all">("live");
   const request = useMemo(() => (chartTf === "2h" ? H2_CHART : H4_CHART), [chartTf]);
 

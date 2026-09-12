@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   FlaskConical,
+  Layers,
   LayoutDashboard,
   ListChecks,
   Radar,
@@ -16,6 +17,7 @@ const primaryNav = [
   { href: "/", label: "总览", icon: LayoutDashboard },
   { href: "/desk", label: "信号台", icon: ListChecks },
   { href: "/fund", label: "资金账本", icon: Wallet },
+  { href: "/opportunity", label: "机会", icon: Layers },
   { href: "/mpr", label: "市场雷达", icon: Radar },
   { href: "/rotation", label: "轮动持仓", icon: Repeat },
   { href: "/lab", label: "调参实验室", icon: FlaskConical },

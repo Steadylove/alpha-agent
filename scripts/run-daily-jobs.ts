@@ -1,6 +1,7 @@
 import "dotenv/config";
 
 import { runMacroPhaseJob } from "@/lib/jobs/macroPhase";
+import { runOpportunityJob } from "@/lib/jobs/opportunity";
 import { runRotationRadarJob } from "@/lib/jobs/rotationRadar";
 import { runFundScoreJob } from "@/lib/jobs/fundScore";
 
@@ -26,6 +27,7 @@ type Step = {
 const STEPS: Step[] = [
   { name: "macro-phase", run: runMacroPhaseJob },
   { name: "rotation-radar", run: runRotationRadarJob },
+  { name: "opportunity", run: runOpportunityJob, soft: true },
   { name: "fund-score", run: () => runFundScoreJob(), soft: true },
 ];
 

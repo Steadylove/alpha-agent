@@ -1,146 +1,227 @@
-import { MacroPhaseBanner } from "@/components/MacroPhaseBanner";
-import { getMprData } from "@/lib/dashboard/mpr";
-import { getRotationData } from "@/lib/dashboard/rotation";
 import Link from "next/link";
-import { ArrowRight, Radar, Repeat } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 
-/**
- * 数据由每日任务链在 00:30 UTC 一次性写入，请求间不会变，
- * 因此按 ISR 缓存而非每次请求重查。这也让 Next 恢复导航预取。
- */
-export const revalidate = 300;
+import { getMprData } from "@/lib/dashboard/mpr";
+import { getOpportunityData } from "@/lib/dashboard/opportunity";
+import { getRotationData } from "@/lib/dashboard/rotation";
+import { peekLiveBooks, type LiveBooksResult } from "@/lib/fund/liveBooks";
+import { readSignalPoolMembers } from "@/lib/fund/signalPool";
+import type { LookbackView } from "@/lib/fund/lookbackLogic";
+import { bookPnlLabel } from "@/lib/discord/bookCopy";
+import { macroPhaseReading } from "@/lib/scoring/mprReading";
 
-type ModuleStat = { label: string; value: string; hint?: string; tone?: "pos" | "neg" };
+export const dynamic = "force-dynamic";
 
-function ModuleCard({
-  href,
-  icon: Icon,
-  title,
-  question,
-  stats,
-  delay,
-}: {
-  href: string;
-  icon: LucideIcon;
-  title: string;
-  question: string;
-  stats: ModuleStat[];
-  delay: number;
-}) {
-  return (
-    <Link
-      href={href}
-      style={{ "--rise-delay": `${delay}ms` } as React.CSSProperties}
-      className="group rise-in lift flex flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-raised)] p-5 hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)]"
-    >
-      <div className="flex items-center gap-2.5">
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--accent-soft)]">
-          <Icon className="h-4 w-4" style={{ color: "var(--accent)" }} />
-        </span>
-        <span className="text-base font-semibold text-zinc-100">{title}</span>
-        <ArrowRight className="ml-auto h-4 w-4 text-zinc-600 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-zinc-200" />
-      </div>
-      <p className="mt-3 text-sm leading-relaxed text-zinc-500">{question}</p>
-
-      <div className="mt-6 flex flex-wrap gap-x-8 gap-y-4 border-t border-[var(--border-subtle)] pt-4">
-        {stats.map((s) => (
-          <div key={s.label}>
-            <div
-              // 等宽字体只给数字用，套在中文上（如行业名）会显得松散别扭
-              className={
-                /^[+\-\d]/.test(s.value)
-                  ? "font-mono text-2xl leading-none"
-                  : "text-xl font-medium leading-none"
-              }
-              style={{
-                color:
-                  s.tone === "pos"
-                    ? "var(--pos)"
-                    : s.tone === "neg"
-                      ? "var(--neg)"
-                      : "#fafafa",
-              }}
-            >
-              {s.value}
-            </div>
-            <div className="mt-2 text-xs text-zinc-500">{s.label}</div>
-            {s.hint ? <div className="text-xs text-zinc-600">{s.hint}</div> : null}
-          </div>
-        ))}
-      </div>
-    </Link>
-  );
+function axisLabel(raw: string): string {
+  const [day, time] = raw.split("T");
+  return time ? `${day} ${time}` : day;
 }
 
-export default async function DashboardPage() {
-  const [mpr, rotation] = await Promise.all([getMprData(), getRotationData()]);
-  const asOf = mpr.latest?.date ?? rotation.latestDate;
+function bookOf(cache: LiveBooksResult | null, tf: "4h" | "2h"): LookbackView | null {
+  return cache?.books.find((b) => b.tf === tf)?.view ?? null;
+}
+
+function toneOf(n: number): string {
+  return n >= 0 ? "var(--pos)" : "var(--neg)";
+}
+
+export default async function OverviewPage() {
+  const [members, books, mpr, rotation, opportunity] = await Promise.all([
+    readSignalPoolMembers().catch(() => [] as string[]),
+    peekLiveBooks().catch(() => null),
+    getMprData(),
+    getRotationData(),
+    getOpportunityData().catch(() => null),
+  ]);
+
+  const h4 = bookOf(books, "4h");
+  const h2 = bookOf(books, "2h");
+  const env = mpr.latest ? macroPhaseReading(mpr.latest) : null;
 
   return (
     <div className="space-y-8">
       <div className="rise-in">
-        <h1 className="text-3xl font-semibold tracking-tight text-zinc-50">市场罗盘</h1>
+        <h1 className="text-3xl font-semibold tracking-tight text-zinc-50">总览</h1>
         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-400">
-          跟踪 40 只美股核心标的的宏观环境与轮动动能。
-          两个模块回答两个问题：现在能不能重仓、该拿哪几只。
+          现网股票池、4 小时和 2 小时账本。本根买点在信号台。市场雷达是环境，轮动是另一套日线样本，都不改这本账。
         </p>
-        {asOf ? (
-          <p className="mt-2 font-mono text-xs text-zinc-600">数据截至 {asOf}</p>
+      </div>
+
+      <section className="rise-in space-y-3" style={{ "--rise-delay": "40ms" } as React.CSSProperties}>
+        <div className="flex items-end justify-between gap-3">
+          <h2 className="text-sm font-semibold text-zinc-200">现网</h2>
+          <p className="text-xs text-zinc-500">
+            池 {members.length} 只
+            {books?.stale ? " · 账本待更新" : ""}
+          </p>
+        </div>
+        {books?.stale && books.staleReason ? (
+          <p className="text-xs text-amber-400/90">{books.staleReason}</p>
         ) : null}
-      </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          <BookCard title="4 小时" href="/desk" view={h4} />
+          <BookCard title="2 小时" href="/desk" view={h2} />
+        </div>
+        <div className="flex flex-wrap gap-3 text-sm">
+          <TextLink href="/desk" label="信号台" hint="看 4H / 2H 状态" />
+          <TextLink href="/fund" label="资金账本" hint="改池、开账" />
+        </div>
+      </section>
 
-      <div className="rise-in" style={{ "--rise-delay": "60ms" } as React.CSSProperties}>
-        <MacroPhaseBanner latest={mpr.latest} />
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <ModuleCard
-          delay={140}
+      <section className="rise-in space-y-3" style={{ "--rise-delay": "100ms" } as React.CSSProperties}>
+        <h2 className="text-sm font-semibold text-zinc-200">环境</h2>
+        <Link
           href="/mpr"
-          icon={Radar}
-          title="市场相变雷达"
-          question="衍生品、信用、现货现在紧不紧？波动会不会变大？"
-          stats={
-            mpr.latest
-              ? [
-                  { label: "市场风险分", value: mpr.latest.marketRiskScore.toFixed(0), hint: "满分 100" },
-                  { label: "所处阶段", value: `P${mpr.latest.pathId}` },
-                ]
-              : [{ label: "数据生成中", value: "—" }]
-          }
-        />
+          className="lift group flex items-center justify-between gap-4 rounded-xl border border-(--border-subtle) bg-(--surface-raised) px-5 py-4 hover:border-(--border-strong) hover:bg-(--surface-hover)"
+        >
+          <div className="min-w-0">
+            {env && mpr.latest ? (
+              <>
+                <p className="text-sm font-semibold text-zinc-100">
+                  {env.pathLabel}
+                  <span className="ml-2 font-normal text-zinc-400">{env.headline}</span>
+                </p>
+                <p className="mt-1 text-xs text-zinc-500">
+                  压力分 {mpr.latest.marketRiskScore.toFixed(0)} · {mpr.latest.date} · 区制标签，不给仓位
+                </p>
+              </>
+            ) : (
+              <p className="text-sm text-zinc-500">日更尚未生成</p>
+            )}
+          </div>
+          <ArrowRight className="h-4 w-4 shrink-0 text-zinc-600 group-hover:text-zinc-200" />
+        </Link>
+        <Link
+          href="/opportunity"
+          className="lift group flex items-center justify-between gap-4 rounded-xl border border-(--border-subtle) bg-(--surface-raised) px-5 py-4 hover:border-(--border-strong) hover:bg-(--surface-hover)"
+        >
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-zinc-100">行业机会</p>
+            <p className="mt-1 text-xs text-zinc-500">
+              {opportunity?.asOf
+                ? `截至 ${opportunity.asOf} · 领涨 ${
+                    opportunity.leaders
+                      .map((id) => opportunity.sectors.find((s) => s.id === id)?.name ?? id)
+                      .join("、") || "—"
+                  } · 回流 ${
+                    opportunity.bottoming
+                      .map((id) => opportunity.sectors.find((s) => s.id === id)?.name ?? id)
+                      .join("、") || "—"
+                  } · 改池时看，不指挥现网仓位`
+                : "日更尚未生成 · 改池时看，不指挥现网仓位"}
+            </p>
+          </div>
+          <ArrowRight className="h-4 w-4 shrink-0 text-zinc-600 group-hover:text-zinc-200" />
+        </Link>
+      </section>
 
-        <ModuleCard
-          delay={220}
+      <section className="rise-in space-y-3" style={{ "--rise-delay": "160ms" } as React.CSSProperties}>
+        <h2 className="text-sm font-semibold text-zinc-200">对照</h2>
+        <Link
           href="/rotation"
-          icon={Repeat}
-          title="动能轮动雷达"
-          question="强势股里现在该持有哪几只？各占多少仓位？"
-          stats={
-            rotation.latestDate
-              ? [
-                  {
-                    label: "年内净值",
-                    value: `${rotation.stats.totalNavPct >= 0 ? "+" : ""}${rotation.stats.totalNavPct.toFixed(1)}%`,
-                    tone: rotation.stats.totalNavPct >= 0 ? "pos" : "neg",
-                  },
-                  { label: "当前持仓", value: `${rotation.holdings.length}`, hint: "只" },
-                  {
-                    label: "年内胜率",
-                    value: `${rotation.stats.winRatePct.toFixed(0)}%`,
-                    hint: `${rotation.stats.trades} 笔交易`,
-                  },
-                ]
-              : [{ label: "数据生成中", value: "—" }]
-          }
-        />
-      </div>
+          className="lift group block rounded-xl border border-(--border-subtle) bg-(--surface-raised) p-5 hover:border-(--border-strong) hover:bg-(--surface-hover)"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-semibold text-zinc-100">40 只日线轮动</p>
+            <ArrowRight className="h-4 w-4 shrink-0 text-zinc-600 group-hover:text-zinc-200" />
+          </div>
+          <p className="mt-2 text-sm text-zinc-500">不是现网股票池，也不用 4H / 2H 定档。</p>
+          {rotation.latestDate ? (
+            <div className="mt-5 flex flex-wrap gap-x-8 gap-y-4 border-t border-(--border-subtle) pt-4">
+              <Stat
+                label="样本持仓"
+                value={`${rotation.holdings.length}`}
+                hint={rotation.latestDate}
+              />
+              <Stat
+                label="年内净值"
+                value={`${rotation.stats.totalNavPct >= 0 ? "+" : ""}${rotation.stats.totalNavPct.toFixed(1)}%`}
+                color={toneOf(rotation.stats.totalNavPct)}
+              />
+              <Stat
+                label="年内胜率"
+                value={`${rotation.stats.winRatePct.toFixed(0)}%`}
+                hint={`${rotation.stats.trades} 笔`}
+              />
+            </div>
+          ) : (
+            <p className="mt-4 text-sm text-zinc-500">日更尚未生成</p>
+          )}
+        </Link>
+      </section>
 
-      <p className="max-w-3xl border-t border-[var(--border-subtle)] pt-6 text-xs leading-relaxed text-zinc-500">
-        本站展示的是量化模型的跟踪结果，不构成投资建议。所有收益数字均为模型模拟，
-        未计入滑点、手续费与实际成交偏差，且标的池为事后选定，历史表现存在幸存者偏差。
+      <p className="max-w-3xl border-t border-(--border-subtle) pt-6 text-xs leading-relaxed text-zinc-500">
+        现网数字来自资金账本缓存，不是信号台当场扫描。本站是量化跟踪，不构成投资建议；收益为模型模拟，未计滑点与手续费。
       </p>
     </div>
+  );
+}
+
+function BookCard({ title, href, view }: { title: string; href: string; view: LookbackView | null }) {
+  const pnl = view ? bookPnlLabel(view.equity) : "—";
+  return (
+    <Link
+      href={href}
+      className="lift group flex flex-col rounded-xl border border-(--border-subtle) bg-(--surface-raised) p-5 hover:border-(--border-strong) hover:bg-(--surface-hover)"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm font-semibold text-zinc-100">{title}</p>
+        <ArrowRight className="h-4 w-4 text-zinc-600 group-hover:text-zinc-200" />
+      </div>
+      {view ? (
+        <>
+          <div className="mt-5 flex flex-wrap gap-x-8 gap-y-4">
+            <Stat label="持仓" value={`${view.rows.length}`} hint={`敞口 ${view.exposurePct.toFixed(0)}%`} />
+            <Stat label="净值" value={pnl} color={toneOf(view.equity - 1)} hint={axisLabel(view.asOf)} />
+          </div>
+          {view.rows.length > 0 ? (
+            <p className="mt-4 font-mono text-xs leading-relaxed text-zinc-500">
+              {view.rows.map((r) => r.symbol).join("  ")}
+            </p>
+          ) : (
+            <p className="mt-4 text-xs text-zinc-600">这本账当前空仓</p>
+          )}
+        </>
+      ) : (
+        <p className="mt-5 text-sm text-zinc-500">还没有账本缓存。去资金账本更新。</p>
+      )}
+    </Link>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  hint,
+  color,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  color?: string;
+}) {
+  return (
+    <div>
+      <div
+        className={/^[+\-\d]/.test(value) ? "font-mono text-2xl leading-none" : "text-xl font-medium leading-none"}
+        style={{ color: color ?? "#fafafa" }}
+      >
+        {value}
+      </div>
+      <div className="mt-2 text-xs text-zinc-500">{label}</div>
+      {hint ? <div className="text-xs text-zinc-600">{hint}</div> : null}
+    </div>
+  );
+}
+
+function TextLink({ href, label, hint }: { href: string; hint: string; label: string }) {
+  return (
+    <Link
+      href={href}
+      className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-(--border-subtle) px-3 text-zinc-200 hover:border-(--border-strong) hover:text-white"
+    >
+      {label}
+      <span className="text-xs text-zinc-500">{hint}</span>
+    </Link>
   );
 }
