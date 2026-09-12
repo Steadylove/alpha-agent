@@ -24,7 +24,7 @@ import { fetchAlpaca30MBars, hasAlpacaCredentials } from "@/lib/data-sources/alp
 import { fetchCboeVolIndexHistory, type CboeVolIndex } from "@/lib/data-sources/cboe";
 import { fetchStooqDailyBars } from "@/lib/data-sources/stooq";
 import { fetchYahooDailyBars } from "@/lib/data-sources/yahoo";
-import { marketDataSymbol } from "@/lib/data-sources/marketSymbol";
+import { alpacaDataSymbol, marketDataSymbol } from "@/lib/data-sources/marketSymbol";
 import { MPR_SYMBOLS } from "@/lib/scoring/mpr";
 import { ROTATION_UNIVERSE } from "@/lib/scoring/rotationUniverse";
 import { SECTOR_UNIVERSE } from "@/lib/scoring/sectorUniverse";
@@ -271,8 +271,14 @@ async function main() {
     `已收盘日 ${until}  扩池 ${wanted.length}  源 ${hasAlpacaCredentials() ? "Alpaca" : "Yahoo"}` +
       (root ? `  目录 ${root}` : ""),
   );
-  const aliases = wanted.filter((t) => marketDataSymbol(t) !== t);
-  if (aliases.length) console.log(`行情代码映射（保留原 CSV / 账本代码）：${aliases.map((t) => `${t}→${marketDataSymbol(t)}`).join("，")}`);
+  const aliases = wanted.filter((t) => marketDataSymbol(t) !== t || alpacaDataSymbol(t) !== t);
+  if (aliases.length) {
+    console.log(
+      `行情代码映射（保留原 CSV / 账本代码）：${aliases
+        .map((t) => `${t}→${hasAlpacaCredentials() ? alpacaDataSymbol(t) : marketDataSymbol(t)}`)
+        .join("，")}`,
+    );
+  }
 
   const daily = await refreshDaily(
     wanted.filter((t) => !MACRO_CBOE.includes(t as CboeVolIndex) && t !== "DXY"),

@@ -3,6 +3,8 @@
  * 从 .cache/backtest-panel.v8（fetchedAt 2026-08-31T11:42:50.455Z）现任成分生成。
  * 扩大不是替换：BROAD = Small Fund ∪ 这份名单。
  */
+import { alpacaDataSymbol } from "@/lib/data-sources/marketSymbol";
+
 export const BROAD_EXTRA_TICKERS = [
   "A",
   "ABNB",
@@ -375,7 +377,5 @@ export type BroadExtraTicker = (typeof BROAD_EXTRA_TICKERS)[number];
 
 /** Alpaca 用点号，面板/Yahoo 用连字符。 */
 export function alpacaSymbol(ticker: string): string {
-  if (ticker === "BRK-B") return "BRK.B";
-  if (ticker === "BF-B") return "BF.B";
-  return ticker;
+  return alpacaDataSymbol(ticker);
 }

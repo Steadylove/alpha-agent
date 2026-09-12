@@ -12,3 +12,14 @@ const MARKET_SYMBOL_ALIASES: Readonly<Record<string, string>> = {
 export function marketDataSymbol(symbol: string): string {
   return MARKET_SYMBOL_ALIASES[symbol.toUpperCase()] ?? symbol;
 }
+
+/** Alpaca SIP 用点号；Yahoo / CSV / 账本仍用连字符。 */
+const ALPACA_SYMBOL_ALIASES: Readonly<Record<string, string>> = {
+  "BRK-B": "BRK.B",
+  "BF-B": "BF.B",
+};
+
+export function alpacaDataSymbol(symbol: string): string {
+  const mapped = marketDataSymbol(symbol);
+  return ALPACA_SYMBOL_ALIASES[mapped.toUpperCase()] ?? mapped;
+}

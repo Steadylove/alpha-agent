@@ -62,7 +62,19 @@ if [ ! -d node_modules ] || [ "$(cat "$STAMP" 2>/dev/null || true)" != "$lock_ha
 fi
 
 log "补行情"
-npm run market:refresh
+refresh_ok=0
+for attempt in 1 2 3; do
+  if npm run market:refresh; then
+    refresh_ok=1
+    break
+  fi
+  log "行情刷新失败，重试 ${attempt}/3"
+  sleep "${MARKET_REFRESH_RETRY_SLEEP:-45}"
+done
+if [ "$refresh_ok" -ne 1 ]; then
+  echo "行情刷新三次失败，停止发账本" >&2
+  exit 1
+fi
 
 soft jobs:daily npm run jobs:daily
 soft gex python3 scripts/fetch-gex-snapshot.py

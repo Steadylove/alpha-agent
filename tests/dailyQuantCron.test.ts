@@ -24,7 +24,7 @@ function run(failCommand = "") {
     let failed = false;
     let error = "";
     try {
-      execFileSync("bash", [scriptFile], { env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, TEST_CALLS: calls, TEST_FAIL_COMMAND: failCommand }, stdio: "pipe", timeout: 10_000 });
+      execFileSync("bash", [scriptFile], { env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, TEST_CALLS: calls, TEST_FAIL_COMMAND: failCommand, MARKET_REFRESH_RETRY_SLEEP: "0" }, stdio: "pipe", timeout: 10_000 });
     } catch (e) { failed = true; error = String(e); }
     return { failed, error, calls: readFileSync(calls, "utf8").split("\n") };
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -50,5 +50,6 @@ it("辅助任务失败不阻止账本和筛选推送", () => {
 it("行情更新失败停止发布，避免推旧账本", () => {
   const result = run("npm run market:refresh");
   expect(result.failed).toBe(true);
+  expect(result.calls.filter((c) => c === "npm run market:refresh")).toHaveLength(3);
   expect(result.calls.some((c) => c.startsWith("curl ") || c.includes("screener:push"))).toBe(false);
 });

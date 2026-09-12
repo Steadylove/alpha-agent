@@ -44,6 +44,15 @@ describe("行情代码变更", () => {
     expect(hourly[0].close).toBe(101);
   });
 
+  it.each([["BRK-B", "BRK.B"], ["BF-B", "BF.B"]])("Alpaca 把 %s 换成 %s，返回仍用账本代码", async (book, alpaca) => {
+    vi.stubEnv("ALPACA_API_KEY", "test-key"); vi.stubEnv("ALPACA_API_SECRET", "test-secret");
+    const fetcher = vi.fn().mockResolvedValue(Response.json({ bars: [{ t: "2026-09-09T13:30:00Z", o: 100, h: 102, l: 99, c: 101, v: 1000 }] }));
+    vi.stubGlobal("fetch", fetcher);
+    const daily = await fetchAlpacaDailyBars(book, "2026-01-01T00:00:00Z");
+    expect(new URL(fetcher.mock.calls[0][0]).pathname).toBe(`/v2/stocks/${alpaca}/bars`);
+    expect(daily[0].symbol).toBe(book);
+  });
+
   it("普通股票、新代码和宏观代码保持不变，未知404仍向上抛错", async () => {
     for (const symbol of ["AAPL", "MRSH", "P", "DX-Y.NYB", "BRK-B"]) expect(marketDataSymbol(symbol)).toBe(symbol);
     vi.stubGlobal("fetch", vi.fn(async () => new Response("not found", { status: 404 })));
