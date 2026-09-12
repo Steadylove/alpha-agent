@@ -28,6 +28,18 @@ describe("overlayPool", () => {
       rps250: null,
     });
   });
+
+  it("现网池里不在标普的票走 extra", () => {
+    const rows = overlayPool(["TSM", "CCEP", "MP", "BE", "ALAB"], []);
+    expect(rows.find((r) => r.symbol === "TSM")).toMatchObject({
+      sectorId: "TECH",
+      industryLabel: "信息技术｜半导体",
+    });
+    expect(rows.find((r) => r.symbol === "CCEP")?.sectorId).toBe("STAPLES");
+    expect(rows.find((r) => r.symbol === "MP")?.sectorId).toBe("MATERIAL");
+    expect(rows.find((r) => r.symbol === "BE")?.sectorId).toBe("INDU");
+    expect(rows.find((r) => r.symbol === "ALAB")?.sectorId).toBe("TECH");
+  });
 });
 
 describe("candidatesOf", () => {

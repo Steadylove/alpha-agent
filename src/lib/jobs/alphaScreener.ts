@@ -2,6 +2,8 @@ import { fetchFmpProfile } from "@/lib/data-sources/fmp";
 import { fetchSp500Universe } from "@/lib/data-sources/sp500";
 import { fetchManyDailyBars } from "@/lib/data-sources/marketData";
 import { stockUniverse as fallbackUniverse } from "@/lib/fixtures/universe";
+import { withPoolExtras } from "@/lib/opportunity/extraSectors";
+import { readSignalPoolMembers } from "@/lib/fund/signalPool";
 import { writeSnapshot } from "@/lib/vps/snapshot";
 import { buildZhBlurb, formatIndustryLabel } from "@/lib/i18n/gicsZh";
 import { percentChange, percentileRank } from "@/lib/scoring/indicators";
@@ -10,7 +12,7 @@ import { generateAlphaAnalysis } from "@/lib/data-sources/deepseekAlphaAnalyst";
 import type { DailyBar, Instrument } from "@/lib/types/market";
 
 /**
- * 每日筛选：S&P500 四周期 RPS 均 > BASE_RPS_THRESHOLD，附中文行业与简介。
+ * 每日筛选：标普 + 现网池，四周期 RPS 均 > BASE_RPS_THRESHOLD，附中文行业与简介。
  */
 
 const RPS_WINDOWS = [20, 50, 120, 250] as const;
@@ -122,7 +124,8 @@ export async function runAlphaScreenerJob(
   const generatedAt = new Date();
 
   const sp500 = await fetchSp500Universe();
-  const universe: Instrument[] = sp500.length > 0 ? sp500 : fallbackUniverse;
+  const members = await readSignalPoolMembers().catch(() => [] as string[]);
+  const universe: Instrument[] = withPoolExtras(sp500.length > 0 ? sp500 : fallbackUniverse, members);
   const symbols = universe.map((u) => u.symbol);
   const instrumentBySymbol = new Map(universe.map((u) => [u.symbol, u]));
 
