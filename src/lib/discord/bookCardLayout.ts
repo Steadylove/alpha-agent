@@ -1,5 +1,5 @@
 import { bookPnlLabel, daysOpenLabel, daysOpenOf, pnlLabel, winRateLabel, type CashBookView } from "./bookCopy";
-import { formatUtcStamp } from "./cardTime";
+import { formatEtFromUtc } from "./cardTime";
 import { CARD_INK as T } from "./cardTheme";
 import { reportCard } from "./reportCardLayout";
 import { strengthLabel } from "./tvAlertCopy";
@@ -32,7 +32,7 @@ export function cashBookLayout(input: CashBookView) {
   const cashPct = Math.max(0, 100 - input.exposurePct);
   const gainColor = (v: number | null | undefined) => v == null ? T.text : v >= 0 ? T.buy : T.stop;
   const equityColor = gainColor(input.equity == null ? null : input.equity - 1);
-  const asOf = formatUtcStamp(input.asOf);
+  const asOf = formatEtFromUtc(input.asOf);
   card.header(bookTitle(input.label), "NAV", "持仓快照", `截至 ${asOf}`, T.buy);
 
   rect(40, 150, 880, 178, T.panel, 12, T.line);
@@ -48,13 +48,14 @@ export function cashBookLayout(input: CashBookView) {
     text("净值记录不足，暂不绘制", 400, 226, 496, 15, T.muted, 400, "center");
   }
   text(input.since.slice(0, 10), 400, 300, 190, 11, T.muted);
-  text(input.asOf.slice(0, 10), 706, 300, 190, 11, T.muted, 400, "right");
+  text(input.equity == null ? asOf.slice(0, 10) : `累计 ${bookPnlLabel(input.equity)}`, 498, 300, 200, 11, T.muted, 400, "center");
+  text(asOf.slice(0, 10), 706, 300, 190, 11, T.muted, 400, "right");
 
   const kpis = [
+    { label: "CAGR · 年化收益", value: input.cagr == null ? "—" : pnlLabel(input.cagr), color: gainColor(input.cagr) },
     { label: input.ytdYear ? `${input.ytdYear} YTD · 年内收益` : "YTD · 年内收益", value: input.ytdPct == null ? "—" : pnlLabel(input.ytdPct), color: gainColor(input.ytdPct) },
     { label: "最大回撤", value: input.dd == null ? "—" : `${input.dd.toFixed(0)}%`, color: T.stop },
     { label: "胜率", value: winRateLabel(input.winRatePct), color: T.text },
-    { label: "相对 QQQ · 百分点", value: input.vsQqqPct == null ? "—" : `${input.vsQqqPct >= 0 ? "+" : ""}${input.vsQqqPct.toFixed(1)}`, color: gainColor(input.vsQqqPct) },
   ];
   kpis.forEach((kpi, i) => {
     const x = 40 + i * 220;
@@ -97,6 +98,7 @@ export function cashBookLayout(input: CashBookView) {
     input.mar == null ? null : `MAR ${input.mar.toFixed(2)}`,
     input.avgHoldings == null ? null : `均持 ${input.avgHoldings.toFixed(1)} 只`,
     input.avgExposure == null ? null : `平均敞口 ${input.avgExposure.toFixed(0)}%`,
+    input.vsQqqPct == null ? null : `相对 QQQ ${input.vsQqqPct >= 0 ? "+" : ""}${input.vsQqqPct.toFixed(1)}pt`,
   ].filter(Boolean);
   if (details.length) text(details.join("   ·   "), 40, footerY + 70, 880, 13, T.muted);
   return card.finish(footerY + (details.length ? 112 : 82));

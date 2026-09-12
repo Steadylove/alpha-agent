@@ -1,4 +1,5 @@
 import { request } from "node:https";
+import { formatEtFromUtc } from "@/lib/discord/cardTime";
 import {
   ELITE_RPS_THRESHOLD,
   type EliteRow,
@@ -72,7 +73,7 @@ function buildEliteEmbed(result: RpsLeaderboardResult): DiscordEmbed {
     color: 0x22c55e,
     fields,
     footer: {
-      text: `Generated ${result.generatedAt.toISOString().slice(0, 16).replace("T", " ")} UTC`,
+      text: formatEtFromUtc(result.generatedAt.toISOString()),
     },
   };
 }

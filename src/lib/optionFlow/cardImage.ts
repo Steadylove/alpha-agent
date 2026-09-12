@@ -1,4 +1,4 @@
-import { formatUtcStamp } from "@/lib/discord/cardTime";
+import { formatBeijingFromUtc } from "@/lib/discord/cardTime";
 import { CARD_INK as T } from "@/lib/discord/cardTheme";
 import { reportCard } from "@/lib/discord/reportCardLayout";
 import { renderReportCardPng, reportCardSvg } from "@/lib/discord/reportCardImage";
@@ -31,7 +31,7 @@ export function formatExpiry(raw?: string): string {
 }
 
 function formatTime(iso: string): string {
-  return formatUtcStamp(iso);
+  return formatBeijingFromUtc(iso);
 }
 
 function rightLabel(right?: string): string {
@@ -114,7 +114,7 @@ export function noteworthyLayout(post: OptionFlowPost) {
 }
 
 export function sessionDigestLayout(title: string, asOf: string, legs: OptionFlowLeg[]) {
-  return flowListLayout(title, formatUtcStamp(asOf), legs, false);
+  return flowListLayout(title, formatBeijingFromUtc(asOf), legs, false);
 }
 
 export function singleFlowSvg(post: OptionFlowPost): string {

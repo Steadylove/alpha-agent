@@ -13,7 +13,7 @@ export function cashBookFromLookback(view: LookbackView, label: string): CashBoo
   const s = view.stats;
   return {
     asOf: view.asOf, since: view.since, label, rows: view.rows, equity: view.equity,
-    ytdPct: s.ytdPct ?? undefined, ytdYear: s.ytdYear ?? undefined,
+    cagr: s.cagr, ytdPct: s.ytdPct ?? undefined, ytdYear: s.ytdYear ?? undefined,
     exposurePct: view.exposurePct, dd: s.dd, mar: s.mar, avgHoldings: s.avgHoldings,
     avgExposure: s.avgExposure, winRatePct: s.winRatePct,
     curve: sparklineValues(view.curve.map((p) => p.equity)),

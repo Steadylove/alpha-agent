@@ -38,6 +38,7 @@ describe("每日卡片曲线", () => {
     for (const card of cards) {
       expect(card.input.curve).toEqual([1.01, 1.21, 1.2]);
       expect(card.input.equity).toBe(1.2);
+      expect(card.input.cagr).toBe(20);
       expect(card.input.rows).toEqual(cache.books[0].view.rows);
     }
     expect(mocks.refresh).toHaveBeenCalledTimes(fromCache ? 0 : 1);

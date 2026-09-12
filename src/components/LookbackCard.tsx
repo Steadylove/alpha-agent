@@ -9,6 +9,7 @@ import { Card } from "@/components/Card";
 import { DayPicker } from "@/components/DayPicker";
 import { LookbackEquityChart } from "@/components/LookbackEquityChart";
 import { bookPnlLabel } from "@/lib/discord/bookCopy";
+import { formatEtFromUtc } from "@/lib/discord/cardTime";
 import {
   clampLookbackSlots,
   DEFAULT_LOOKBACK_SLOTS,
@@ -391,7 +392,7 @@ function LookbackResult({
         />
       </Group>
       <Text size="xs" c="dimmed" mb="sm" ff="monospace">
-        {view.since} → {(point?.date ?? view.asOf).replace("T", " ").slice(0, 16)} · 当天 {dayPnl} · 持仓{" "}
+        {view.since} → {formatEtFromUtc(point?.date ?? view.asOf)} · 当天 {dayPnl} · 持仓{" "}
         {rows.length} 只 · 敞口 {(point?.exposurePct ?? view.exposurePct).toFixed(0)}%
       </Text>
       <LookbackEquityChart curve={view.curve} hoverDate={hoverDate} onHover={onHover} />

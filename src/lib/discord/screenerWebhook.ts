@@ -1,4 +1,5 @@
 import { request } from "node:https";
+import { formatEtFromUtc } from "@/lib/discord/cardTime";
 import { renderScreenerCardPng } from "@/lib/discord/screenerCardImage";
 import type { ScreenerResult } from "@/lib/jobs/alphaScreener";
 
@@ -118,7 +119,7 @@ export async function sendAlphaScreenerToDiscord(
   webhookUrl: string,
   result: ScreenerResult,
 ): Promise<void> {
-  const dateStr = `${result.generatedAt.toISOString().slice(0, 10)} UTC`;
+  const dateStr = formatEtFromUtc(result.generatedAt.toISOString());
   const eliteSymbols = new Set(result.elite.map((row) => row.symbol));
   const overlapSymbols = new Set(
     result.newHighs.filter((row) => eliteSymbols.has(row.symbol)).map((row) => row.symbol),

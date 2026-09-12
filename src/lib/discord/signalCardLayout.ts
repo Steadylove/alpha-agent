@@ -158,7 +158,7 @@ export function signalCardLayout(view: AlertView): { width: number; height: numb
 
   if (view.chart) {
     text("价格走势", left, y, 200, 16, T.text, 700);
-    text(`${dateLabel(view.chart.bars[0][0])} — ${dateLabel(view.chart.signalTime)} ${CARD_TZ_ET}`, 560, y + 2, 360, 13, T.muted, 400, "right");
+    text(`${dateLabel(view.chart.bars[0][0])} — ${dateLabel(view.chart.signalTime)} ${CARD_TZ_ET}`, 500, y + 2, 420, 13, T.muted, 400, "right");
     y += 33;
     items.push({ type: "chart", x: left, y, chart: view.chart });
     for (const label of signalTradeChartLabels(view.chart)) {

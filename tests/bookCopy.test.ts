@@ -8,6 +8,7 @@ const sample = {
   label: "4 小时",
   exposurePct: 75,
   equity: 1.12,
+  cagr: 15.2,
   ytdPct: 8.5,
   ytdYear: 2026,
   dd: 9,
@@ -50,6 +51,8 @@ describe("cash book copy", () => {
     expect(msg.content).toContain("记账自 2021-08-24");
     expect(text).toContain("强于 79%");
     expect(text).toContain("累计盈利");
+    expect(text).toContain("CAGR");
+    expect(text).toContain("+15.2%");
     expect(text).toContain("回撤");
     expect(text).toContain("MAR");
     expect(text).toContain("均持");
@@ -67,7 +70,8 @@ describe("cash book card", () => {
   it("强度列是每股分位，表头不写门槛", () => {
     const svg = cashBookSvg(sample);
     expect(svg).toContain("记账自 2021-08-24");
-    expect(svg).toContain("截至 2026-08-21 17:30 UTC");
+    expect(svg).toContain("截至 2026-08-21 13:30 美东时间");
+    expect(svg).toContain("累计 +12.0%");
     expect(svg).toContain("仅供信息参考，不构成投资建议");
     expect(svg).toContain("强度");
     expect(svg).toContain("强于 79%");
@@ -76,6 +80,9 @@ describe("cash book card", () => {
     expect(svg).toContain("170.00");
     expect(svg).toContain("12.5%");
     expect(svg).toContain("累计");
+    expect(svg).toContain("CAGR");
+    expect(svg).toContain("年化收益");
+    expect(svg).toContain("+15.2%");
     expect(svg).toContain("回撤");
     expect(svg).toContain("MAR");
     expect(svg).toContain("12.83");

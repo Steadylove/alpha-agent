@@ -1,5 +1,5 @@
 import type { DiscordPayload } from "./sendWebhook";
-import { formatUtcStamp } from "./cardTime";
+import { formatEtFromUtc } from "./cardTime";
 import { strengthLabel } from "./tvAlertCopy";
 
 export type BookRowView = {
@@ -70,6 +70,8 @@ export type CashBookView = {
   label: string;
   rows: readonly BookRowView[];
   equity?: number;
+  /** 年化复合收益，短窗口会放大。 */
+  cagr?: number;
   ytdPct?: number;
   ytdYear?: number;
   exposurePct: number;
@@ -101,6 +103,7 @@ export function renderCashBook(input: CashBookView): DiscordPayload {
     ...(input.equity != null
       ? [{ name: "累计盈利", value: `\`${bookPnlLabel(input.equity)}\``, inline: true }]
       : []),
+    ...(input.cagr != null ? [{ name: "CAGR", value: `\`${pnlLabel(input.cagr)}\``, inline: true }] : []),
     ...(input.dd != null ? [{ name: "回撤", value: `\`${input.dd.toFixed(0)}%\``, inline: true }] : []),
     ...(input.mar != null ? [{ name: "MAR", value: `\`${input.mar.toFixed(2)}\``, inline: true }] : []),
     ...(input.avgHoldings != null
@@ -125,8 +128,9 @@ export function renderCashBook(input: CashBookView): DiscordPayload {
   const headline = [
     `📒 **${input.label} 现金账本**`,
     `记账自 ${input.since.slice(0, 10)}`,
-    `截至 ${formatUtcStamp(input.asOf)}`,
+    `截至 ${formatEtFromUtc(input.asOf)}`,
     input.equity != null ? `累计 ${bookPnlLabel(input.equity)}` : null,
+    input.cagr != null ? `CAGR ${pnlLabel(input.cagr)}` : null,
     input.dd != null ? `回撤 ${input.dd.toFixed(0)}%` : null,
     input.mar != null ? `MAR ${input.mar.toFixed(2)}` : null,
     input.avgHoldings != null ? `均持 ${input.avgHoldings.toFixed(1)}` : null,

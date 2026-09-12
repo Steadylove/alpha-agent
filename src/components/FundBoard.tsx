@@ -7,6 +7,7 @@ import { Card, MetricCard } from "@/components/Card";
 import { LabSymbolChart, type ChartTarget } from "@/components/LabSymbolChart";
 import { curveFromSparkline, LookbackEquityChart } from "@/components/LookbackEquityChart";
 import { daysOpenLabel, daysOpenOf, pnlLabel } from "@/lib/discord/bookCopy";
+import { formatEtFromUtc } from "@/lib/discord/cardTime";
 import { LIVE_BOOKS, liveBookName, liveBookEpoch } from "@/lib/fund/liveBooksLogic";
 import type { BookEpochs } from "@/lib/fund/bookEpochLogic";
 import { BookEpochCard } from "@/components/BookEpochCard";
@@ -45,7 +46,7 @@ export type FundSnapshot = {
 };
 
 function stamp(raw: string): string {
-  return raw.replace("T", " ").slice(0, 16);
+  return formatEtFromUtc(raw);
 }
 
 export function FundBoard({
@@ -61,7 +62,7 @@ export function FundBoard({
   const books = snapshot?.books ?? [];
   const computedAt = snapshot?.computedAt;
   const stale = snapshot?.stale;
-  const [tf, setTf] = useState<LookbackTf>("4h");
+  const [tf, setTf] = useState<LookbackTf>("2h");
   const activeTf = !readOnly || books.some((b) => b.tf === tf) ? tf : books[0]?.tf ?? tf;
   const activeBook = books.find((b) => b.tf === activeTf);
   const from = activeBook && "view" in activeBook ? activeBook.view.since : snapshot ? liveBookEpoch(snapshot, activeTf).from : undefined;
@@ -221,6 +222,9 @@ function LiveBookCard({
 
       {curve.length >= 2 ? (
         <div className="mb-4">
+          <Text size="xs" c="dimmed" mb="sm" ff="monospace">
+            {view.since.slice(0, 10)} → {stamp(view.asOf)} · 累计 {view.pnl} · 持仓 {view.rows.length} 只 · 敞口 {view.exposurePct.toFixed(0)}%
+          </Text>
           <LookbackEquityChart curve={curve} hint={curveHint} />
         </div>
       ) : null}
