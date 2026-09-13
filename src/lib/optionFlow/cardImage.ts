@@ -109,6 +109,24 @@ function flowListLayout(title: string, meta: string, legs: readonly OptionFlowLe
   return card.finish(endY + 57);
 }
 
+export function gexFlowLayout(post: OptionFlowPost) {
+  const card = reportCard(), { text, line } = card;
+  const leg = post.legs[0];
+  const note = leg?.note === "put wall" ? "Put Wall" : leg?.note === "call wall" ? "Call Wall" : leg?.note === "gamma flip" ? "Gamma Flip" : "最强节点";
+  card.header(leg?.ticker || "热力图", "GEX", `期权流 · ${note}`, formatTime(post.postedAt), T.take, 54);
+  text("关键价位", 40, 152, 360, 16, T.secondary);
+  text(leg?.strike != null ? String(leg.strike) : "—", 40, 178, 366, 54, T.take, 700, "left", true);
+  if (leg?.premiumUsd != null) {
+    text("权利金", 460, 163, 400, 15, T.muted);
+    text(formatPremium(leg.premiumUsd), 460, 194, 400, 32, T.text, 700, "left", true);
+  }
+  line(320);
+  text(post.thesis || "热力图观察", 40, 336, 880, 18, T.secondary);
+  line(380);
+  text("热力图观察 · 非策略买点", 40, 396, 880, 13, T.muted);
+  return card.finish(437);
+}
+
 export function noteworthyLayout(post: OptionFlowPost) {
   return flowListLayout("期权流 · 确认名单", formatTime(post.postedAt), post.legs, true);
 }
@@ -131,6 +149,9 @@ export function renderSingleFlowPng(post: OptionFlowPost): Promise<Buffer> {
 }
 export function renderNoteworthyPng(post: OptionFlowPost): Promise<Buffer> {
   return renderReportCardPng(noteworthyLayout(post));
+}
+export function renderGexFlowPng(post: OptionFlowPost): Promise<Buffer> {
+  return renderReportCardPng(gexFlowLayout(post));
 }
 export function renderSessionDigestPng(title: string, asOf: string, legs: OptionFlowLeg[]): Promise<Buffer> {
   return renderReportCardPng(sessionDigestLayout(title, asOf, legs));

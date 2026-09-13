@@ -40,6 +40,7 @@ export function shouldForward(
   if (cfg.dropPaid && post.kind === "paid") return false;
   if (cfg.dropAds && post.kind === "ad") return false;
   if (post.kind === "noteworthy") return post.legs.some((leg) => isCompleteLeg(leg) && (cfg.minPremiumUsd <= 0 || (leg.premiumUsd ?? 0) >= cfg.minPremiumUsd));
+  if (post.kind === "gex") return post.legs.some((leg) => leg.strike != null);
   if (post.kind !== "flow") return false;
   const leg = post.legs[0];
   if (!leg || !isCompleteLeg(leg)) return false;

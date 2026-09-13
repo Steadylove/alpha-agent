@@ -33,6 +33,24 @@ export async function fetchMessagesAfter(channelId: string, after: string, token
   return out;
 }
 
+/** 从新往旧翻到 since（含），返回从旧到新。 */
+export async function fetchMessagesSince(channelId: string, sinceIso: string, token = discordBotToken()): Promise<DiscordMessageLike[]> {
+  const since = Date.parse(sinceIso);
+  const newestFirst: DiscordMessageLike[] = [];
+  let before: string | undefined;
+  while (true) {
+    const batch = await getMessages(channelId, token, before ? { before, limit: "100" } : { limit: "100" });
+    if (!batch.length) break;
+    newestFirst.push(...batch);
+    const oldest = Date.parse(batch[batch.length - 1]?.timestamp || "");
+    if (!Number.isFinite(oldest) || oldest < since || batch.length < 100) break;
+    before = batch[batch.length - 1]!.id;
+  }
+  return newestFirst
+    .filter((message) => Date.parse(message.timestamp || "") >= since)
+    .reverse();
+}
+
 /** 全量：从新往旧翻，返回从旧到新。 */
 export async function fetchAllMessages(channelId: string, token = discordBotToken()): Promise<DiscordMessageLike[]> {
   const newestFirst: DiscordMessageLike[] = [];

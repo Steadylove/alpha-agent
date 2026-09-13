@@ -1,8 +1,9 @@
 import { postDiscordBotImage, postDiscordImage } from "@/lib/discord/sendWebhook";
 
 import { discordBotToken } from "./discordFetch";
-import { renderNoteworthyPng, renderSingleFlowPng } from "./cardImage";
+import { renderGexFlowPng, renderNoteworthyPng, renderSingleFlowPng } from "./cardImage";
 import { shouldForward } from "./config";
+import { hasPublishedTweet } from "./store";
 import type { OptionFlowConfig, OptionFlowPost } from "./types";
 
 /** Quill 服 #常规，账本 / GEX 现在就推这里。 */
@@ -16,18 +17,19 @@ export function signalChannelId(): string {
   return process.env.DISCORD_SIGNAL_CHANNEL_ID?.trim() || DEFAULT_SIGNAL_CHANNEL_ID;
 }
 
-export function shouldPublish(post: OptionFlowPost, cfg: OptionFlowConfig): boolean {
-  return !post.publishedAt && shouldForward(post, cfg);
+export function shouldPublish(post: OptionFlowPost, cfg: OptionFlowConfig, known: readonly OptionFlowPost[] = []): boolean {
+  return !post.publishedAt && !hasPublishedTweet(known, post.tweetId) && shouldForward(post, cfg);
 }
 
 export async function renderOptionFlowPng(post: OptionFlowPost): Promise<Buffer> {
   if (post.kind === "noteworthy") return renderNoteworthyPng(post);
+  if (post.kind === "gex") return renderGexFlowPng(post);
   return renderSingleFlowPng(post);
 }
 
 export async function publishOptionFlow(post: OptionFlowPost): Promise<void> {
-  const filename = post.kind === "noteworthy" ? "option-flow-list.png" : "option-flow.png";
-  const content = post.kind === "noteworthy" ? "期权流 · 确认名单" : "期权流 · 单笔";
+  const filename = post.kind === "noteworthy" ? "option-flow-list.png" : post.kind === "gex" ? "option-flow-gex.png" : "option-flow.png";
+  const content = post.kind === "noteworthy" ? "期权流 · 确认名单" : post.kind === "gex" ? "期权流 · 热力图" : "期权流 · 单笔";
   const bytes = await renderOptionFlowPng(post);
   const webhook = signalWebhookUrl();
   if (webhook) {

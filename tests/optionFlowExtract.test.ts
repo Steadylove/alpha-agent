@@ -108,6 +108,26 @@ describe("option flow extract", () => {
     expect(extractCard("$SPY $3 BILLION+ Put Wall @ 760").kind).toBe("gex");
   });
 
+  it("付费壳下面的热力图字幕能抽出节点并转发", () => {
+    const cfg = { minPremiumUsd: 0, dropAds: true, dropPaid: true };
+    const nod = extractCard("🔒 Seems like posted a tweet for paid guys\n\nHeatmaps\n\n--- \nVolume dying out. 765 strongest nod");
+    expect(nod).toMatchObject({
+      kind: "gex",
+      thesis: "Volume dying out. 765 strongest nod",
+      legs: [{ strike: 765, note: "strongest node" }],
+    });
+    expect(shouldForward(nod, cfg)).toBe(true);
+
+    const short = extractCard("🔒 Seems like posted a tweet for paid guys\n\nHeatmaps  \n\n---  \nVolume dying out. 765 strongest");
+    expect(short.kind).toBe("gex");
+    expect(short.legs[0]?.strike).toBe(765);
+    expect(shouldForward(short, cfg)).toBe(true);
+
+    const wall = extractCard("$SPY $3 BILLION+ Put Wall @ 760");
+    expect(wall.legs[0]).toMatchObject({ ticker: "SPY", strike: 760, note: "put wall", premiumUsd: 3_000_000_000 });
+    expect(shouldForward(wall, cfg)).toBe(true);
+  });
+
   it("门槛可配，默认 0 不拦金额，缺行权到期不转", () => {
     const post = { kind: "flow" as const, legs: [{ ticker: "LYFT", strike: 13, expiry: "03/19/27", premiumUsd: 158_000 }] };
     expect(shouldForward(post, { minPremiumUsd: 0, dropAds: true, dropPaid: true })).toBe(true);
@@ -115,8 +135,10 @@ describe("option flow extract", () => {
     expect(shouldForward({ kind: "flow", legs: [{ ticker: "LYFT", premiumUsd: 2e6 }] }, { minPremiumUsd: 0, dropAds: true, dropPaid: true })).toBe(false);
     expect(shouldForward({ kind: "paid", legs: [{ ticker: "X", strike: 1, expiry: "1/1/27", premiumUsd: 1e6 }] }, { minPremiumUsd: 0, dropAds: true, dropPaid: true })).toBe(false);
     expect(shouldForward({ kind: "ad", legs: [] }, { minPremiumUsd: 0, dropAds: true, dropPaid: true })).toBe(false);
-    expect(shouldPublish({ ...post, id: "1", postedAt: "", ingestedAt: "", thesis: "", imageUrls: [], imageProxyUrls: [], rawText: "" }, { minPremiumUsd: 0, dropAds: true, dropPaid: true, channelId: "c" })).toBe(true);
-    expect(shouldPublish({ ...post, id: "1", postedAt: "", ingestedAt: "", thesis: "", imageUrls: [], imageProxyUrls: [], rawText: "", publishedAt: "2026-09-10T00:00:00Z" }, { minPremiumUsd: 0, dropAds: true, dropPaid: true, channelId: "c" })).toBe(false);
+    const ready = { ...post, id: "1", postedAt: "", ingestedAt: "", thesis: "", imageUrls: [], imageProxyUrls: [], rawText: "", tweetId: "99" };
+    expect(shouldPublish(ready, { minPremiumUsd: 0, dropAds: true, dropPaid: true, channelId: "c" })).toBe(true);
+    expect(shouldPublish({ ...ready, publishedAt: "2026-09-10T00:00:00Z" }, { minPremiumUsd: 0, dropAds: true, dropPaid: true, channelId: "c" })).toBe(false);
+    expect(shouldPublish(ready, { minPremiumUsd: 0, dropAds: true, dropPaid: true, channelId: "c" }, [{ ...ready, id: "2", publishedAt: "2026-09-13T00:00:00Z" }])).toBe(false);
   });
 
   it("读环境变量门槛", () => {
@@ -197,6 +219,18 @@ describe("option flow extract", () => {
     expect(next.posts.map((p) => p.id)).toEqual(["1", "2"]);
     expect(next.posts[0].thesis).toBe("b");
     expect(next.lastMessageId).toBe("2");
+  });
+
+  it("另一频道入库不改源频道游标", () => {
+    const first = mergeOptionFlow(emptyOptionFlow("src"), [
+      { id: "1", postedAt: "2026-09-08T00:00:00Z", ingestedAt: "", kind: "flow", thesis: "a", legs: [], imageUrls: [], imageProxyUrls: [], rawText: "a" },
+    ], "src");
+    const next = mergeOptionFlow(first, [
+      { id: "9", postedAt: "2026-09-12T00:00:00Z", ingestedAt: "", kind: "flow", thesis: "b", legs: [], imageUrls: [], imageProxyUrls: [], rawText: "b", tweetId: "t" },
+    ], "signal");
+    expect(next.lastMessageId).toBe("1");
+    expect(next.channelId).toBe("src");
+    expect(next.posts.map((p) => p.id)).toEqual(["1", "9"]);
   });
 
   it("合并时保留已转发标记", () => {

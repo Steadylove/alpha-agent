@@ -33,6 +33,7 @@ export type OptionFlowStore = {
   updatedAt: string;
   channelId: string;
   lastMessageId: string;
+  lastByChannel?: Record<string, string>;
   posts: OptionFlowPost[];
 };
 

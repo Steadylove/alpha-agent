@@ -4,7 +4,10 @@ const AD_RE =
   /labor\s*day|get funded|70%\s*off|35%\s*off|cheddarflow\.co|optionsfunding|free trial|bullflow(?:'s)? (?:labor|plan|api)|sale continues|want to see trades like this/i;
 const PAID_RE = /posted a tweet for paid guys|🔒/;
 const NOTEWORTHY_RE = /noteworthy flow|oi confirmed/i;
-const GEX_RE = /\b(?:heatmaps?|gamma|gex|put wall)\b/i;
+const GEX_RE = /\b(?:heatmaps?|gamma|gex|put wall|call wall)\b/i;
+const GEX_NODE_RE = /(\d{3,4}(?:\.\d+)?)\s+strongest(?:\s+nod(?:e)?)?/i;
+const GEX_WALL_RE =
+  /\$([A-Z]{1,5})\b[\s\S]{0,48}?(put wall|call wall|gamma flip)[\s\S]{0,16}@\s*(\d+(?:\.\d+)?)/i;
 const LINE_RE =
   /\$([A-Z]{1,5})\s+\$?(\d+(?:\.\d+)?)\s+(Call|Put)s?\s+\(([^)]+)\)\s*[-–]\s*(\$?[\d.]+(?:\s*(?:K|M|B|million|billion))?)\s*(?:@\s*([\d.]+))?/gi;
 const CALL_BUYER_RE = /\$([A-Z]{1,5})\s*[-–]\s*\$?\s*([\d.]+)\s*(K|M|B|million|billion)?\s+(Call|Put)\s+(buyer|seller)/i;
@@ -146,12 +149,42 @@ export function extractLegs(text: string): OptionFlowLeg[] {
   }));
 }
 
+function publicBody(text: string): string {
+  return text
+    .split(/\n+/)
+    .map((s) => s.trim())
+    .filter((s) => s && s !== "---" && !PAID_RE.test(s))
+    .join("\n");
+}
+
+export function extractGex(text: string): OptionFlowLeg | undefined {
+  const wall = text.match(GEX_WALL_RE);
+  if (wall) {
+    return {
+      ticker: wall[1],
+      strike: Number(wall[3]),
+      note: wall[2].toLowerCase(),
+      premiumUsd: parsePremiumUsd(text),
+    };
+  }
+  const node = text.match(GEX_NODE_RE);
+  if (node) return { ticker: uniqTickers(text)[0] ?? "", strike: Number(node[1]), note: "strongest node" };
+  return undefined;
+}
+
 export function extractThesis(text: string): string {
-  const line = text.split(/\n+/).map((s) => s.trim()).find((s) => s && !PAID_RE.test(s) && s !== "Heatmaps");
+  const line = text
+    .split(/\n+/)
+    .map((s) => s.trim())
+    .find((s) => s && s !== "---" && !PAID_RE.test(s) && !/^heatmaps?$/i.test(s));
   return (line ?? text.trim()).slice(0, 200);
 }
 
 export function extractCard(text: string): { kind: OptionFlowKind; thesis: string; legs: OptionFlowLeg[] } {
-  const legs = extractLegs(text);
-  return { kind: classifyKind(text, legs), thesis: extractThesis(text), legs };
+  const body = publicBody(text);
+  const gex = extractGex(body);
+  const legs = gex ? [gex] : extractLegs(body);
+  const leftover = body.replace(/heatmaps?/gi, "").trim();
+  const kind = gex ? "gex" : !leftover && PAID_RE.test(text) ? "paid" : classifyKind(body || text, legs);
+  return { kind, thesis: extractThesis(body || text), legs };
 }

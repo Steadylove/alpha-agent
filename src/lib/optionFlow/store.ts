@@ -9,7 +9,7 @@ import type { OptionFlowPost, OptionFlowStore } from "./types";
 export const OPTION_FLOW_FILE = "option-flow.json";
 
 export function emptyOptionFlow(channelId = ""): OptionFlowStore {
-  return { updatedAt: "", channelId, lastMessageId: "", posts: [] };
+  return { updatedAt: "", channelId, lastMessageId: "", lastByChannel: {}, posts: [] };
 }
 
 export function optionFlowPath(): string {
@@ -33,8 +33,13 @@ export function optionFlowOf(raw: unknown): OptionFlowStore {
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
     channelId: typeof value.channelId === "string" ? value.channelId : "",
     lastMessageId: typeof value.lastMessageId === "string" ? value.lastMessageId : "",
+    lastByChannel: value.lastByChannel && typeof value.lastByChannel === "object" ? value.lastByChannel : {},
     posts,
   };
+}
+
+export function hasPublishedTweet(posts: readonly OptionFlowPost[], tweetId?: string): boolean {
+  return Boolean(tweetId && posts.some((post) => post.tweetId === tweetId && post.publishedAt));
 }
 
 function readLocal(): OptionFlowStore {
@@ -59,11 +64,22 @@ export function mergeOptionFlow(previous: OptionFlowStore, incoming: OptionFlowP
     map.set(post.id, { ...post, publishedAt: post.publishedAt ?? prev?.publishedAt });
   }
   const posts = [...map.values()].sort((a, b) => a.postedAt.localeCompare(b.postedAt) || a.id.localeCompare(b.id));
+  const sameChannel = !previous.channelId || previous.channelId === channelId;
   return {
     updatedAt: now.toISOString(),
-    channelId,
-    lastMessageId: posts.length ? posts[posts.length - 1].id : previous.lastMessageId,
+    channelId: previous.channelId || channelId,
+    lastMessageId: sameChannel && incoming.length ? incoming[incoming.length - 1].id : previous.lastMessageId,
+    lastByChannel: previous.lastByChannel ?? {},
     posts,
+  };
+}
+
+export function withChannelCursor(store: OptionFlowStore, channelId: string, lastId: string): OptionFlowStore {
+  const lastByChannel = { ...store.lastByChannel, [channelId]: lastId };
+  return {
+    ...store,
+    lastByChannel,
+    lastMessageId: !store.channelId || store.channelId === channelId ? lastId : store.lastMessageId,
   };
 }
 
