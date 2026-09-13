@@ -16,6 +16,7 @@ const sample = {
   avgHoldings: 6.1,
   avgExposure: 62,
   winRatePct: 53,
+  vsQqqPct: 3.4,
   rows: [{ symbol: "NVDA", floatPnlPct: 6.2, entryPrice: 170, weightPct: 12.5, rps: 79 }],
 };
 
@@ -72,6 +73,8 @@ describe("cash book card", () => {
     expect(svg).toContain("记账自 2021-08-24");
     expect(svg).toContain("截至 2026-08-21 13:30 美东时间");
     expect(svg).toContain("累计 +12.0%");
+    expect(svg).toContain("同期相对 QQQ");
+    expect(svg).toContain("+3.4%");
     expect(svg).toContain("仅供信息参考，不构成投资建议");
     expect(svg).toContain("强度");
     expect(svg).toContain("强于 79%");

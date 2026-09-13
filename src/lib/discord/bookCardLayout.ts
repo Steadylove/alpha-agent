@@ -56,11 +56,17 @@ export function cashBookLayout(input: CashBookView) {
     { label: input.ytdYear ? `${input.ytdYear} YTD · 年内收益` : "YTD · 年内收益", value: input.ytdPct == null ? "—" : pnlLabel(input.ytdPct), color: gainColor(input.ytdPct) },
     { label: "最大回撤", value: input.dd == null ? "—" : `${input.dd.toFixed(0)}%`, color: T.stop },
     { label: "胜率", value: winRateLabel(input.winRatePct), color: T.text },
+    ...(input.vsQqqPct == null ? [] : [{
+      label: "同期相对 QQQ",
+      value: pnlLabel(input.vsQqqPct),
+      color: gainColor(input.vsQqqPct),
+    }]),
   ];
+  const kpiStep = kpis.length > 4 ? 176 : 220;
   kpis.forEach((kpi, i) => {
-    const x = 40 + i * 220;
-    text(kpi.label, x, 347, 206, 14, T.muted);
-    text(kpi.value, x, 373, 204, 29, kpi.color, 700, "left", true);
+    const x = 40 + i * kpiStep;
+    text(kpi.label, x, 347, kpiStep - 14, 14, T.muted);
+    text(kpi.value, x, 373, kpiStep - 16, 29, kpi.color, 700, "left", true);
   });
   line(430);
 
@@ -98,7 +104,6 @@ export function cashBookLayout(input: CashBookView) {
     input.mar == null ? null : `MAR ${input.mar.toFixed(2)}`,
     input.avgHoldings == null ? null : `均持 ${input.avgHoldings.toFixed(1)} 只`,
     input.avgExposure == null ? null : `平均敞口 ${input.avgExposure.toFixed(0)}%`,
-    input.vsQqqPct == null ? null : `相对 QQQ ${input.vsQqqPct >= 0 ? "+" : ""}${input.vsQqqPct.toFixed(1)}pt`,
   ].filter(Boolean);
   if (details.length) text(details.join("   ·   "), 40, footerY + 70, 880, 13, T.muted);
   return card.finish(footerY + (details.length ? 112 : 82));
