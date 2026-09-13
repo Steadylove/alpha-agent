@@ -3,6 +3,7 @@ import { deliverTvAlert, POST as alert } from "@/app/api/tv/alert/route";
 import { POST as book } from "@/app/api/tv/render-book/route";
 import { POST as gex } from "@/app/api/tv/render-gex/route";
 import { POST as market } from "@/app/api/tv/render-market-state/route";
+import { POST as flowDigest } from "@/app/api/tv/render-option-flow-digest/route";
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
@@ -23,6 +24,7 @@ vi.mock('@/lib/discord/bookCardOg', () => ({ renderCashBookOgPng: async () => mo
 vi.mock('@/lib/discord/gexCardOg', () => ({ renderGexOgPng: async () => mocks.png }));
 vi.mock('@/lib/discord/gexBriefCardOg', () => ({ isGexBriefView: () => true, renderGexBriefOgPng: async () => mocks.png }));
 vi.mock('@/lib/discord/marketStateCardOg', () => ({ renderMarketStateOgPng: async () => mocks.png }));
+vi.mock("@/lib/optionFlow/cardImage", () => ({ renderDailyDigestPng: async () => mocks.png }));
 vi.mock("@/lib/jobs/fundScore", () => ({ lookupAlertFundScore: mocks.fund }));
 const request = (value: unknown) => new Request('https://app.test/api', { method: 'POST', body: JSON.stringify(value) });
 const hook = "https://discord.example/hook";
@@ -98,6 +100,17 @@ it.each([['book', book], ['gex', gex], ['market', market]] as const)('%s 图片�
   const payload = { filename: 'card.png', content: 'card', input: { asOf: '2026-09-09' } };
   expect((await route(request(payload))).status).toBe(200);
   expect((await route(request(payload))).status).toBe(200);
+  expect(mocks.push.mock.calls[0][1].bytes).toBe(mocks.png);
+  expect(mocks.push.mock.calls[0][1].eventKey).toBe(mocks.push.mock.calls[1][1].eventKey);
+});
+it("期权流日结接口复用 PNG 且同一份数据使用相同事件 ID", async () => {
+  const payload = {
+    filename: "option-flow-digest.png",
+    content: "期权流 · 日结",
+    input: { day: "2026-09-11", title: "期权流 · 9月11日", callUsd: 1, putUsd: 0, bias: "call", legs: [{ ticker: "ORCL" }], notes: [], spy: null },
+  };
+  expect((await flowDigest(request(payload))).status).toBe(200);
+  expect((await flowDigest(request(payload))).status).toBe(200);
   expect(mocks.push.mock.calls[0][1].bytes).toBe(mocks.png);
   expect(mocks.push.mock.calls[0][1].eventKey).toBe(mocks.push.mock.calls[1][1].eventKey);
 });
