@@ -3,13 +3,12 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { publishOptionFlow } from "@/lib/optionFlow/publish";
 import type { OptionFlowPost } from "@/lib/optionFlow/types";
 
-const mocks = vi.hoisted(() => ({ discord: vi.fn(), bot: vi.fn(), telegram: vi.fn() }));
+const mocks = vi.hoisted(() => ({ discord: vi.fn(), bot: vi.fn(), fetch: vi.fn() }));
 
 vi.mock("@/lib/discord/sendWebhook", () => ({
   postDiscordImage: mocks.discord,
   postDiscordBotImage: mocks.bot,
 }));
-vi.mock("@/lib/telegram/relay", () => ({ enqueueTelegramImage: mocks.telegram }));
 vi.mock("@/lib/optionFlow/cardImage", () => ({
   renderSingleFlowPng: vi.fn(async () => Buffer.from("png")),
   renderNoteworthyPng: vi.fn(async () => Buffer.from("png")),
@@ -32,25 +31,29 @@ function post(partial: Partial<OptionFlowPost> & Pick<OptionFlowPost, "id" | "ki
 beforeEach(() => {
   vi.resetAllMocks();
   vi.stubEnv("DISCORD_SIGNAL_WEBHOOK_URL", "https://discord.example/hook");
+  vi.stubEnv("OPTION_FLOW_PUSH_URL", "https://app.test/api/tv/render-option-flow");
+  mocks.fetch.mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+  vi.stubGlobal("fetch", mocks.fetch);
 });
 afterEach(() => vi.unstubAllEnvs());
 
-it("单笔同时推 Discord 和 Telegram，用 tweet 去重", async () => {
+it("单笔交给网站 postSignalImage 入口，和买卖卡同一条路径", async () => {
   await publishOptionFlow(post({ id: "m1", kind: "flow", tweetId: "t1" }));
-  const image = { filename: "option-flow.png", bytes: Buffer.from("png"), content: "期权流 · 单笔" };
-  expect(mocks.discord).toHaveBeenCalledWith("https://discord.example/hook", image);
-  expect(mocks.telegram).toHaveBeenCalledWith({ ...image, eventKey: "option-flow:t1" });
+  expect(mocks.fetch).toHaveBeenCalledTimes(1);
+  const [url, init] = mocks.fetch.mock.calls[0] as [string, RequestInit];
+  expect(url).toBe("https://app.test/api/tv/render-option-flow");
+  expect(JSON.parse(String(init.body))).toEqual({
+    filename: "option-flow.png",
+    content: "期权流 · 单笔",
+    eventKey: "option-flow:t1",
+    png: Buffer.from("png").toString("base64"),
+  });
+  expect(mocks.discord).not.toHaveBeenCalled();
   expect(mocks.bot).not.toHaveBeenCalled();
 });
 
 it("确认名单仍只走 Discord", async () => {
   await publishOptionFlow(post({ id: "m2", kind: "noteworthy" }));
   expect(mocks.discord).toHaveBeenCalledTimes(1);
-  expect(mocks.telegram).not.toHaveBeenCalled();
-});
-
-it("Telegram 入队失败不挡 Discord，避免工人重发", async () => {
-  mocks.telegram.mockRejectedValue(new Error("Telegram 推送服务未配置"));
-  await expect(publishOptionFlow(post({ id: "m3", kind: "flow", tweetId: "t3" }))).resolves.toBeUndefined();
-  expect(mocks.discord).toHaveBeenCalledTimes(1);
+  expect(mocks.fetch).not.toHaveBeenCalled();
 });

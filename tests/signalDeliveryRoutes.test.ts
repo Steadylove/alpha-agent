@@ -4,6 +4,7 @@ import { POST as book } from "@/app/api/tv/render-book/route";
 import { POST as gex } from "@/app/api/tv/render-gex/route";
 import { POST as market } from "@/app/api/tv/render-market-state/route";
 import { POST as flowDigest } from "@/app/api/tv/render-option-flow-digest/route";
+import { POST as flow } from "@/app/api/tv/render-option-flow/route";
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
@@ -135,6 +136,21 @@ it("账本和 GEX 出图接口各抄一份到镜像频道，日结不抄", async
   expect(mocks.discord).toHaveBeenCalledWith("https://discord.example/book", expect.objectContaining({ filename: "book-4h.png" }));
   expect(mocks.discord).toHaveBeenCalledWith("https://discord.example/gex", expect.objectContaining({ filename: "gex.png" }));
   expect(mocks.discord).toHaveBeenCalledTimes(2);
+});
+it("期权流单笔接口走买卖卡同一套 postSignalImage", async () => {
+  const png = Buffer.from("flow-card").toString("base64");
+  expect((await flow(request({
+    filename: "option-flow.png",
+    content: "期权流 · 单笔",
+    eventKey: "option-flow:t1",
+    png,
+  }))).status).toBe(200);
+  expect(mocks.push).toHaveBeenCalledWith(hook, {
+    filename: "option-flow.png",
+    content: "期权流 · 单笔",
+    eventKey: "option-flow:t1",
+    bytes: Buffer.from(png, "base64"),
+  });
 });
 it("期权流日结接口复用 PNG 且同一份数据使用相同事件 ID", async () => {
   const payload = {
