@@ -6,6 +6,7 @@ import { config as loadEnv } from "dotenv";
 import { renderGexBriefOgPng } from "../src/lib/discord/gexBriefCardOg";
 import type { GexSnapshot } from "../src/lib/discord/gexCopy";
 import { gexBriefPushBody } from "../src/lib/discord/marketStateCopy";
+import { discordMirrorWebhook, postDiscordMirror } from "../src/lib/discord/mirrorWebhook";
 import { postSignalImage } from "../src/lib/notifications/postSignalImage";
 import { renderDailyDigestPng } from "../src/lib/optionFlow/cardImage";
 import { buildDailyFlowDigest, flowDigestCaption, hasDigestContent } from "../src/lib/optionFlow/digest";
@@ -60,12 +61,14 @@ async function postLocal(snapshot: GexSnapshot, test: boolean): Promise<void> {
   const webhook = webhookUrl();
   if (!webhook) throw new Error("未配置 DISCORD_SIGNAL_WEBHOOK_URL / DISCORD_WEBHOOK_URL");
   const body = gexBriefPushBody(snapshot, test);
-  await postSignalImage(webhook, {
+  const image = {
     filename: body.filename,
     eventKey: JSON.stringify([body.filename, body.content, body.input]),
     bytes: await renderGexBriefOgPng(body.input),
     content: body.content,
-  });
+  };
+  await postSignalImage(webhook, image);
+  await postDiscordMirror(discordMirrorWebhook("gex"), image);
   console.log("pushed local gex.png", body.input.gex.asOf);
 }
 

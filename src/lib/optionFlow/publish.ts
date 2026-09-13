@@ -1,4 +1,5 @@
 import { postDiscordBotImage, postDiscordImage } from "@/lib/discord/sendWebhook";
+import { enqueueTelegramImage } from "@/lib/telegram/relay";
 
 import { discordBotToken } from "./discordFetch";
 import { renderGexFlowPng, renderNoteworthyPng, renderSingleFlowPng } from "./cardImage";
@@ -34,7 +35,18 @@ export async function publishOptionFlow(post: OptionFlowPost): Promise<void> {
   const webhook = signalWebhookUrl();
   if (webhook) {
     await postDiscordImage(webhook, { filename, bytes, content });
-    return;
+  } else {
+    await postDiscordBotImage(signalChannelId(), discordBotToken(), { filename, bytes, content });
   }
-  await postDiscordBotImage(signalChannelId(), discordBotToken(), { filename, bytes, content });
+  if (post.kind !== "flow") return;
+  try {
+    await enqueueTelegramImage({
+      filename,
+      bytes,
+      content,
+      eventKey: `option-flow:${post.tweetId || post.id}`,
+    });
+  } catch (error) {
+    console.warn(`[option-flow] telegram ${error instanceof Error ? error.message : "入队失败"}`);
+  }
 }

@@ -23,6 +23,7 @@ import {
   type AlertPayload,
 } from "@/lib/discord/tvAlertCopy";
 import { STRATEGY_NAME } from "@/lib/discord/brand";
+import { discordMirrorWebhook, postDiscordMirror } from "@/lib/discord/mirrorWebhook";
 import { lookupAlertFundScore } from "@/lib/jobs/fundScore";
 import { postSignalImage } from "@/lib/notifications/postSignalImage";
 import { assessedAlertView } from "@/lib/signals/journal";
@@ -92,12 +93,14 @@ export async function deliverTvAlert(payload: AlertPayload, webhookUrl: string):
     catch { fund = undefined; }
   }
   const view = await assessedAlertView(payload, label, payload.event === "buy" && !timely ? undefined : rps ?? undefined, fund);
-  await postSignalImage(webhookUrl, {
+  const image = {
     filename: `signal-${payload.symbol}.png`,
     eventKey,
     bytes: await renderSignalOgPng(view),
     content: `**${STRATEGY_NAME} ${view.title} · ${payload.symbol}**${alertTimeframeSuffix(label)}`,
-  });
+  };
+  await postSignalImage(webhookUrl, image);
+  if (tf === "4h" || tf === "2h") await postDiscordMirror(discordMirrorWebhook(tf), image);
   return {
     ok: true,
     forwarded: true,

@@ -7,6 +7,7 @@ import { POST as flowDigest } from "@/app/api/tv/render-option-flow-digest/route
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
+  discord: vi.fn(),
   lookup: vi.fn(),
   fund: vi.fn(),
   render: vi.fn(),
@@ -18,7 +19,12 @@ vi.mock("next/server", async (importOriginal) => {
   return { ...actual, after: (task: () => unknown) => mocks.after(task) };
 });
 vi.mock('@/lib/notifications/postSignalImage', () => ({ postSignalImage: mocks.push }));
-vi.mock('@/lib/backtest/rpsSnapshot', () => ({ ensureRpsSnapshot: vi.fn(), lookupAlertRps: mocks.lookup, resolveAlertTimeframe: () => '4h' }));
+vi.mock('@/lib/discord/sendWebhook', () => ({ postDiscordImage: mocks.discord }));
+vi.mock('@/lib/backtest/rpsSnapshot', () => ({
+  ensureRpsSnapshot: vi.fn(),
+  lookupAlertRps: mocks.lookup,
+  resolveAlertTimeframe: (period: string) => (period === "120" || period === "2H" ? "2h" : "4h"),
+}));
 vi.mock('@/lib/discord/signalCardOg', () => ({ renderSignalOgPng: mocks.render }));
 vi.mock('@/lib/discord/bookCardOg', () => ({ renderCashBookOgPng: async () => mocks.png }));
 vi.mock('@/lib/discord/gexCardOg', () => ({ renderGexOgPng: async () => mocks.png }));
@@ -102,6 +108,33 @@ it.each([['book', book], ['gex', gex], ['market', market]] as const)('%s 图片�
   expect((await route(request(payload))).status).toBe(200);
   expect(mocks.push.mock.calls[0][1].bytes).toBe(mocks.png);
   expect(mocks.push.mock.calls[0][1].eventKey).toBe(mocks.push.mock.calls[1][1].eventKey);
+});
+it("4H / 2H 告警在原双平台之外再抄一份到对应镜像频道", async () => {
+  vi.stubEnv("DISCORD_MIRROR_4H_WEBHOOK_URL", "https://discord.example/4h");
+  vi.stubEnv("DISCORD_MIRROR_2H_WEBHOOK_URL", "https://discord.example/2h");
+  await deliverTvAlert({ event: "sell", symbol: "CF", tf: "240", price: 100, kind: 1, barTime: 1 }, hook);
+  expect(mocks.push).toHaveBeenCalledTimes(1);
+  expect(mocks.discord).toHaveBeenCalledWith("https://discord.example/4h", expect.objectContaining({
+    filename: "signal-CF.png",
+    bytes: mocks.png,
+  }));
+  mocks.discord.mockClear();
+  await deliverTvAlert({ event: "sell", symbol: "CF", tf: "120", price: 100, kind: 1, barTime: 2 }, hook);
+  expect(mocks.discord).toHaveBeenCalledWith("https://discord.example/2h", expect.objectContaining({ bytes: mocks.png }));
+});
+it("账本和 GEX 出图接口各抄一份到镜像频道，日结不抄", async () => {
+  vi.stubEnv("DISCORD_MIRROR_BOOK_WEBHOOK_URL", "https://discord.example/book");
+  vi.stubEnv("DISCORD_MIRROR_GEX_WEBHOOK_URL", "https://discord.example/gex");
+  expect((await book(request({ filename: "book-4h.png", content: "账本", input: { asOf: "2026-09-09" } }))).status).toBe(200);
+  expect((await gex(request({ filename: "gex.png", content: "GEX", input: { asOf: "2026-09-09" } }))).status).toBe(200);
+  expect((await flowDigest(request({
+    filename: "option-flow-digest.png",
+    content: "期权流 · 日结",
+    input: { day: "2026-09-11", title: "期权流 · 9月11日", callUsd: 1, putUsd: 0, bias: "call", legs: [{ ticker: "ORCL" }], notes: [], spy: null },
+  }))).status).toBe(200);
+  expect(mocks.discord).toHaveBeenCalledWith("https://discord.example/book", expect.objectContaining({ filename: "book-4h.png" }));
+  expect(mocks.discord).toHaveBeenCalledWith("https://discord.example/gex", expect.objectContaining({ filename: "gex.png" }));
+  expect(mocks.discord).toHaveBeenCalledTimes(2);
 });
 it("期权流日结接口复用 PNG 且同一份数据使用相同事件 ID", async () => {
   const payload = {

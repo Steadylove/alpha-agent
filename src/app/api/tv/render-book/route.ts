@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { renderCashBookOgPng } from "@/lib/discord/bookCardOg";
 import type { CashBookView } from "@/lib/discord/bookCopy";
+import { discordMirrorWebhook, postDiscordMirror } from "@/lib/discord/mirrorWebhook";
 import { postSignalImage } from "@/lib/notifications/postSignalImage";
 
 export const dynamic = "force-dynamic";
@@ -28,12 +29,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "缺少 input / filename" }, { status: 400 });
   }
   try {
-    await postSignalImage(webhook, {
+    const image = {
       filename: body.filename,
       eventKey: JSON.stringify([body.filename, body.content, body.input]),
       bytes: await renderCashBookOgPng(body.input),
       content: body.content ?? "",
-    });
+    };
+    await postSignalImage(webhook, image);
+    await postDiscordMirror(discordMirrorWebhook("book"), image);
     return NextResponse.json({ ok: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "出图失败";

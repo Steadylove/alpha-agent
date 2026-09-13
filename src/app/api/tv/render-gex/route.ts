@@ -4,6 +4,7 @@ import { isGexBriefView, renderGexBriefOgPng } from "@/lib/discord/gexBriefCardO
 import { renderGexOgPng } from "@/lib/discord/gexCardOg";
 import type { GexCardView } from "@/lib/discord/gexCopy";
 import type { GexBriefView } from "@/lib/discord/marketStateCopy";
+import { discordMirrorWebhook, postDiscordMirror } from "@/lib/discord/mirrorWebhook";
 import { postSignalImage } from "@/lib/notifications/postSignalImage";
 
 export const dynamic = "force-dynamic";
@@ -30,14 +31,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "缺少 input / filename" }, { status: 400 });
   }
   try {
-    await postSignalImage(webhook, {
+    const image = {
       filename: body.filename,
       eventKey: JSON.stringify([body.filename, body.content, body.input]),
       bytes: isGexBriefView(body.input)
         ? await renderGexBriefOgPng(body.input)
         : await renderGexOgPng(body.input),
       content: body.content ?? "",
-    });
+    };
+    await postSignalImage(webhook, image);
+    await postDiscordMirror(discordMirrorWebhook("gex"), image);
     return NextResponse.json({ ok: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "出图失败";
