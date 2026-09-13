@@ -17,6 +17,8 @@ const sample = {
   avgExposure: 62,
   winRatePct: 53,
   vsQqqPct: 3.4,
+  curve: [1, 1.06, 1.12],
+  qqqCurve: [1, 1.03, 1.08],
   rows: [{ symbol: "NVDA", floatPnlPct: 6.2, entryPrice: 170, weightPct: 12.5, rps: 79 }],
 };
 
@@ -75,6 +77,7 @@ describe("cash book card", () => {
     expect(svg).toContain("累计 +12.0%");
     expect(svg).toContain("同期相对 QQQ");
     expect(svg).toContain("+3.4%");
+    expect((svg.match(/<path /g) ?? []).length).toBe(2);
     expect(svg).toContain("仅供信息参考，不构成投资建议");
     expect(svg).toContain("强度");
     expect(svg).toContain("强于 79%");

@@ -1,5 +1,5 @@
 import { loadMarketPanel } from "@/lib/backtest/marketRemote";
-import { benchmarkReturnPct } from "@/lib/backtest/spyCurve";
+import { benchmarkEquityAlong, benchmarkReturnPct } from "@/lib/backtest/spyCurve";
 import { champOf, type Champ } from "@/lib/fund/champs";
 import { runLookback } from "@/lib/fund/lookback";
 import { type LookbackTf, type LookbackView } from "@/lib/fund/lookbackLogic";
@@ -39,10 +39,12 @@ function liveCard(
   vsQqqPct: number | null,
   test: boolean,
   sparkline?: number[],
+  qqqCurve?: number[],
 ): BuiltBook {
   const tf: LookbackTf = champ.config.timeframe === "2h" ? "2h" : "4h";
   const name = liveBookName(tf);
   const s = view.stats;
+  const curve = sparkline ?? sparklineValues(view.curve.map((p) => p.equity));
   return {
     filename: `book-${champ.id}.png`,
     content: bookCaption(tf, test),
@@ -62,7 +64,8 @@ function liveCard(
       avgHoldings: s.avgHoldings,
       avgExposure: s.avgExposure,
       winRatePct: s.winRatePct,
-      curve: sparkline ?? sparklineValues(view.curve.map((p) => p.equity)),
+      curve,
+      qqqCurve,
       vsQqqPct,
     },
   };
@@ -71,26 +74,25 @@ function liveCard(
 async function builtFromCache(row: LiveBookOk, test: boolean): Promise<BuiltBook> {
   row = withBookCurve(row);
   const champ = champOf(row.tf === "2h" ? "2h-broad" : row.tf);
-  return liveCard(
-    champ,
-    row.view,
-    await vsQqqOf(row.view.equity, row.view.since, row.view.asOf),
-    test,
-    row.sparkline,
-  );
+  const bookCurve = row.sparkline ?? sparklineValues(row.view.curve.map((p) => p.equity));
+  const qqq = await qqqOverlay(row.view, bookCurve.length);
+  return liveCard(champ, row.view, qqq.pct, test, bookCurve, qqq.curve);
 }
 
-async function vsQqqOf(equity: number, since: string, asOf: string): Promise<number | null> {
+async function qqqOverlay(view: LookbackView, n: number): Promise<{ pct: number | null; curve?: number[] }> {
   const panel = await loadMarketPanel("1d", "QQQ");
-  if (!panel) return null;
+  if (!panel) return { pct: null };
   const closes = new Map<string, number>();
   for (let i = 0; i < panel.dates.length; i += 1) {
     const px = panel.close[i];
     if (px > 0) closes.set(panel.dates[i], px);
   }
-  const qqq = benchmarkReturnPct(closes, since, asOf);
-  if (qqq == null) return null;
-  return (equity - 1) * 100 - qqq;
+  const qqq = benchmarkReturnPct(closes, view.since, view.asOf);
+  const along = benchmarkEquityAlong(closes, view.curve.map((p) => p.date));
+  return {
+    pct: qqq == null ? null : (view.equity - 1) * 100 - qqq,
+    curve: along.length >= 2 ? sparklineValues(along, n) : undefined,
+  };
 }
 
 async function buildLookback(tf: LookbackTf, test: boolean): Promise<BuiltBook> {
@@ -104,6 +106,8 @@ async function buildLookback(tf: LookbackTf, test: boolean): Promise<BuiltBook> 
   const champ = champOf(tf === "2h" ? "2h-broad" : tf);
   const s = view.stats;
   const win = s.winRatePct == null ? "—" : `${s.winRatePct.toFixed(0)}%`;
+  const curve = sparklineValues(view.curve.map((p) => p.equity));
+  const qqq = await qqqOverlay(view, curve.length);
   return {
     filename: `book-${tf}.png`,
     content: bookCaption(tf, test),
@@ -123,8 +127,9 @@ async function buildLookback(tf: LookbackTf, test: boolean): Promise<BuiltBook> 
       avgHoldings: s.avgHoldings,
       avgExposure: s.avgExposure,
       winRatePct: s.winRatePct,
-      curve: sparklineValues(view.curve.map((p) => p.equity)),
-      vsQqqPct: await vsQqqOf(view.equity, view.since, view.asOf),
+      curve,
+      qqqCurve: qqq.curve,
+      vsQqqPct: qqq.pct,
     },
   };
 }

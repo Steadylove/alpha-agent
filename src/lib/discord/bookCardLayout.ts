@@ -12,10 +12,17 @@ function bookTitle(label: string): string {
 }
 
 /** 原净值点按顺序连线，不平滑、不补造收益；缺失区间不跨越连线。 */
-function curvePath(values: readonly number[], width: number, height: number): string {
+function curvePath(
+  values: readonly number[],
+  width: number,
+  height: number,
+  range?: { min: number; max: number },
+): string {
   const finite = values.filter(Number.isFinite);
   if (finite.length < 2) return "";
-  const min = Math.min(...finite), max = Math.max(...finite), span = max - min;
+  const min = range?.min ?? Math.min(...finite);
+  const max = range?.max ?? Math.max(...finite);
+  const span = max - min;
   let connected = false;
   return values.map((value, i) => {
     if (!Number.isFinite(value)) { connected = false; return ""; }
@@ -25,6 +32,12 @@ function curvePath(values: readonly number[], width: number, height: number): st
     connected = true;
     return `${command}${x.toFixed(2)} ${y.toFixed(2)}`;
   }).join(" ");
+}
+
+function curveRange(...series: (readonly number[] | undefined)[]): { min: number; max: number } | undefined {
+  const finite = series.flatMap((s) => s?.filter(Number.isFinite) ?? []);
+  if (!finite.length) return undefined;
+  return { min: Math.min(...finite), max: Math.max(...finite) };
 }
 
 export function cashBookLayout(input: CashBookView) {
@@ -40,8 +53,17 @@ export function cashBookLayout(input: CashBookView) {
   text(input.equity == null ? "—" : bookPnlLabel(input.equity), 60, 196, 308, 48, equityColor, 700, "left", true);
   text(`记账自 ${input.since.slice(0, 10)}`, 62, 280, 300, 14, T.muted);
   rect(374, 174, 1, 127, T.line);
-  text("净值走势", 400, 163, 200, 14, T.secondary);
-  const d = curvePath(input.curve ?? [], 496, 104);
+  text("净值走势", 400, 163, 80, 14, T.secondary);
+  if (input.qqqCurve && input.qqqCurve.filter(Number.isFinite).length >= 2) {
+    rect(492, 171, 18, 3, equityColor, 1);
+    text("账本", 516, 163, 40, 13, T.secondary);
+    rect(564, 171, 18, 3, T.muted, 1);
+    text("QQQ", 588, 163, 44, 13, T.muted);
+  }
+  const range = curveRange(input.curve, input.qqqCurve);
+  const qqq = curvePath(input.qqqCurve ?? [], 496, 104, range);
+  const d = curvePath(input.curve ?? [], 496, 104, range);
+  if (qqq) card.items.push({ type: "path", x: 400, y: 191, width: 496, height: 104, d: qqq, color: T.muted });
   if (d) {
     card.items.push({ type: "path", x: 400, y: 191, width: 496, height: 104, d, color: equityColor });
   } else {

@@ -82,6 +82,8 @@ export type CashBookView = {
   winRatePct?: number | null;
   /** 净值曲线，给卡片火花图 */
   curve?: readonly number[];
+  /** 同期 QQQ 买入持有净值，和 curve 同一套采样点 */
+  qqqCurve?: readonly number[];
   /** 同窗口相对 QQQ 超额，百分点 */
   vsQqqPct?: number | null;
 };

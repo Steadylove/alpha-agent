@@ -139,6 +139,24 @@ export function benchmarkReturnPct(closes: Map<string, number>, from: string, to
   return (end / start - 1) * 100;
 }
 
+/** 与 overlaySpyCurve 相同口径：窗口首日前一交易日为 1，按给定日期走买入持有净值。 */
+export function benchmarkEquityAlong(closes: Map<string, number>, dates: readonly string[]): number[] {
+  if (!dates.length || closes.size === 0) return [];
+  const keys = [...closes.keys()].sort();
+  const first = dates[0].slice(0, 10);
+  const startDate = lastWhere(keys, (d) => d < first) ?? keys.find((d) => d >= first);
+  let last = startDate ? closes.get(startDate) ?? 0 : 0;
+  if (!(last > 0)) return [];
+  const base = last;
+  const out: number[] = [];
+  for (const date of dates) {
+    const px = closes.get(date.slice(0, 10));
+    if (px != null && px > 0) last = px;
+    out.push(last / base);
+  }
+  return out;
+}
+
 /**
  * 把外部基准买入持有叠到已有账本上（Small Fund=QQQ，其他=SPY）。
  * 净值以窗口首日前一交易日收盘为 1，分年 / YTD 和策略「含首日涨跌」口径一致。
