@@ -57,13 +57,15 @@ describe("四周期定档", () => {
     expect(champOf("2h-broad").poolId).toBe("sf-broad");
     expect(champOf("2h-broad").config).toMatchObject({
       timeframe: "2h",
-      stopMult: 6,
-      trailMult: 8,
+      stopMult: 4,
+      trailMult: 5,
       takeProfitR: null,
       rpsMin: 0,
       requireRsi: true,
       minRsi: 30,
       rpsExit: 10,
+      breakevenPct: 5,
+      trailTightenPnl: [8, 15],
     });
     expect(champOf("2h-broad").opts).toMatchObject({
       slotPct: 0.125,

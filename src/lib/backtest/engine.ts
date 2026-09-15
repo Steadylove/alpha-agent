@@ -405,6 +405,10 @@ export type BacktestConfig = {
   rpsExit: number | null;
   stopMult: number;
   trailMult: number;
+  /** 保本锁触发的浮盈百分比。省略 10。 */
+  breakevenPct?: number;
+  /** 吊灯分档收紧的浮盈阈值 [中间档, 最紧档]。省略 [25, 50]。 */
+  trailTightenPnl?: readonly [number, number];
   takeProfitR: number | null;
   useBuy1: boolean;
   useBuy2: boolean;
@@ -898,6 +902,8 @@ export function tradeParamsOf(config: BacktestConfig): RotationTradeParams {
     takeProfitR: config.takeProfitR,
     stopMult: config.stopMult,
     trailMult: config.trailMult,
+    breakevenPct: config.breakevenPct,
+    trailTightenPnl: config.trailTightenPnl,
     rsExitBelow: config.rpsExit,
   };
 }

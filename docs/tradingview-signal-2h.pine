@@ -2,8 +2,8 @@
 // Alpha Agent · 2H 扩池定档　一买/二买 + 吊灯止损　买卖点推送
 // =============================================================================
 //
-// 公式与 4H 专用版同一份。默认值来自 sf-broad（560 只）网格：
-//   止 6 / 吊 8 / 无盈 / 门 0 / 仓 12.5% / 入每根 / RSI≥30 / 出场 10 / 不置换
+// 公式与 4H 专用版同一份。默认值来自 sf-broad 2H 现用出场：
+//   止 4 / 吊 5 / 保本 5% / 吊灯 8%·15% 收 / 无盈 / 门 0 / 仓 12.5% / 入每根 / RSI≥30 / 出场 10 / 不置换
 // 不是 195 只那套（止 8 吊 10 无盈 入收盘 RSI 关）。
 //
 // 不要拿 4H 脚本改参数：那份写死了只认 240 分钟，挂 2H 会停火。
@@ -59,7 +59,7 @@ indicator("Alpha Agent 买卖点 2H", "AA 2H", overlay = true, max_bars_back = 3
 
 // ───────────────────────── 参数 ─────────────────────────
 //
-// 默认值即 sf-broad 2H 建议档。留成 input 是为了试验，改动后信息面板会标 ⚠。
+// 默认值即 sf-broad 2H 现用出场。留成 input 是为了试验，改动后信息面板会标 ⚠。
 // 无止盈。入场默认每根；打开「只在当天最后一根」算偏离定档。
 
 bool useBuy1Input = input.bool(true, "❤️ 一买")
@@ -67,8 +67,8 @@ bool useBuy2Input = input.bool(true, "⭐️ 二买")
 bool requireRsi   = input.bool(true, "RSI14 闸门")
 int  minRsi       = input.int(30, "RSI14 下限", minval = 0, maxval = 100)
 bool requireVegas = input.bool(true, "Vegas 多头排列闸门")
-float stopMult    = input.float(6.0, "初始止损 ATR 倍数", minval = 0.5, step = 0.5)
-float trailMult   = input.float(8.0, "吊灯止损 ATR 倍数", minval = 0.5, step = 0.5)
+float stopMult    = input.float(4.0, "初始止损 ATR 倍数", minval = 0.5, step = 0.5)
+float trailMult   = input.float(5.0, "吊灯止损 ATR 倍数", minval = 0.5, step = 0.5)
 
 bool entryAtDayCloseOnly = input.bool(false, "入场只在当天最后一根 2H")
 
@@ -200,10 +200,10 @@ bool buy2 = gateOk and useBuy2Input and buy2Raw
 // nz 对齐 TS 侧「ATR 预热段填 0 再进 SMA」的处理。
 float atrRisk = ta.sma(nz(ta.atr(14)), 14)
 
-// 浮盈越高吊灯收得越紧。ratio 相对 5.5 基准，与 TS 的 TRAIL_MULT_TIERS 同构：
-// 基准 10 时三档实际是 10 / 7.64 / 6.36 ×ATR。换基准时保持这两个比例不变。
+// 浮盈越高吊灯收得越紧。ratio 相对 5.5 基准，与 TS 的 trailMultFor 同构。
+// 2H 在 +8% / +15% 收档（日线/4H 仍是 +25% / +50%）。
 trailMultFor(float pnl) =>
-    (pnl >= 50 ? 3.5 / 5.5 : pnl >= 25 ? 4.2 / 5.5 : 1.0) * trailMult
+    (pnl >= 15 ? 3.5 / 5.5 : pnl >= 8 ? 4.2 / 5.5 : 1.0) * trailMult
 
 // ───────────────────────── 持仓状态机 ─────────────────────────
 //
@@ -273,8 +273,8 @@ if sigType != 0 and not na(entryPrice) and not na(atrRisk)
     highWater  := math.max(highWater, high)
     maxPnlPct  := math.max(maxPnlPct, (close - entryPrice) / entryPrice * 100)
     trailLevel := math.max(trailLevel, highWater - trailMultFor(maxPnlPct) * atrRisk)
-    // 浮盈到 10% 把止损提到成本价之上锁住
-    if maxPnlPct >= 10
+    // 浮盈到 5% 把止损提到成本价之上锁住
+    if maxPnlPct >= 5
         stopLevel := math.max(stopLevel, entryPrice * 1.01)
     if close < stopLevel or close < trailLevel
         pendingExit := true
@@ -321,7 +321,7 @@ if entrySignal
        "执行　 下一根 2H 开盘买入\n" +
        "参考止损 " + str.tostring(refStop, format.mintick) +
        "（" + str.tostring(riskPct, "#.##") + "%　即 1R）\n" +
-       "吊灯　 " + str.tostring(trailMult, "#.#") + "×ATR（浮盈 25%/50% 后收紧到 " +
+       "吊灯　 " + str.tostring(trailMult, "#.#") + "×ATR（浮盈 8%/15% 后收紧到 " +
        str.tostring(4.2 / 5.5 * trailMult, "#.#") + " / " + str.tostring(3.5 / 5.5 * trailMult, "#.#") + "）\n" +
        "RSI14 " + (na(rsi14) ? "—" : str.tostring(rsi14, "#.#")) + "　Vegas " + (vegasOk ? "多头" : "未排列") + "\n" +
        "⚠️ 账本满仓时应放弃本信号，不置换　每笔 12.5%"
@@ -376,7 +376,7 @@ if barstate.islast
        : timeframe.period
     infoRow(0, "周期", tfTxt + (tfOk ? "　✓" : "　✗ 本脚本仅限 2H，已停止点火"), tfOk ? neutral : noColor)
 
-    bool frozen = stopMult == 6.0 and trailMult == 8.0 and requireRsi and minRsi == 30 and requireVegas and not entryAtDayCloseOnly
+    bool frozen = stopMult == 4.0 and trailMult == 5.0 and requireRsi and minRsi == 30 and requireVegas and not entryAtDayCloseOnly
     infoRow(1, "倍数",
        str.tostring(stopMult, "#.#") + "/" + str.tostring(trailMult, "#.#") + "×ATR" + (frozen ? "　扩池定档" : "　⚠ 已偏离"),
        frozen ? neutral : noColor)

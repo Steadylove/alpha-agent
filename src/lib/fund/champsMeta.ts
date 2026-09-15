@@ -20,8 +20,8 @@ export const CHAMP_TABS = [
   {
     id: "2h-broad",
     name: "2H 扩池",
-    note: "sf-broad 560 · 扩池搜参，不是 195 冻结档。Pine 做不到 RPS 出场 10",
-    label: "止6 吊8 无盈 门0 12.5% 入每根 RSI≥30 出场10 不置换",
+    note: "sf-broad 560 · 扩池搜参后收紧出场：保本 5%、吊灯 8%/15% 收。Pine 做不到 RPS 出场 10",
+    label: "止4 吊5 保本5 档8/15 无盈 门0 12.5% 入每根 RSI≥30 出场10 不置换",
   },
   {
     id: "1d",

@@ -224,6 +224,27 @@ describe("computeRotationTrades", () => {
     expect(days[ENTRY + 1].stopLevel).toBeCloseTo(101, 6);
   });
 
+  it("breakevenPct=5 时浮盈 +6% 即锁保本；trailTightenPnl 在 +12% 已收吊灯", () => {
+    const n = 160;
+    const closes = new Array(n).fill(100);
+    for (let i = ENTRY + 1; i < n; i += 1) closes[i] = 106;
+    const locked = computeRotationTrades("TEST", makeBars(closes), fireAt(n, SIG), noSignals(n), allPass(n), {
+      ...DEFAULT_TRADE_PARAMS, breakevenPct: 5,
+    });
+    const unlocked = computeRotationTrades("TEST", makeBars(closes), fireAt(n, SIG), noSignals(n), allPass(n));
+    expect(locked.days[ENTRY + 1].breakevenLocked).toBe(true);
+    expect(unlocked.days[ENTRY + 1].breakevenLocked).toBe(false);
+
+    const run = (trailTightenPnl?: readonly [number, number]) => {
+      const px = new Array(n).fill(100);
+      for (let i = ENTRY + 1; i < n; i += 1) px[i] = 112;
+      return computeRotationTrades("TEST", makeBars(px), fireAt(n, SIG), noSignals(n), allPass(n), {
+        ...DEFAULT_TRADE_PARAMS, trailTightenPnl,
+      }).days[ENTRY + 1].trailLevel!;
+    };
+    expect(run([8, 15])).toBeGreaterThan(run());
+  });
+
   it("保本锁生效后，回落到开仓价附近即离场且不亏损", () => {
     const n = 200;
     const closes = new Array(n).fill(100);

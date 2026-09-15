@@ -62,10 +62,21 @@ export type RotationTradeParams = {
   /**
    * 吊灯止损的基准 ATR 倍数。省略取 Pine 原值 5.5。
    *
-   * 浮盈分档收紧的两档按比例跟随：原版 25% 档 4.2、50% 档 3.5，
+   * 浮盈分档收紧的两档按比例跟随：默认 25% 档 4.2、50% 档 3.5，
    * 即基准的 76% 与 64%，改基准时保持这两个比例不变。
+   * `trailTightenPnl` 只改触发阈值，不改这两个比例。
    */
   trailMult?: number;
+  /**
+   * 吊灯开始收紧的浮盈百分比 `[中间档, 最紧档]`。省略 `[25, 50]`。
+   * 顺序无关，较大值为最紧档。
+   */
+  trailTightenPnl?: readonly [number, number];
+  /**
+   * 浮盈达到该百分比后，止损上移到开仓价 × 1.01。省略 10。
+   * `useEarlyBreakeven` 成立时仍覆盖为本文件的 5% 提前档。
+   */
+  breakevenPct?: number;
   /**
    * RS 转弱离场：持仓期间 RS 跌破该值即按收盘价清仓。null 表示不启用。
    *
@@ -92,12 +103,17 @@ const ATR_LENGTH = 14;
 const ATR_SMOOTH = 14;
 const INITIAL_STOP_MULT = 4.0;
 const INITIAL_TRAIL_MULT = 5.5;
+const DEFAULT_TRAIL_TIGHTEN = [25, 50] as const;
+
+export function trailTightenOf(pnl?: readonly [number, number]): { mid: number; tight: number } {
+  const a = pnl?.[0] ?? DEFAULT_TRAIL_TIGHTEN[0];
+  const b = pnl?.[1] ?? DEFAULT_TRAIL_TIGHTEN[1];
+  return { mid: Math.min(a, b), tight: Math.max(a, b) };
+}
+
 /** 浮盈越高，吊灯收得越紧；ratio 为基准倍数的比例，基准即 `trailMult`。 */
-const TRAIL_MULT_TIERS = [
-  { minPnl: 50, ratio: 3.5 / INITIAL_TRAIL_MULT },
-  { minPnl: 25, ratio: 4.2 / INITIAL_TRAIL_MULT },
-  { minPnl: -Infinity, ratio: 1 },
-];
+const trailMultFor = (maxPnlPct: number, base: number, mid = 25, tight = 50) =>
+  (maxPnlPct >= tight ? 3.5 / INITIAL_TRAIL_MULT : maxPnlPct >= mid ? 4.2 / INITIAL_TRAIL_MULT : 1) * base;
 
 /**
  * 交易层回测结论：30 是唯一让胜率、均值、盈亏比三项同时改善的档位
@@ -221,9 +237,6 @@ export type RotationTradeState = {
   entryRps: number | null;
 };
 
-const trailMultFor = (maxPnlPct: number, base: number) =>
-  TRAIL_MULT_TIERS.find((tier) => maxPnlPct >= tier.minPnl)!.ratio * base;
-
 /**
  * 一笔持仓的风控位。
  *
@@ -263,13 +276,15 @@ export function advancePositionRisk(
   entryPrice: number,
   trailMult = INITIAL_TRAIL_MULT,
   breakevenTrigger = BREAKEVEN_TRIGGER_PCT,
+  trailTightenPnl?: readonly [number, number],
 ): PositionRisk {
+  const { mid, tight } = trailTightenOf(trailTightenPnl);
   const highWater = Math.max(state.highWater, bar.high);
   const maxPnlPct = Math.max(state.maxPnlPct, ((bar.close - entryPrice) / entryPrice) * 100);
   return {
     highWater,
     maxPnlPct,
-    trailLevel: Math.max(state.trailLevel, highWater - trailMultFor(maxPnlPct, trailMult) * atr),
+    trailLevel: Math.max(state.trailLevel, highWater - trailMultFor(maxPnlPct, trailMult, mid, tight) * atr),
     stopLevel:
       maxPnlPct >= breakevenTrigger
         ? Math.max(state.stopLevel, entryPrice * BREAKEVEN_LOCK_RATIO)
@@ -351,7 +366,7 @@ export function* rotationTradeSteps(
     const breakevenTrigger =
       params.useEarlyBreakeven && (params.earlyBreakevenActive?.(i) ?? false)
         ? EARLY_BREAKEVEN_TRIGGER_PCT
-        : BREAKEVEN_TRIGGER_PCT;
+        : (params.breakevenPct ?? BREAKEVEN_TRIGGER_PCT);
 
     // ── 开盘：执行前一根收盘挂下的指令 ──
     const fill = bar.open ?? bar.close;
@@ -418,6 +433,7 @@ export function* rotationTradeSteps(
         entryPrice,
         trailMult,
         breakevenTrigger,
+        params.trailTightenPnl,
       );
       highWater = next.highWater;
       maxPnlPct = next.maxPnlPct;

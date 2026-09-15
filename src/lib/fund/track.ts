@@ -85,7 +85,7 @@ export function trackPositions(
     for (let i = ei; i <= ai; i += 1) {
       const a = atr[i];
       if (a == null || a <= 0) continue;
-      risk = advancePositionRisk(risk, bars[i], a, lot.entryPrice, config.trailMult);
+      risk = advancePositionRisk(risk, bars[i], a, lot.entryPrice, config.trailMult, config.breakevenPct ?? 10, config.trailTightenPnl);
     }
 
     const stop = effectiveStopOf(risk);

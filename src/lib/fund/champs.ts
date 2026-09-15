@@ -72,7 +72,8 @@ export const CHAMPS: readonly Champ[] = [
     ...meta("2h-broad"),
     poolId: "sf-broad",
     config: cfg(
-      { stopMult: 6, trailMult: 8, takeProfitR: null, rpsMin: 0, requireRsi: true, minRsi: 30, rpsExit: 10 },
+      { stopMult: 4, trailMult: 5, takeProfitR: null, rpsMin: 0, requireRsi: true, minRsi: 30, rpsExit: 10,
+        breakevenPct: 5, trailTightenPnl: [8, 15] },
       "2h",
     ),
     opts: { slotPct: 0.125, mode: "none", edge: 0, costBps: COST_BPS, entryWindow: "all", exitWindow: "all" },
