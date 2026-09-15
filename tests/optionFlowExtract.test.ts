@@ -135,10 +135,13 @@ describe("option flow extract", () => {
     expect(shouldForward({ kind: "flow", legs: [{ ticker: "LYFT", premiumUsd: 2e6 }] }, { minPremiumUsd: 0, dropAds: true, dropPaid: true })).toBe(false);
     expect(shouldForward({ kind: "paid", legs: [{ ticker: "X", strike: 1, expiry: "1/1/27", premiumUsd: 1e6 }] }, { minPremiumUsd: 0, dropAds: true, dropPaid: true })).toBe(false);
     expect(shouldForward({ kind: "ad", legs: [] }, { minPremiumUsd: 0, dropAds: true, dropPaid: true })).toBe(false);
-    const ready = { ...post, id: "1", postedAt: "", ingestedAt: "", thesis: "", imageUrls: [], imageProxyUrls: [], rawText: "", tweetId: "99" };
+    const ready = { ...post, id: "1", postedAt: "2026-09-11T14:30:00.000Z", ingestedAt: "", thesis: "", imageUrls: [], imageProxyUrls: [], rawText: "", tweetId: "99" };
     expect(shouldPublish(ready, { minPremiumUsd: 0, dropAds: true, dropPaid: true, channelId: "c" })).toBe(true);
     expect(shouldPublish({ ...ready, publishedAt: "2026-09-10T00:00:00Z" }, { minPremiumUsd: 0, dropAds: true, dropPaid: true, channelId: "c" })).toBe(false);
     expect(shouldPublish(ready, { minPremiumUsd: 0, dropAds: true, dropPaid: true, channelId: "c" }, [{ ...ready, id: "2", publishedAt: "2026-09-13T00:00:00Z" }])).toBe(false);
+    expect(shouldPublish({ ...ready, postedAt: "2026-09-11T21:00:00.000Z" }, { minPremiumUsd: 0, dropAds: true, dropPaid: true, channelId: "c" })).toBe(false);
+    expect(shouldPublish({ ...ready, postedAt: "2026-09-11T13:00:00.000Z" }, { minPremiumUsd: 0, dropAds: true, dropPaid: true, channelId: "c" })).toBe(false);
+    expect(shouldPublish({ ...ready, postedAt: "2026-09-12T14:30:00.000Z" }, { minPremiumUsd: 0, dropAds: true, dropPaid: true, channelId: "c" })).toBe(false);
   });
 
   it("读环境变量门槛", () => {

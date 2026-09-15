@@ -2,7 +2,7 @@ import { postDiscordBotImage } from "@/lib/discord/sendWebhook";
 
 import { discordBotToken } from "./discordFetch";
 import { renderGexFlowPng, renderNoteworthyPng, renderSingleFlowPng } from "./cardImage";
-import { shouldForward } from "./config";
+import { isOptionSessionPosted, shouldForward } from "./config";
 import { hasPublishedTweet } from "./store";
 import type { OptionFlowConfig, OptionFlowPost } from "./types";
 import { postSignalImage } from "@/lib/notifications/postSignalImage";
@@ -21,7 +21,7 @@ export function signalChannelId(): string {
 }
 
 export function shouldPublish(post: OptionFlowPost, cfg: OptionFlowConfig, known: readonly OptionFlowPost[] = []): boolean {
-  return !post.publishedAt && !hasPublishedTweet(known, post.tweetId) && shouldForward(post, cfg);
+  return !post.publishedAt && !hasPublishedTweet(known, post.tweetId) && shouldForward(post, cfg) && isOptionSessionPosted(post.postedAt);
 }
 
 export async function renderOptionFlowPng(post: OptionFlowPost): Promise<Buffer> {

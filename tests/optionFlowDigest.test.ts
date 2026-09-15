@@ -67,14 +67,14 @@ describe("option flow digest", () => {
         post({
           id: "1",
           kind: "flow",
-          postedAt: "2026-09-12T00:10:00.000Z",
+          postedAt: "2026-09-11T14:10:00.000Z",
           thesis: "$3.5 million into these $ORCL $230 strike March calls.",
           legs: [{ ticker: "ORCL", right: "call", strike: 230, expiry: "March", premiumUsd: 3_500_000 }],
         }),
         post({
           id: "2",
           kind: "flow",
-          postedAt: "2026-09-12T01:00:00.000Z",
+          postedAt: "2026-09-11T15:00:00.000Z",
           thesis: "$2.3 million into these $LYFT puts",
           legs: [{ ticker: "LYFT", right: "put", strike: 12, expiry: "10/16", premiumUsd: 2_300_000 }],
         }),
@@ -88,7 +88,7 @@ describe("option flow digest", () => {
         post({
           id: "4",
           kind: "noteworthy",
-          postedAt: "2026-09-12T02:00:00.000Z",
+          postedAt: "2026-09-11T16:00:00.000Z",
           thesis: "Noteworthy flow from Friday",
           legs: [{ ticker: "HOOD", right: "call", strike: 145, expiry: "10/16", premiumUsd: 1_500_000 }],
         }),
@@ -106,6 +106,33 @@ describe("option flow digest", () => {
     expect(view.notes).toEqual([]);
   });
 
+  it("盘前盘后同一日历日也不进日结", () => {
+    const view = buildDailyFlowDigest(
+      [
+        post({
+          id: "rth",
+          kind: "flow",
+          postedAt: "2026-09-11T14:10:00.000Z",
+          legs: [{ ticker: "ORCL", right: "call", strike: 230, expiry: "March", premiumUsd: 3_500_000 }],
+        }),
+        post({
+          id: "pre",
+          kind: "flow",
+          postedAt: "2026-09-11T13:00:00.000Z",
+          legs: [{ ticker: "AAPL", right: "call", strike: 250, expiry: "10/16", premiumUsd: 9_000_000 }],
+        }),
+        post({
+          id: "after",
+          kind: "flow",
+          postedAt: "2026-09-11T21:00:00.000Z",
+          legs: [{ ticker: "NVDA", right: "put", strike: 180, expiry: "10/16", premiumUsd: 8_000_000 }],
+        }),
+      ],
+      snapshot,
+    );
+    expect(view.legs.map((leg) => leg.ticker)).toEqual(["ORCL"]);
+  });
+
   it("没有详细备注就空着，有评论才留下", () => {
     expect(isUsefulNote("$3.5 million into these $ORCL $230 strike March calls.")).toBe(false);
     expect(isUsefulNote("$TSCO - $166K Call buyer")).toBe(false);
@@ -120,14 +147,14 @@ describe("option flow digest", () => {
         post({
           id: "1",
           kind: "flow",
-          postedAt: "2026-09-12T00:10:00.000Z",
+          postedAt: "2026-09-11T14:10:00.000Z",
           thesis: "$1.3 million into these $HUT calls.",
           legs: [{ ticker: "HUT", right: "call", strike: 40, expiry: "next week", premiumUsd: 1_300_000 }],
         }),
         post({
           id: "2",
           kind: "flow",
-          postedAt: "2026-09-12T00:20:00.000Z",
+          postedAt: "2026-09-11T14:20:00.000Z",
           thesis: "Are meme stocks back in play",
           legs: [{ ticker: "HUT", right: "call", strike: 45, expiry: "next week", premiumUsd: 800_000 }],
         }),
@@ -143,14 +170,14 @@ describe("option flow digest", () => {
         post({
           id: "dp",
           kind: "flow",
-          postedAt: "2026-09-12T00:10:00.000Z",
+          postedAt: "2026-09-11T14:10:00.000Z",
           thesis: "$SPY already has $1.1 BILLION worth of sig Dark Pool prints",
           legs: [{ ticker: "SPY", premiumUsd: 1_100_000_000 }],
         }),
         post({
           id: "bare",
           kind: "flow",
-          postedAt: "2026-09-12T00:20:00.000Z",
+          postedAt: "2026-09-11T14:20:00.000Z",
           thesis: "$2 million into these $GOOGL calls",
           legs: [{ ticker: "GOOGL", right: "call", premiumUsd: 2_000_000 }],
         }),
@@ -168,21 +195,21 @@ describe("option flow digest", () => {
         post({
           id: "pwr",
           kind: "flow",
-          postedAt: "2026-09-12T00:10:00.000Z",
+          postedAt: "2026-09-11T14:10:00.000Z",
           thesis: "$PWR - $23.9M Put seller (bullish)",
           legs: [{ ticker: "PWR", right: "put", strike: 760, expiry: "12/18/26", premiumUsd: 23_900_000, note: "seller" }],
         }),
         post({
           id: "meta",
           kind: "flow",
-          postedAt: "2026-09-12T00:20:00.000Z",
+          postedAt: "2026-09-11T14:20:00.000Z",
           thesis: "$4.2 million into these $META $660 strike calls",
           legs: [{ ticker: "META", right: "call", strike: 660, expiry: "09/25/26", premiumUsd: 4_200_000 }],
         }),
         post({
           id: "sellcall",
           kind: "flow",
-          postedAt: "2026-09-12T00:30:00.000Z",
+          postedAt: "2026-09-11T14:30:00.000Z",
           thesis: "$AAOI - $1.6M Call seller",
           legs: [{ ticker: "AAOI", right: "call", strike: 105, expiry: "06/17/27", premiumUsd: 1_600_000, note: "seller" }],
         }),
@@ -207,7 +234,7 @@ describe("option flow digest", () => {
         post({
           id: "a",
           kind: "flow",
-          postedAt: "2026-09-12T00:10:00.000Z",
+          postedAt: "2026-09-11T14:10:00.000Z",
           tweetId: "1",
           thesis: "$14 million into these $AVGO $650 strike December call LEAPs.",
           legs: [{ ticker: "AVGO", right: "call", strike: 650, expiry: "December", premiumUsd: 14_000_000 }],
@@ -215,7 +242,7 @@ describe("option flow digest", () => {
         post({
           id: "b",
           kind: "noteworthy",
-          postedAt: "2026-09-12T00:20:00.000Z",
+          postedAt: "2026-09-11T14:20:00.000Z",
           tweetId: "2",
           thesis: "Noteworthy flow today",
           legs: [{ ticker: "AVGO", right: "call", strike: 650, expiry: "Dec '28", premiumUsd: 14_000_000 }],
@@ -234,14 +261,14 @@ describe("option flow digest", () => {
         post({
           id: "god",
           kind: "flow",
-          postedAt: "2026-09-12T00:10:00.000Z",
+          postedAt: "2026-09-11T14:10:00.000Z",
           legs: [{ ticker: "ORCL", right: "call", strike: 230, expiry: "March", premiumUsd: 3_500_000 }],
         }),
         post({
           id: "other",
           kind: "flow",
           handle: "CheddarFlow",
-          postedAt: "2026-09-12T00:20:00.000Z",
+          postedAt: "2026-09-11T14:20:00.000Z",
           legs: [{ ticker: "SN", right: "call", strike: 165, expiry: "09/19/26", premiumUsd: 1_300_000 }],
         }),
       ],

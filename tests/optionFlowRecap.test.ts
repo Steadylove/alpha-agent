@@ -39,14 +39,14 @@ describe("option flow recap", () => {
         post({
           id: "pwr",
           kind: "flow",
-          postedAt: "2026-09-12T00:10:00.000Z",
+          postedAt: "2026-09-11T14:10:00.000Z",
           thesis: "$PWR - $23.9M Put seller (bullish)",
           legs: [{ ticker: "PWR", right: "put", strike: 760, expiry: "12/18/26", premiumUsd: 23_900_000, note: "seller" }],
         }),
         post({
           id: "meta",
           kind: "flow",
-          postedAt: "2026-09-12T00:20:00.000Z",
+          postedAt: "2026-09-11T14:20:00.000Z",
           thesis: "$4.2 million into these $META calls",
           legs: [{ ticker: "META", right: "call", strike: 660, expiry: "09/25/26", premiumUsd: 4_200_000 }],
         }),

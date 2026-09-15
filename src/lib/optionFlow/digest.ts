@@ -1,7 +1,7 @@
 import { lastSettledSession } from "@/lib/backtest/mergeBars";
 import { fmtLevel, type GexSnapshot } from "@/lib/discord/gexCopy";
 
-import { isCompleteLeg } from "./config";
+import { isCompleteLeg, isOptionSessionPosted } from "./config";
 import { expirySpecificity, normalizeExpiry } from "./expiry";
 import type { OptionFlowKind, OptionFlowLeg, OptionFlowPost } from "./types";
 
@@ -188,7 +188,7 @@ function isFlowGod(post: OptionFlowPost): boolean {
 }
 
 function uniqueSessionPosts(posts: readonly OptionFlowPost[], day: string): OptionFlowPost[] {
-  const session = posts.filter((post) => FLOW_KINDS.has(post.kind) && isFlowGod(post) && etCalendarDay(post.postedAt) === day);
+  const session = posts.filter((post) => FLOW_KINDS.has(post.kind) && isFlowGod(post) && etCalendarDay(post.postedAt) === day && isOptionSessionPosted(post.postedAt));
   const byTweet = new Map<string, OptionFlowPost>();
   const leftover: OptionFlowPost[] = [];
   for (const post of session) {

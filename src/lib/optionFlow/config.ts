@@ -1,6 +1,32 @@
 import type { OptionFlowConfig } from "./types";
 
 export const DEFAULT_OPTION_CHANNEL_ID = "1546768709735948378";
+const ET = "America/New_York";
+const WEEKDAY: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
+function etClock(iso: string): { weekday: number; minutes: number } | null {
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: ET,
+    weekday: "short",
+    hour: "numeric",
+    minute: "numeric",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const weekday = WEEKDAY[parts.find((p) => p.type === "weekday")?.value ?? ""];
+  const hour = Number(parts.find((p) => p.type === "hour")?.value);
+  const minute = Number(parts.find((p) => p.type === "minute")?.value);
+  if (weekday == null || !Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+  return { weekday, minutes: hour * 60 + minute };
+}
+
+/** 美东周一至周五 09:30–16:00。盘前盘后和周末不转发、不进复盘。 */
+export function isOptionSessionPosted(iso: string): boolean {
+  const clock = etClock(iso);
+  if (!clock || clock.weekday === 0 || clock.weekday === 6) return false;
+  return clock.minutes >= 9 * 60 + 30 && clock.minutes < 16 * 60;
+}
 
 function boolEnv(name: string, fallback: boolean): boolean {
   const raw = process.env[name]?.trim().toLowerCase();
