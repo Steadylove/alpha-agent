@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { TelegramClient } from "./client";
-import { subscribed, TelegramStore } from "./store";
+import { bindTopic, subscribed, TelegramStore, topicsOf } from "./store";
 
 type Chat = { id: number; type: string; title?: string; is_forum?: boolean };
 type Member = { status: string; is_member?: boolean; can_send_messages?: boolean; can_send_photos?: boolean; can_post_messages?: boolean };
@@ -27,11 +27,11 @@ export async function processTelegramUpdate(store: TelegramStore, api: TelegramC
       const joined = present(member.new_chat_member) && !present(member.old_chat_member);
       store.state.groups[id] = { ...old, id, title: member.chat.title ?? "", present: present(member.new_chat_member), writable: writable(member.new_chat_member),
         paused: joined && !old?.migratedFrom ? false : old?.paused ?? false, updatedAt: member.date, nextSendAt: old?.nextSendAt ?? 0,
-        needsTopic: old?.needsTopic ?? (member.chat.is_forum === true && old?.messageThreadId === undefined) };
+        needsTopic: old?.topics && Object.keys(old.topics).length ? false : old?.needsTopic ?? (member.chat.is_forum === true && old?.messageThreadId === undefined) };
       store.saveState();
       if (!subscribed(store.state.groups[id])) store.cancelGroup(id);
       if (joined && store.state.groups[id].writable) store.enqueue(hash(`welcome:${update.update_id}`), store.state.groups[id].needsTopic
-        ? `请群管理员进入接收信号的话题，发送 /resume@${bot.username}，即可将之后的信号推送到该话题。`
+        ? `请群管理员进入每个要收信号的话题，分别发送 /resume@${bot.username}。同一群可绑定多个话题。`
         : "已开启信号推送：买卖信号、4H/2H 账本和 GEX。群管理员可用 /pause 暂停、/resume 恢复，/status 查看状态。",
       undefined, id, undefined, store.state.groups[id].messageThreadId);
     }
@@ -45,7 +45,7 @@ export async function processTelegramUpdate(store: TelegramStore, api: TelegramC
       const id = String(m.chat.id), command = match[1];
       // General 不带话题路由；只使用 Telegram 标记为话题消息的有效 ID。
       const threadId = m.is_topic_message === true && Number.isSafeInteger(m.message_thread_id) && m.message_thread_id! > 0 ? m.message_thread_id : undefined;
-      let text = `将机器人加入群并允许发送文字和图片。话题群请管理员在目标话题发送 /resume@${bot.username} 绑定推送位置。/pause 暂停，/status 查看状态。`;
+      let text = `将机器人加入群并允许发送文字和图片。话题群请管理员在每个要收的话题发送 /resume@${bot.username}。/pause 暂停全群，/status 查看状态。`;
       if (["pause", "resume", "start"].includes(command)) {
         // 匿名管理员以本群身份发言；普通用户必须经 Telegram 实时确认管理员身份。
         const anonymousAdmin = m.sender_chat?.id === m.chat.id;
@@ -55,31 +55,32 @@ export async function processTelegramUpdate(store: TelegramStore, api: TelegramC
         if (!admin) text = "只有本群管理员可以暂停或恢复信号推送。";
         else if (command === "pause") {
           if (store.state.groups[id]) { store.state.groups[id].paused = true; store.saveState(); store.cancelGroup(id); }
-          text = "已暂停本群信号推送。管理员发送 /resume 可恢复。";
+          text = "已暂停本群全部话题的信号推送。管理员在任意话题发送 /resume 可恢复。";
         } else if (command === "start" && m.chat.is_forum && threadId === undefined) {
-          // 加群链接会自动在 General 发送 /start，不能据此覆盖管理员选好的话题。
-          text = `请进入接收信号的话题，发送 /resume@${bot.username}。若要发到 General，请在 General 发送该命令。`;
+          text = `请进入接收信号的话题，发送 /resume@${bot.username}。若要发到 General，请在 General 发送该命令。同一群可绑定多个话题。`;
         } else {
           const self = await api.call<Member>("getChatMember", { chat_id: id, user_id: bot.id });
           const old = store.state.groups[id];
+          const title = threadId !== undefined ? `话题 #${threadId}` : m.chat.is_forum ? "General" : (m.chat.title ?? "本群");
           store.state.groups[id] = { ...old, id, title: m.chat.title ?? "", paused: false, present: present(self), writable: writable(self),
-            updatedAt: m.date, nextSendAt: old?.nextSendAt ?? 0, messageThreadId: threadId, needsTopic: false };
+            updatedAt: m.date, nextSendAt: old?.nextSendAt ?? 0, messageThreadId: threadId, needsTopic: false,
+            topics: bindTopic(old, threadId, title) };
           store.saveState();
-          if (old?.messageThreadId !== threadId) store.cancelGroup(id);
+          const bound = topicsOf(store.state.groups[id]).map((topic) => topic.title).join("、");
           text = subscribed(store.state.groups[id])
-            ? `已开启信号推送，之后的新信号将发送到${threadId !== undefined ? "当前话题" : m.chat.is_forum ? " General" : "本群"}。每个群只绑定一个接收位置。`
-            : "请允许机器人在本群发送文字和图片，然后在目标位置发送 /resume。";
+            ? `已绑定${threadId !== undefined ? "当前话题" : m.chat.is_forum ? " General" : "本群"}。本群接收位置：${bound}。可在其他话题再发送 /resume 增加频道。`
+            : "请允许机器人在本群发送文字和图片，然后在目标话题发送 /resume。";
         }
       } else if (command === "status") {
         const group = store.state.groups[id];
         text = !group?.present ? "本群尚未订阅，请管理员发送 /resume。" : group.paused ? "本群推送已暂停。" : !group.writable ? "机器人缺少发送权限，请管理员允许发送文字和图片。"
-          : group.needsTopic ? `请群管理员在接收信号的话题发送 /resume@${bot.username}。`
-          : `本群推送已开启：买卖信号、4H/2H 账本和 GEX。接收位置：${group.messageThreadId !== undefined ? group.messageThreadId === threadId ? "当前话题" : `话题 #${group.messageThreadId}` : m.chat.is_forum ? "General" : "本群"}。`;
+          : group.needsTopic ? `请群管理员在接收信号的话题发送 /resume@${bot.username}。同一群可绑定多个话题。`
+          : `本群推送已开启。接收位置：${topicsOf(group).map((topic) => topic.threadId === threadId ? "当前话题" : topic.title).join("、")}。可在其他话题 /resume 增加频道。`;
       }
       store.enqueue(hash(`command:${update.update_id}`), text, undefined, id, undefined, threadId);
     }
   } else if (m?.chat.type === "private" && /^\/(start|help)(?:\s|$)/.test(m.text ?? "")) {
-    store.enqueue(hash(`help:${update.update_id}`), `将 @${bot.username} 加入群并允许发送文字和图片。普通群自动订阅；话题群请管理员在目标话题发送 /resume@${bot.username}。接收买卖信号、每日账本和 GEX，/pause 暂停，/status 查看状态。`, undefined, String(m.chat.id));
+    store.enqueue(hash(`help:${update.update_id}`), `将 @${bot.username} 加入群并允许发送文字和图片。普通群自动订阅；话题群请管理员在每个要收的话题发送 /resume@${bot.username}。/pause 暂停全群，/status 查看状态。`, undefined, String(m.chat.id));
   }
   store.state.offset = update.update_id + 1;
   store.saveState();

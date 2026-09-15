@@ -5,6 +5,7 @@ import { Alert, Button, Checkbox, MultiSelect, Switch, Text, TextInput } from "@
 
 import { Card } from "@/components/Card";
 import {
+  expandTelegramChats,
   PUSH_KIND_META,
   PUSH_KINDS,
   type DiscordHookRow,
@@ -134,7 +135,7 @@ export function PushRoutesBoard() {
         </Alert>
       ) : null}
       <Text size="sm" c="dimmed" mb="md">
-        Discord webhook 存在后端，打开页面会把现用推送地址写成默认值。改完保存即生效。第一个为主频道，后面的抄送失败不挡主频道。Telegram 话题仍用群里 /resume 绑定。
+        Discord webhook 存在后端，打开页面会把现用推送地址写成默认值。改完保存即生效。第一个为主频道，后面的抄送失败不挡主频道。Telegram：在每个要收的话题里 /resume，然后在这里按话题勾选。同一话题群可以拆到不同信号。/pause 停全群。
       </Text>
       <div className="overflow-x-auto">
         <table>
@@ -198,7 +199,7 @@ export function PushRoutesBoard() {
                           <MultiSelect
                             size="xs"
                             data={telegramOptions}
-                            value={row.telegramChats}
+                            value={expandTelegramChats(row.telegramChats, telegramOptions.map((item) => item.value))}
                             disabled={!row.enabled}
                             onChange={(value) => patch(kind, { telegramChats: value })}
                           />
@@ -219,7 +220,7 @@ export function PushRoutesBoard() {
       <div className="mt-4 flex items-center justify-between gap-3">
         <Text size="xs" c="dimmed">
           {payload?.telegram.ok
-            ? `Telegram @${payload.telegram.username || "bot"} · ${payload.telegram.groups.filter((g) => g.subscribed).length} 个已订阅`
+            ? `Telegram @${payload.telegram.username || "bot"} · ${payload.telegram.groups.filter((g) => g.subscribed).length} 个接收位置`
             : "Telegram 中转未连上，开关仍可保存，话题列表暂空"}
         </Text>
         <Button size="sm" disabled={!dirty || saving} loading={saving} onClick={() => void save()}>

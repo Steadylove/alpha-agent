@@ -37,7 +37,7 @@ export function createTelegramRelayServer(store: TelegramStore, secret: string, 
         reply(200, { ok: true }); return;
       }
       const data = JSON.parse(body) as { id?: unknown; content?: unknown; png?: unknown; chatIds?: unknown };
-      const chatIds = data.chatIds === undefined ? undefined : Array.isArray(data.chatIds) && data.chatIds.every((id) => typeof id === "string" && id.length > 0 && id.length < 64)
+      const chatIds = data.chatIds === undefined ? undefined : Array.isArray(data.chatIds) && data.chatIds.every((id) => typeof id === "string" && id.length > 0 && id.length < 80)
         ? data.chatIds as string[]
         : null;
       if (!data || typeof data !== "object" || typeof data.id !== "string" || !/^[a-f0-9]{64}$/.test(data.id) || typeof data.content !== "string" || data.content.length > 1024 ||

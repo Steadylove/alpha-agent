@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 
-import { defaultPushRoutes, presentDiscordHookRows, presentPushRoutes, pushRoutesOf, resolveDiscordTargets } from "@/lib/notifications/pushRoutesLogic";
+import { defaultPushRoutes, expandTelegramChats, presentDiscordHookRows, presentPushRoutes, pushRoutesOf, resolveDiscordTargets } from "@/lib/notifications/pushRoutesLogic";
 
 it("缺字段时补齐现网默认路由，不丢已知开关", () => {
   const parsed = pushRoutesOf({
@@ -61,4 +61,8 @@ it("还没保存时按默认频道留空行", () => {
     { label: "#常规", url: "" },
     { label: "4H 镜像", url: "" },
   ]);
+});
+
+it("旧群 id 勾上该群全部话题，带 # 的只匹配该话题", () => {
+  expect(expandTelegramChats(["-1", "-2#99"], ["-1#42", "-1#99", "-2#99", "-10#1"])).toEqual(["-1#42", "-1#99", "-2#99"]);
 });

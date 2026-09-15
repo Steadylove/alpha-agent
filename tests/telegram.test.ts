@@ -141,20 +141,29 @@ describe("Telegram 话题绑定", () => {
     expect(store.jobs.get(id("command:3"))!.content).toContain("话题 #42");
     expect(store.jobs.get(id("command:3"))!.deliveries[0].messageThreadId).toBe(99);
   });
-  it("更换话题取消旧位置待发广播，重启后新信号发到新位置，其他群不受影响", async () => {
+  it("增加话题保留旧位置待发，新信号发到全部绑定话题，其他群不受影响", async () => {
     add(-1); add(-2); store.state.groups['-1'].messageThreadId = 42;
     store.enqueue(id("old"), "旧卡片", "png");
     allowAdmin(); await processTelegramUpdate(store, api, bot, topicCommand(1, "/resume", 99));
     store = new TelegramStore(dir);
-    expect(store.jobs.get(id("old"))!.deliveries.map((d) => d.state)).toEqual(["skipped", "pending"]);
+    expect(store.jobs.get(id("old"))!.deliveries.map((d) => d.state)).toEqual(["pending", "pending"]);
     store.enqueue(id("new"), "新卡片", "png");
-    expect(store.jobs.get(id("new"))!.deliveries.map((d) => [d.chatId, d.messageThreadId])).toEqual([["-1", 99], ["-2", undefined]]);
+    expect(store.jobs.get(id("new"))!.deliveries.map((d) => [d.chatId, d.messageThreadId])).toEqual([["-1", 42], ["-1", 99], ["-2", undefined]]);
+    expect(store.targets().map((t) => t.id)).toEqual(["-1#42", "-1#99", "-2#g"]);
     await processTelegramUpdate(store, api, bot, topicCommand(2, "/pause", 99));
     await processTelegramUpdate(store, api, bot, topicCommand(3, "/resume", 99));
     expect(store.state.groups['-1'].messageThreadId).toBe(99);
-    expect(store.jobs.get(id("new"))!.deliveries[0].state).toBe("skipped");
+    expect(store.jobs.get(id("new"))!.deliveries.map((d) => d.state)).toEqual(["skipped", "skipped", "pending"]);
   });
-  it("General 的自动 start 保留原绑定，只有管理员明确 resume 才改到 General", async () => {
+  it("指定话题 id 只入队该话题，旧群 id 仍代表该群全部话题", () => {
+    add(-1); add(-2);
+    store.state.groups["-1"].topics = { "42": { threadId: 42, title: "A" }, "99": { threadId: 99, title: "B" } };
+    store.saveState();
+    expect(store.enqueue(id("one"), "signal", "png", undefined, 1000, undefined, ["-1#42"]).recipients).toBe(1);
+    expect(store.jobs.get(id("one"))!.deliveries.map((d) => [d.chatId, d.messageThreadId])).toEqual([["-1", 42]]);
+    expect(store.enqueue(id("all"), "signal", "png", undefined, 1000, undefined, ["-1"]).recipients).toBe(2);
+  });
+  it("General 的自动 start 保留原绑定，管理员 resume General 是增加而不是替换", async () => {
     add(-1); store.state.groups['-1'].messageThreadId = 42;
     allowAdmin(); await processTelegramUpdate(store, api, bot, topicCommand(1, "/start signals"));
     expect(store.state.groups['-1'].messageThreadId).toBe(42);
@@ -162,7 +171,10 @@ describe("Telegram 话题绑定", () => {
     await processTelegramUpdate(store, api, bot, general);
     expect(store.state.groups['-1'].messageThreadId).toBeUndefined();
     expect(store.jobs.get(id("command:2"))!.content).toContain("General");
+    expect(store.jobs.get(id("command:2"))!.content).toContain("话题 #42");
     expect(store.stats().subscribed).toBe(1);
+    store.enqueue(id("both"), "signal", "png");
+    expect(store.jobs.get(id("both"))!.deliveries.map((d) => d.messageThreadId)).toEqual([42, undefined]);
   });
   it("文字和图片都携带目标话题，其他群和普通群发送保持独立", async () => {
     add(-1); add(-2); store.state.groups['-1'].messageThreadId = 42; store.saveState();

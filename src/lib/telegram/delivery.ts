@@ -1,5 +1,5 @@
 import { TelegramClient, TelegramError } from "./client";
-import { subscribed, TelegramStore } from "./store";
+import { subscribed, TelegramStore, topicLive } from "./store";
 
 /** 每次发送一个可执行的投递，某个群重试不会挡住其余群。 */
 export async function deliverTelegram(store: TelegramStore, api: TelegramClient, now = Date.now()): Promise<boolean> {
@@ -7,7 +7,7 @@ export async function deliverTelegram(store: TelegramStore, api: TelegramClient,
   for (const job of store.jobs.values()) for (const d of job.deliveries) {
     if (d.state !== "pending") continue;
     const group = store.state.groups[d.chatId];
-    if ((!job.direct && (!group || !subscribed(group) || d.messageThreadId !== group.messageThreadId)) || now - job.createdAt > 24 * 3600_000) {
+    if ((!job.direct && (!group || !subscribed(group) || !topicLive(group, d.messageThreadId))) || now - job.createdAt > 24 * 3600_000) {
       d.state = "skipped"; store.saveJob(job); continue;
     }
     if (d.nextAt > now || (group?.nextSendAt ?? 0) > now) continue;

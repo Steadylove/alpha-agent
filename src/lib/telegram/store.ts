@@ -2,10 +2,12 @@ import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { writeJsonAtomic } from "@/lib/files/atomicJson";
 
+export type Topic = { threadId?: number; title: string };
 export type Group = {
   id: string; title: string; present: boolean; writable: boolean; paused: boolean;
   updatedAt: number; nextSendAt: number; migratedTo?: string; migratedFrom?: string;
   messageThreadId?: number; needsTopic?: boolean;
+  topics?: Record<string, Topic>;
 };
 export type Delivery = {
   chatId: string; state: "pending" | "sent" | "failed" | "skipped";
@@ -17,7 +19,40 @@ export type TelegramJob = {
   direct?: boolean; deliveries: Delivery[];
 };
 type State = { version: 1; offset: number; groups: Record<string, Group>; nextApiAt?: number };
-export const subscribed = (g: Group) => g.present && g.writable && !g.paused && !g.migratedTo && !g.needsTopic;
+export const subscribed = (g: Group) => g.present && g.writable && !g.paused && !g.migratedTo && !g.needsTopic && topicsOf(g).length > 0;
+
+export function topicKey(threadId?: number): string {
+  return threadId === undefined ? "g" : String(threadId);
+}
+
+export function parseTarget(id: string): { chatId: string; topicKey: string } {
+  const at = id.lastIndexOf("#");
+  if (at <= 0) return { chatId: id, topicKey: "*" };
+  return { chatId: id.slice(0, at), topicKey: id.slice(at + 1) };
+}
+
+export function topicsOf(g: Group): Array<{ key: string; threadId?: number; title: string }> {
+  if (g.topics && Object.keys(g.topics).length) {
+    return Object.entries(g.topics).map(([key, topic]) => ({ key, threadId: topic.threadId, title: topic.title }));
+  }
+  if (g.needsTopic) return [];
+  const key = topicKey(g.messageThreadId);
+  return [{ key, threadId: g.messageThreadId, title: g.messageThreadId != null ? `话题 #${g.messageThreadId}` : "General" }];
+}
+
+export function topicLive(g: Group, threadId?: number): boolean {
+  return topicsOf(g).some((topic) => topic.threadId === threadId);
+}
+
+export function bindTopic(g: Group | undefined, threadId: number | undefined, title: string): Record<string, Topic> {
+  const topics = g?.topics && Object.keys(g.topics).length
+    ? { ...g.topics }
+    : g && !g.needsTopic
+      ? { [topicKey(g.messageThreadId)]: { threadId: g.messageThreadId, title: g.messageThreadId != null ? `话题 #${g.messageThreadId}` : "General" } }
+      : {};
+  topics[topicKey(threadId)] = { threadId, title };
+  return topics;
+}
 
 /** 由唯一常驻 worker 写入；所有内存变更与落盘均同步完成，避免并发读改写丢失。 */
 export class TelegramStore {
@@ -44,27 +79,47 @@ export class TelegramStore {
     this.jobs.set(job.id, job);
   }
   targets() {
-    return Object.values(this.state.groups)
-      .filter((g) => g.present && !g.migratedTo)
-      .map((g) => ({ id: g.id, title: g.title, subscribed: subscribed(g), messageThreadId: g.messageThreadId }));
+    return Object.values(this.state.groups).flatMap((g) => {
+      if (!g.present || g.migratedTo) return [];
+      const topics = topicsOf(g);
+      if (!topics.length) return [{ id: g.id, title: g.title, subscribed: false, messageThreadId: g.messageThreadId }];
+      return topics.map((topic) => ({
+        id: `${g.id}#${topic.key}`,
+        title: topics.length === 1 && topic.threadId === undefined ? g.title : `${g.title} · ${topic.title}`,
+        subscribed: subscribed(g),
+        messageThreadId: topic.threadId,
+      }));
+    });
   }
   enqueue(id: string, content: string, png?: string, directChat?: string, now = Date.now(), directThreadId?: number, chatIds?: readonly string[]) {
     const prior = this.jobs.get(id);
-    // 空收件人记录没有实际安排投递。绑定群/话题后重新提交时，
-    // 使用本次图片与时间建立任务；已有投递进度的任务仍保持去重。
     if (prior?.deliveries.length) return { duplicate: true, recipients: prior.deliveries.length };
-    const chats = directChat
-      ? [directChat]
-      : chatIds
-        ? chatIds.filter((chatId) => {
-          const group = this.state.groups[chatId];
-          return Boolean(group && subscribed(group));
-        })
-        : Object.values(this.state.groups).filter(subscribed).map((g) => g.id);
-    this.saveJob({ id, content, png, createdAt: now, direct: !!directChat,
-      deliveries: chats.map((chatId) => ({ chatId, state: "pending", attempts: 0, nextAt: now,
-        messageThreadId: directChat ? directThreadId : this.state.groups[chatId].messageThreadId })) });
-    return { duplicate: false, recipients: chats.length };
+    const deliveries: Delivery[] = [];
+    const seen = new Set<string>();
+    const add = (chatId: string, messageThreadId?: number) => {
+      const key = `${chatId}#${topicKey(messageThreadId)}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      deliveries.push({ chatId, state: "pending", attempts: 0, nextAt: now, messageThreadId });
+    };
+    if (directChat) add(directChat, directThreadId);
+    else if (chatIds) {
+      for (const target of chatIds) {
+        const parsed = parseTarget(target);
+        const group = this.state.groups[parsed.chatId];
+        if (!group || !subscribed(group)) continue;
+        const topics = topicsOf(group);
+        for (const topic of parsed.topicKey === "*" ? topics : topics.filter((item) => item.key === parsed.topicKey)) {
+          add(group.id, topic.threadId);
+        }
+      }
+    } else {
+      for (const group of Object.values(this.state.groups).filter(subscribed)) {
+        for (const topic of topicsOf(group)) add(group.id, topic.threadId);
+      }
+    }
+    this.saveJob({ id, content, png, createdAt: now, direct: !!directChat, deliveries });
+    return { duplicate: false, recipients: deliveries.length };
   }
   cancelGroup(chatId: string) {
     for (const job of this.jobs.values()) {

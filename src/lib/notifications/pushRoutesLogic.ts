@@ -84,7 +84,12 @@ function hooksOf(value: unknown): string[] {
 
 function chatsOf(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return [...new Set(value.filter((item): item is string => typeof item === "string" && item.length > 0 && item.length < 64))].slice(0, 50);
+  return [...new Set(value.filter((item): item is string => typeof item === "string" && item.length > 0 && item.length < 80))].slice(0, 50);
+}
+
+/** 旧配置只存群 id 时，勾上该群当前所有话题。带 # 的是精确话题。 */
+export function expandTelegramChats(saved: string[], targetIds: string[]): string[] {
+  return targetIds.filter((id) => saved.some((item) => item === id || (!item.includes("#") && (id === item || id.startsWith(`${item}#`)))));
 }
 
 export function defaultPushRoutes(): PushRoutesFile {
