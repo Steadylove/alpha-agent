@@ -8,6 +8,7 @@ export type Group = {
   updatedAt: number; nextSendAt: number; migratedTo?: string; migratedFrom?: string;
   messageThreadId?: number; needsTopic?: boolean;
   topics?: Record<string, Topic>;
+  topicNames?: Record<string, string>;
 };
 export type Delivery = {
   chatId: string; state: "pending" | "sent" | "failed" | "skipped";
@@ -31,13 +32,33 @@ export function parseTarget(id: string): { chatId: string; topicKey: string } {
   return { chatId: id.slice(0, at), topicKey: id.slice(at + 1) };
 }
 
+export function fallbackTopicTitle(threadId?: number): string {
+  return threadId !== undefined ? `话题 #${threadId}` : "General";
+}
+
+export function displayTopicTitle(g: Group | undefined, threadId?: number, seen?: string): string {
+  if (seen && seen !== fallbackTopicTitle(threadId)) return seen;
+  if (threadId === undefined) return "General";
+  const key = String(threadId);
+  const bound = g?.topics?.[key]?.title;
+  if (bound && bound !== fallbackTopicTitle(threadId)) return bound;
+  return g?.topicNames?.[key] ?? bound ?? fallbackTopicTitle(threadId);
+}
+
+export function rememberTopicName(g: Group, threadId: number | undefined, name: string | undefined): Group {
+  if (threadId === undefined || !name) return g;
+  const key = String(threadId);
+  const topics = g.topics?.[key] ? { ...g.topics, [key]: { ...g.topics[key], title: name } } : g.topics;
+  return { ...g, topicNames: { ...g.topicNames, [key]: name }, ...(topics ? { topics } : {}) };
+}
+
 export function topicsOf(g: Group): Array<{ key: string; threadId?: number; title: string }> {
   if (g.topics && Object.keys(g.topics).length) {
-    return Object.entries(g.topics).map(([key, topic]) => ({ key, threadId: topic.threadId, title: topic.title }));
+    return Object.entries(g.topics).map(([key, topic]) => ({ key, threadId: topic.threadId, title: displayTopicTitle(g, topic.threadId, topic.title) }));
   }
   if (g.needsTopic) return [];
   const key = topicKey(g.messageThreadId);
-  return [{ key, threadId: g.messageThreadId, title: g.messageThreadId != null ? `话题 #${g.messageThreadId}` : "General" }];
+  return [{ key, threadId: g.messageThreadId, title: displayTopicTitle(g, g.messageThreadId) }];
 }
 
 export function topicLive(g: Group, threadId?: number): boolean {
@@ -48,9 +69,10 @@ export function bindTopic(g: Group | undefined, threadId: number | undefined, ti
   const topics = g?.topics && Object.keys(g.topics).length
     ? { ...g.topics }
     : g && !g.needsTopic
-      ? { [topicKey(g.messageThreadId)]: { threadId: g.messageThreadId, title: g.messageThreadId != null ? `话题 #${g.messageThreadId}` : "General" } }
+      ? { [topicKey(g.messageThreadId)]: { threadId: g.messageThreadId, title: displayTopicTitle(g, g.messageThreadId) } }
       : {};
-  topics[topicKey(threadId)] = { threadId, title };
+  const key = topicKey(threadId);
+  topics[key] = { threadId, title: displayTopicTitle(g, threadId, title) };
   return topics;
 }
 

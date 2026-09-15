@@ -1,22 +1,37 @@
 import { createHash } from "node:crypto";
 import { TelegramClient } from "./client";
-import { bindTopic, subscribed, TelegramStore, topicsOf } from "./store";
+import { bindTopic, displayTopicTitle, rememberTopicName, subscribed, TelegramStore, topicsOf } from "./store";
 
 type Chat = { id: number; type: string; title?: string; is_forum?: boolean };
 type Member = { status: string; is_member?: boolean; can_send_messages?: boolean; can_send_photos?: boolean; can_post_messages?: boolean };
+type TopicName = { name?: string };
+type Message = {
+  chat: Chat; date: number; text?: string; from?: { id: number; is_bot?: boolean }; sender_chat?: { id: number };
+  migrate_to_chat_id?: number; migrate_from_chat_id?: number;
+  message_thread_id?: number; is_topic_message?: boolean;
+  forum_topic_created?: TopicName; forum_topic_edited?: TopicName;
+  reply_to_message?: { forum_topic_created?: TopicName; forum_topic_edited?: TopicName };
+};
 export type TelegramUpdate = {
   update_id: number;
   my_chat_member?: { chat: Chat; date: number; new_chat_member: Member; old_chat_member: Member };
-  message?: {
-    chat: Chat; date: number; text?: string; from?: { id: number; is_bot?: boolean }; sender_chat?: { id: number };
-    migrate_to_chat_id?: number; migrate_from_chat_id?: number;
-    message_thread_id?: number; is_topic_message?: boolean;
-  };
+  message?: Message;
 };
 const isGroup = (chat: Chat) => chat.type === "group" || chat.type === "supergroup";
 const present = (m: Member) => ["member", "administrator", "creator"].includes(m.status) || (m.status === "restricted" && m.is_member === true);
 const writable = (m: Member) => present(m) && (m.status !== "restricted" || (m.can_send_messages === true && m.can_send_photos === true));
 const hash = (s: string) => createHash("sha256").update(s).digest("hex");
+const commandThreadId = (m: Message) => m.is_topic_message === true && Number.isSafeInteger(m.message_thread_id) && m.message_thread_id! > 0 ? m.message_thread_id : undefined;
+const nameThreadId = (m: Message) => {
+  if (!Number.isSafeInteger(m.message_thread_id) || !m.message_thread_id || m.message_thread_id <= 0) return undefined;
+  if (m.forum_topic_created || m.forum_topic_edited || m.is_topic_message === true) return m.message_thread_id;
+};
+export function topicNameOf(m: Pick<Message, "forum_topic_created" | "forum_topic_edited" | "reply_to_message">): string | undefined {
+  const raw = m.forum_topic_created?.name ?? m.forum_topic_edited?.name
+    ?? m.reply_to_message?.forum_topic_created?.name ?? m.reply_to_message?.forum_topic_edited?.name;
+  const name = typeof raw === "string" ? raw.trim() : "";
+  return name && name.length < 128 ? name : undefined;
+}
 
 export async function processTelegramUpdate(store: TelegramStore, api: TelegramClient, bot: { id: number; username: string }, update: TelegramUpdate) {
   if (!Number.isSafeInteger(update.update_id) || update.update_id < store.state.offset) return;
@@ -40,11 +55,18 @@ export async function processTelegramUpdate(store: TelegramStore, api: TelegramC
   if (m && isGroup(m.chat)) {
     if (m.migrate_to_chat_id) store.migrate(String(m.chat.id), String(m.migrate_to_chat_id));
     if (m.migrate_from_chat_id) store.migrate(String(m.migrate_from_chat_id), String(m.chat.id));
+    const id = String(m.chat.id);
+    const learned = topicNameOf(m);
+    const learnedThread = nameThreadId(m);
+    if (learned && learnedThread !== undefined && store.state.groups[id]) {
+      store.state.groups[id] = rememberTopicName(store.state.groups[id], learnedThread, learned);
+      store.saveState();
+    }
     const match = /^\/(start|help|status|pause|resume)(?:@([A-Za-z0-9_]+))?(?:\s|$)/.exec(m.text ?? "");
     if (match && (!match[2] || match[2].toLowerCase() === bot.username.toLowerCase())) {
-      const id = String(m.chat.id), command = match[1];
+      const command = match[1];
       // General 不带话题路由；只使用 Telegram 标记为话题消息的有效 ID。
-      const threadId = m.is_topic_message === true && Number.isSafeInteger(m.message_thread_id) && m.message_thread_id! > 0 ? m.message_thread_id : undefined;
+      const threadId = commandThreadId(m);
       let text = `将机器人加入群并允许发送文字和图片。话题群请管理员在每个要收的话题发送 /resume@${bot.username}。/pause 暂停全群，/status 查看状态。`;
       if (["pause", "resume", "start"].includes(command)) {
         // 匿名管理员以本群身份发言；普通用户必须经 Telegram 实时确认管理员身份。
@@ -61,10 +83,13 @@ export async function processTelegramUpdate(store: TelegramStore, api: TelegramC
         } else {
           const self = await api.call<Member>("getChatMember", { chat_id: id, user_id: bot.id });
           const old = store.state.groups[id];
-          const title = threadId !== undefined ? `话题 #${threadId}` : m.chat.is_forum ? "General" : (m.chat.title ?? "本群");
+          const title = threadId !== undefined
+            ? displayTopicTitle(old, threadId, topicNameOf(m))
+            : m.chat.is_forum ? "General" : (m.chat.title ?? "本群");
           store.state.groups[id] = { ...old, id, title: m.chat.title ?? "", paused: false, present: present(self), writable: writable(self),
             updatedAt: m.date, nextSendAt: old?.nextSendAt ?? 0, messageThreadId: threadId, needsTopic: false,
             topics: bindTopic(old, threadId, title) };
+          store.state.groups[id] = rememberTopicName(store.state.groups[id], threadId, topicNameOf(m));
           store.saveState();
           const bound = topicsOf(store.state.groups[id]).map((topic) => topic.title).join("、");
           text = subscribed(store.state.groups[id])

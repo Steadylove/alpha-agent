@@ -17,9 +17,14 @@ const join = (update_id: number, groupId = -1, status = "member"): TelegramUpdat
   my_chat_member: { chat: chat(groupId), date: update_id, old_chat_member: { status: "left" }, new_chat_member: { status } } });
 const command = (update_id: number, text: string): TelegramUpdate => ({ update_id,
   message: { chat: chat(), date: update_id, text, from: { id: 10 } } });
-const topicCommand = (updateId: number, text: string, threadId?: number) => {
+const topicCommand = (updateId: number, text: string, threadId?: number, topicName?: string) => {
   const update = command(updateId, text);
-  Object.assign(update.message!, { chat: { ...chat(), is_forum: true }, is_topic_message: threadId !== undefined, message_thread_id: threadId });
+  Object.assign(update.message!, {
+    chat: { ...chat(), is_forum: true },
+    is_topic_message: threadId !== undefined,
+    message_thread_id: threadId,
+    ...(topicName ? { reply_to_message: { forum_topic_created: { name: topicName } } } : {}),
+  });
   return update;
 };
 const allowAdmin = () => call.mockImplementation(async (method: string) => method === "getChatAdministrators"
@@ -175,6 +180,19 @@ describe("Telegram 话题绑定", () => {
     expect(store.stats().subscribed).toBe(1);
     store.enqueue(id("both"), "signal", "png");
     expect(store.jobs.get(id("both"))!.deliveries.map((d) => d.messageThreadId)).toEqual([42, undefined]);
+  });
+  it("从话题创建信息读取名称，改名后网页显示新名字而不是编号", async () => {
+    allowAdmin();
+    await processTelegramUpdate(store, api, bot, topicCommand(1, "/resume", 42, "买卖点"));
+    expect(store.state.groups["-1"].topics!["42"].title).toBe("买卖点");
+    expect(store.targets()[0].title).toBe("测试群 · 买卖点");
+    await processTelegramUpdate(store, api, bot, topicCommand(2, "/resume", 42));
+    expect(store.state.groups["-1"].topics!["42"].title).toBe("买卖点");
+    await processTelegramUpdate(store, api, bot, {
+      update_id: 3,
+      message: { chat: { ...chat(), is_forum: true }, date: 3, message_thread_id: 42, is_topic_message: true, forum_topic_edited: { name: "4H信号" } },
+    });
+    expect(store.targets()[0].title).toBe("测试群 · 4H信号");
   });
   it("文字和图片都携带目标话题，其他群和普通群发送保持独立", async () => {
     add(-1); add(-2); store.state.groups['-1'].messageThreadId = 42; store.saveState();
