@@ -31,7 +31,6 @@ vi.mock('@/lib/discord/bookCardOg', () => ({ renderCashBookOgPng: async () => mo
 vi.mock('@/lib/discord/gexCardOg', () => ({ renderGexOgPng: async () => mocks.png }));
 vi.mock('@/lib/discord/gexBriefCardOg', () => ({ isGexBriefView: () => true, renderGexBriefOgPng: async () => mocks.png }));
 vi.mock('@/lib/discord/marketStateCardOg', () => ({ renderMarketStateOgPng: async () => mocks.png }));
-vi.mock("@/lib/optionFlow/cardImage", () => ({ renderDailyDigestPng: async () => mocks.png }));
 vi.mock("@/lib/jobs/fundScore", () => ({ lookupAlertFundScore: mocks.fund }));
 const request = (value: unknown) => new Request('https://app.test/api', { method: 'POST', body: JSON.stringify(value) });
 const hook = "https://discord.example/hook";
@@ -127,7 +126,7 @@ it("账本、GEX、日结都走同一套 postSignalImage，日结默认不带镜
   expect((await flowDigest(request({
     filename: "option-flow-digest.png",
     content: "期权流 · 日结",
-    input: { day: "2026-09-11", title: "期权流 · 9月11日", callUsd: 1, putUsd: 0, bias: "call", legs: [{ ticker: "ORCL" }], notes: [], spy: null },
+    png: mocks.png.toString("base64"),
   }))).status).toBe(200);
   expect(mocks.push.mock.calls.map((call) => call[1].kind)).toEqual(["book", "gex", "option-flow-digest"]);
   expect(mocks.discord).not.toHaveBeenCalled();
@@ -148,14 +147,18 @@ it("期权流单笔接口走买卖卡同一套 postSignalImage", async () => {
     bytes: Buffer.from(png, "base64"),
   });
 });
+it("期权流日结接口缺图时返回 400，不加载出图模块", async () => {
+  expect((await flowDigest(request({ filename: "option-flow-digest.png" }))).status).toBe(400);
+});
 it("期权流日结接口复用 PNG 且同一份数据使用相同事件 ID", async () => {
   const payload = {
     filename: "option-flow-digest.png",
     content: "期权流 · 日结",
-    input: { day: "2026-09-11", title: "期权流 · 9月11日", callUsd: 1, putUsd: 0, bias: "call", legs: [{ ticker: "ORCL" }], notes: [], spy: null },
+    eventKey: "option-flow-digest:2026-09-11",
+    png: Buffer.from("digest-card").toString("base64"),
   };
   expect((await flowDigest(request(payload))).status).toBe(200);
   expect((await flowDigest(request(payload))).status).toBe(200);
-  expect(mocks.push.mock.calls[0][1].bytes).toBe(mocks.png);
+  expect(mocks.push.mock.calls[0][1].bytes.equals(Buffer.from("digest-card"))).toBe(true);
   expect(mocks.push.mock.calls[0][1].eventKey).toBe(mocks.push.mock.calls[1][1].eventKey);
 });

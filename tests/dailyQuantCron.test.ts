@@ -47,6 +47,10 @@ it("辅助任务失败不阻止账本和筛选推送", () => {
   expect(result.calls.some((c) => c.startsWith("curl "))).toBe(true);
   expect(result.calls).toContain("npm run screener:push");
 });
+it("选股日更脚本不引用 Prisma，避免 VPS npm ci 后缺 generated client", () => {
+  const src = readFileSync(new URL("../scripts/push-daily-screener.ts", import.meta.url), "utf8");
+  expect(src).not.toMatch(/prisma/i);
+});
 it("行情更新失败停止发布，避免推旧账本", () => {
   const result = run("npm run market:refresh");
   expect(result.failed).toBe(true);

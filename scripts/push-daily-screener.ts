@@ -1,6 +1,5 @@
 import "dotenv/config";
 
-import { getPrisma } from "@/lib/db/prisma";
 import { sendAlphaScreenerToDiscord } from "@/lib/discord/screenerWebhook";
 import { runAlphaScreenerJob } from "@/lib/jobs/alphaScreener";
 
@@ -28,21 +27,9 @@ async function main() {
   );
 }
 
-async function disconnectPrisma() {
-  try {
-    await getPrisma().$disconnect();
-  } catch {
-    // The script may fail before Prisma is initialized.
-  }
-}
-
 main()
-  .then(async () => {
-    await disconnectPrisma();
-    process.exit(0);
-  })
-  .catch(async (error) => {
+  .then(() => process.exit(0))
+  .catch((error) => {
     console.error(error);
-    await disconnectPrisma();
     process.exit(1);
   });

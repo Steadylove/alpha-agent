@@ -70,29 +70,43 @@ async function postLocal(snapshot: GexSnapshot, test: boolean): Promise<void> {
   console.log("pushed local gex.png", body.input.gex.asOf);
 }
 
-async function postLocalDigest(snapshot: GexSnapshot, test: boolean): Promise<void> {
-  const webhook = webhookUrl() || "";
+async function digestPayload(snapshot: GexSnapshot, test: boolean) {
   const view = buildDailyFlowDigest(await loadFlowPosts(), snapshot);
-  if (!hasDigestContent(view)) {
-    console.log("skip option-flow digest: 当日无订单流也无 SPY 墙");
-    return;
-  }
-  await postSignalImage(webhook, {
-    kind: "option-flow-digest",
-    filename: "option-flow-digest.png",
-    eventKey: JSON.stringify(["option-flow-digest.png", view.day, view.legs, view.spy, view.notes]),
+  if (!hasDigestContent(view)) return null;
+  const filename = "option-flow-digest.png";
+  const content = flowDigestCaption(test);
+  return {
+    view,
+    filename,
+    content,
+    eventKey: JSON.stringify([filename, content, view.day, view.legs, view.spy, view.notes]),
     bytes: await renderDailyDigestPng(view),
-    content: flowDigestCaption(test),
-  });
-  console.log("pushed local option-flow-digest.png", view.day);
+  };
 }
 
 async function pushFlowDigest(snapshot: GexSnapshot, local: boolean, test: boolean): Promise<void> {
-  if (local) {
-    await postLocalDigest(snapshot, test);
+  const payload = await digestPayload(snapshot, test);
+  if (!payload) {
+    console.log("skip option-flow digest: 当日无订单流也无 SPY 墙");
     return;
   }
-  await postRemote("/api/tv/render-option-flow-digest", { snapshot, test });
+  if (local) {
+    await postSignalImage(webhookUrl() || "", {
+      kind: "option-flow-digest",
+      filename: payload.filename,
+      eventKey: payload.eventKey,
+      bytes: payload.bytes,
+      content: payload.content,
+    });
+    console.log("pushed local option-flow-digest.png", payload.view.day);
+    return;
+  }
+  await postRemote("/api/tv/render-option-flow-digest", {
+    filename: payload.filename,
+    content: payload.content,
+    eventKey: payload.eventKey,
+    png: payload.bytes.toString("base64"),
+  });
 }
 
 async function main() {
