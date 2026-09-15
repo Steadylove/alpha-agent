@@ -27,10 +27,7 @@ function isDigestView(value: unknown): value is FlowDigestView {
 }
 
 export async function POST(request: Request) {
-  const webhook = process.env.DISCORD_SIGNAL_WEBHOOK_URL || process.env.DISCORD_WEBHOOK_URL;
-  if (!webhook) {
-    return NextResponse.json({ error: "Discord webhook 未配置" }, { status: 503 });
-  }
+  const webhook = process.env.DISCORD_SIGNAL_WEBHOOK_URL || process.env.DISCORD_WEBHOOK_URL || "";
   let body: Body = {};
   try {
     body = (await request.json()) as Body;
@@ -47,6 +44,7 @@ export async function POST(request: Request) {
     const filename = body.filename || "option-flow-digest.png";
     const content = body.content ?? flowDigestCaption(Boolean(body.test));
     await postSignalImage(webhook, {
+      kind: "option-flow-digest",
       filename,
       eventKey: JSON.stringify([filename, content, view.day, view.legs, view.spy, view.notes]),
       bytes: await renderDailyDigestPng(view),

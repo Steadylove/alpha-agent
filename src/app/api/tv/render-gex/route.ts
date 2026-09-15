@@ -4,7 +4,6 @@ import { isGexBriefView, renderGexBriefOgPng } from "@/lib/discord/gexBriefCardO
 import { renderGexOgPng } from "@/lib/discord/gexCardOg";
 import type { GexCardView } from "@/lib/discord/gexCopy";
 import type { GexBriefView } from "@/lib/discord/marketStateCopy";
-import { discordMirrorWebhook, postDiscordMirror } from "@/lib/discord/mirrorWebhook";
 import { postSignalImage } from "@/lib/notifications/postSignalImage";
 
 export const dynamic = "force-dynamic";
@@ -17,10 +16,7 @@ type Body = {
 };
 
 export async function POST(request: Request) {
-  const webhook = process.env.DISCORD_SIGNAL_WEBHOOK_URL || process.env.DISCORD_WEBHOOK_URL;
-  if (!webhook) {
-    return NextResponse.json({ error: "Discord webhook 未配置" }, { status: 503 });
-  }
+  const webhook = process.env.DISCORD_SIGNAL_WEBHOOK_URL || process.env.DISCORD_WEBHOOK_URL || "";
   let body: Body = {};
   try {
     body = (await request.json()) as Body;
@@ -32,6 +28,7 @@ export async function POST(request: Request) {
   }
   try {
     const image = {
+      kind: "gex" as const,
       filename: body.filename,
       eventKey: JSON.stringify([body.filename, body.content, body.input]),
       bytes: isGexBriefView(body.input)
@@ -40,7 +37,6 @@ export async function POST(request: Request) {
       content: body.content ?? "",
     };
     await postSignalImage(webhook, image);
-    await postDiscordMirror(discordMirrorWebhook("gex"), image);
     return NextResponse.json({ ok: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "出图失败";

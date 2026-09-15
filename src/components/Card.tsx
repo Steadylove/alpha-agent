@@ -8,14 +8,16 @@ export function Card({
   children,
   className = "",
   action,
+  lift = true,
 }: {
   title?: ReactNode;
   children: ReactNode;
   className?: string;
   action?: ReactNode;
+  lift?: boolean;
 }) {
   return (
-    <Paper p="lg" className={`lift ${className}`}>
+    <Paper p="lg" className={`${lift ? "lift" : ""} ${className}`}>
       {title ? (
         <Group justify="space-between" mb="md">
           {typeof title === "string" ? (

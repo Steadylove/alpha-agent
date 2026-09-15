@@ -2,6 +2,8 @@ import { request } from "node:https";
 import { formatEtFromUtc } from "@/lib/discord/cardTime";
 import { renderScreenerCardPng } from "@/lib/discord/screenerCardImage";
 import type { ScreenerResult } from "@/lib/jobs/alphaScreener";
+import { discordWebhookOf, readPushRoutes, resolveDiscordTargets } from "@/lib/notifications/pushRoutes";
+import { enqueueTelegramImage } from "@/lib/telegram/relay";
 
 type DiscordEmbed = {
   title?: string;
@@ -119,6 +121,9 @@ export async function sendAlphaScreenerToDiscord(
   webhookUrl: string,
   result: ScreenerResult,
 ): Promise<void> {
+  const route = (await readPushRoutes()).routes.screener;
+  if (!route.enabled) return;
+
   const dateStr = formatEtFromUtc(result.generatedAt.toISOString());
   const eliteSymbols = new Set(result.elite.map((row) => row.symbol));
   const overlapSymbols = new Set(
@@ -152,23 +157,38 @@ export async function sendAlphaScreenerToDiscord(
     image: { url: `attachment://newhighs.png` },
   };
 
-  // 发送多图消息
-  await withDiscordRetry(
-    () =>
-      postMultipart(
-        webhookUrl,
-        {
-          content:
-            result.elite.length === 0 && result.newHighs.length === 0 ? `今日无符合条件的标的` : "",
-          embeds: [eliteEmbed, newHighsEmbed],
-        },
-        [
-          { filename: "elite.png", bytes: elitePng, contentType: "image/png" },
-          { filename: "newhighs.png", bytes: newHighsPng, contentType: "image/png" },
-        ],
-      ),
-    "Discord image push",
-  );
+  const files = [
+    { filename: "elite.png", bytes: elitePng, contentType: "image/png" },
+    { filename: "newhighs.png", bytes: newHighsPng, contentType: "image/png" },
+  ];
+  const payload = {
+    content:
+      result.elite.length === 0 && result.newHighs.length === 0 ? `今日无符合条件的标的` : "",
+    embeds: [eliteEmbed, newHighsEmbed],
+  };
+
+  const urls = resolveDiscordTargets(route, (dest) => discordWebhookOf(dest, webhookUrl)).map((row) => row.url);
+
+  if (route.discord) {
+    if (!urls.length) throw new Error("Discord webhook 未配置");
+    for (const url of urls) {
+      await withDiscordRetry(
+        () => postMultipart(url, payload, files),
+        "Discord image push",
+      );
+    }
+  }
+
+  if (route.telegram && (route.telegramAll || route.telegramChats.length)) {
+    const chats = route.telegramAll ? undefined : route.telegramChats;
+    await enqueueTelegramImage({ filename: "elite.png", bytes: elitePng, content: "选股 · 强势股精英池", eventKey: `screener:elite:${result.generatedAt.toISOString()}` }, chats);
+    await enqueueTelegramImage({ filename: "newhighs.png", bytes: newHighsPng, content: "选股 · 盘中新高", eventKey: `screener:newhighs:${result.generatedAt.toISOString()}` }, chats);
+  }
+
+  if (!route.discord) return;
+
+  const analysisUrl = urls[0] || webhookUrl;
+  if (!analysisUrl) return;
 
   // 3. 发送 AI 分析（仅精英池，每股单独卡片）
   const analysisEmbeds: DiscordEmbed[] = [];
@@ -189,6 +209,6 @@ export async function sendAlphaScreenerToDiscord(
   // Discord 每条消息的 embeds 总大小限制为 6000；逐条发送更稳。
   for (const embed of analysisEmbeds) {
     await sleep(1000);
-    await withDiscordRetry(() => postJson(webhookUrl, { embeds: [embed] }), "Discord AI push");
+    await withDiscordRetry(() => postJson(analysisUrl, { embeds: [embed] }), "Discord AI push");
   }
 }

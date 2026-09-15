@@ -33,10 +33,24 @@ async function requestRelay(path: string, body?: string, sourceSecret?: string) 
 export function telegramRelayStatus() { return requestRelay("status"); }
 export function relayTelegramUpdate(body: string, sourceSecret: string) { return requestRelay("updates", body, sourceSecret); }
 
-export async function enqueueTelegramImage(input: { filename: string; content?: string; bytes: Buffer; eventKey?: string }) {
+export type TelegramTarget = { id: string; title: string; subscribed: boolean; messageThreadId?: number };
+
+export function telegramRelayTargets() {
+  return requestRelay("targets") as Promise<{ ok: boolean; username?: string; groups?: TelegramTarget[] }>;
+}
+
+export async function enqueueTelegramImage(
+  input: { filename: string; content?: string; bytes: Buffer; eventKey?: string },
+  chatIds?: readonly string[],
+) {
   if (!config().base || process.env.TELEGRAM_ENABLED === "false") return { skipped: true };
   const id = createHash("sha256").update(input.eventKey ?? `${input.filename}\n${input.content ?? ""}`).update(input.eventKey ? "" : input.bytes).digest("hex");
   const content = (input.content ?? "").replace(/\*\*([^*]+)\*\*/g, "$1");
   if (content.length > 1024) throw new Error("Telegram 图片说明超过 1024 字符");
-  return requestRelay("enqueue", JSON.stringify({ id, content, png: input.bytes.toString("base64") }));
+  return requestRelay("enqueue", JSON.stringify({
+    id,
+    content,
+    png: input.bytes.toString("base64"),
+    ...(chatIds ? { chatIds: [...chatIds] } : {}),
+  }));
 }

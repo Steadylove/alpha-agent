@@ -28,6 +28,12 @@ const add = (n: number) => { store.state.groups[String(n)] = { id: String(n), ti
 beforeEach(() => { dir = mkdtempSync(`${tmpdir()}/telegram-`); store = new TelegramStore(dir); vi.resetAllMocks(); call.mockResolvedValue({ message_id: 1 }); sendPhoto.mockResolvedValue({ message_id: 2, photo: [{ file_id: "photo-id" }] }); });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
+it("指定群时只入队这些已订阅话题", () => {
+  add(-1); add(-2);
+  expect(store.enqueue(id("one"), "signal", "png", undefined, 1000, undefined, ["-2"]).recipients).toBe(1);
+  expect(store.jobs.get(id("one"))!.deliveries.map((d) => d.chatId)).toEqual(["-2"]);
+});
+
 describe("Telegram 群订阅", () => {
   it("入群自动订阅，重启保留群和更新游标，重复事件不重复欢迎", async () => {
     await processTelegramUpdate(store, api, bot, join(1));

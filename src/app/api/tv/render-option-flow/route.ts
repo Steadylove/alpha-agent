@@ -13,10 +13,7 @@ type Body = {
 };
 
 export async function POST(request: Request) {
-  const webhook = process.env.DISCORD_SIGNAL_WEBHOOK_URL || process.env.DISCORD_WEBHOOK_URL;
-  if (!webhook) {
-    return NextResponse.json({ error: "Discord webhook 未配置" }, { status: 503 });
-  }
+  const webhook = process.env.DISCORD_SIGNAL_WEBHOOK_URL || process.env.DISCORD_WEBHOOK_URL || "";
   let body: Body = {};
   try {
     body = (await request.json()) as Body;
@@ -28,6 +25,7 @@ export async function POST(request: Request) {
   }
   try {
     await postSignalImage(webhook, {
+      kind: "option-flow",
       filename: body.filename,
       eventKey: body.eventKey,
       bytes: Buffer.from(body.png, "base64"),

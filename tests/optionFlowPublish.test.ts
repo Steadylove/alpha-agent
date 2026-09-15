@@ -52,7 +52,7 @@ it("单笔交给网站 postSignalImage 入口，和买卖卡同一条路径", as
   expect(mocks.bot).not.toHaveBeenCalled();
 });
 
-it("确认名单仍只走 Discord", async () => {
+it("确认名单默认走 Discord 配置通道，不改网站单笔入口", async () => {
   await publishOptionFlow(post({ id: "m2", kind: "noteworthy" }));
   expect(mocks.discord).toHaveBeenCalledTimes(1);
   expect(mocks.fetch).not.toHaveBeenCalled();

@@ -152,21 +152,19 @@ export async function buildSignalBooks(opts: PushSignalBookOpts = {}): Promise<B
 }
 
 export async function pushSignalBooks(opts: PushSignalBookOpts = {}): Promise<PushSignalBookResult> {
-  const webhook = process.env.DISCORD_SIGNAL_WEBHOOK_URL || process.env.DISCORD_WEBHOOK_URL;
-  if (!webhook) throw new Error("未配置 DISCORD_SIGNAL_WEBHOOK_URL / DISCORD_WEBHOOK_URL");
+  const webhook = process.env.DISCORD_SIGNAL_WEBHOOK_URL || process.env.DISCORD_WEBHOOK_URL || "";
   const { renderCashBookPng } = await import("@/lib/discord/bookCardImage");
   const { postSignalImage } = await import("@/lib/notifications/postSignalImage");
-  const { discordMirrorWebhook, postDiscordMirror } = await import("@/lib/discord/mirrorWebhook");
   const sent: string[] = [];
   for (const book of await buildSignalBooks(opts)) {
     const image = {
+      kind: "book" as const,
       filename: book.filename,
       eventKey: JSON.stringify([book.filename, book.content, book.input]),
       bytes: await renderCashBookPng(book.input),
       content: book.content,
     };
     await postSignalImage(webhook, image);
-    await postDiscordMirror(discordMirrorWebhook("book"), image);
     sent.push(book.summary);
     await new Promise((resolve) => setTimeout(resolve, 800));
   }

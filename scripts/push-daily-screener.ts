@@ -11,12 +11,7 @@ function envFlag(name: string, defaultValue: boolean): boolean {
 }
 
 async function main() {
-  const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
-  if (!webhookUrl) {
-    throw new Error("Missing DISCORD_WEBHOOK_URL");
-  }
-
-  // Daily free-tier job pushes the two images only by default.
+  const webhookUrl = process.env.DISCORD_WEBHOOK_URL || "";
   const skipAi = envFlag("SCREENER_SKIP_AI", true);
   const result = await runAlphaScreenerJob({ skipAi });
 

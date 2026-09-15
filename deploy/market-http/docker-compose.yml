@@ -55,6 +55,7 @@ services:
       - /var/lib/alpha-agent/option-flow.env
     environment:
       MARKET_DATA_BASE_URL: http://market
+      TELEGRAM_RELAY_URL: http://telegram:8082
       PORT: "8083"
     volumes:
       - /var/lib/alpha-agent/market-http/option-flow.mjs:/app/option-flow.mjs:ro

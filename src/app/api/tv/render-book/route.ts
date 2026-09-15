@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 
 import { renderCashBookOgPng } from "@/lib/discord/bookCardOg";
 import type { CashBookView } from "@/lib/discord/bookCopy";
-import { discordMirrorWebhook, postDiscordMirror } from "@/lib/discord/mirrorWebhook";
 import { postSignalImage } from "@/lib/notifications/postSignalImage";
 
 export const dynamic = "force-dynamic";
@@ -15,10 +14,7 @@ type Body = {
 };
 
 export async function POST(request: Request) {
-  const webhook = process.env.DISCORD_SIGNAL_WEBHOOK_URL || process.env.DISCORD_WEBHOOK_URL;
-  if (!webhook) {
-    return NextResponse.json({ error: "Discord webhook 未配置" }, { status: 503 });
-  }
+  const webhook = process.env.DISCORD_SIGNAL_WEBHOOK_URL || process.env.DISCORD_WEBHOOK_URL || "";
   let body: Body = {};
   try {
     body = (await request.json()) as Body;
@@ -30,13 +26,13 @@ export async function POST(request: Request) {
   }
   try {
     const image = {
+      kind: "book" as const,
       filename: body.filename,
       eventKey: JSON.stringify([body.filename, body.content, body.input]),
       bytes: await renderCashBookOgPng(body.input),
       content: body.content ?? "",
     };
     await postSignalImage(webhook, image);
-    await postDiscordMirror(discordMirrorWebhook("book"), image);
     return NextResponse.json({ ok: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "出图失败";

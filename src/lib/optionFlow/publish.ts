@@ -1,10 +1,11 @@
-import { postDiscordBotImage, postDiscordImage } from "@/lib/discord/sendWebhook";
+import { postDiscordBotImage } from "@/lib/discord/sendWebhook";
 
 import { discordBotToken } from "./discordFetch";
 import { renderGexFlowPng, renderNoteworthyPng, renderSingleFlowPng } from "./cardImage";
 import { shouldForward } from "./config";
 import { hasPublishedTweet } from "./store";
 import type { OptionFlowConfig, OptionFlowPost } from "./types";
+import { postSignalImage } from "@/lib/notifications/postSignalImage";
 
 /** Quill 服 #常规，账本 / GEX 现在就推这里。 */
 export const DEFAULT_SIGNAL_CHANNEL_ID = "1530212207089160374";
@@ -52,9 +53,16 @@ export async function publishOptionFlow(post: OptionFlowPost): Promise<void> {
     if (!res.ok) throw new Error((await res.text()).trim() || `期权流推送失败 HTTP ${res.status}`);
     return;
   }
+  const kind = post.kind === "noteworthy" ? "option-flow-noteworthy" as const : "option-flow-gex" as const;
   const webhook = signalWebhookUrl();
-  if (webhook) {
-    await postDiscordImage(webhook, { filename, bytes, content });
+  if (webhook || !process.env.DISCORD_BOT_TOKEN?.trim()) {
+    await postSignalImage(webhook, {
+      kind,
+      filename,
+      bytes,
+      content,
+      eventKey: `option-flow:${post.tweetId || post.id}`,
+    });
     return;
   }
   await postDiscordBotImage(signalChannelId(), discordBotToken(), { filename, bytes, content });

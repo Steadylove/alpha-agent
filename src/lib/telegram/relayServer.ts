@@ -13,7 +13,7 @@ export function createTelegramRelayServer(store: TelegramStore, secret: string, 
     const route = req.url?.split("?")[0];
     if (req.method === "GET" && route === "/health") { reply(200, { ok: true, configured }); return; }
     if (!configured) { reply(503, { error: "not configured" }); return; }
-    if (!(req.method === "GET" && route === "/status") && !(req.method === "POST" && ["/enqueue", "/updates"].includes(route ?? ""))) { reply(404, { error: "not found" }); return; }
+    if (!(req.method === "GET" && (route === "/status" || route === "/targets")) && !(req.method === "POST" && ["/enqueue", "/updates"].includes(route ?? ""))) { reply(404, { error: "not found" }); return; }
     try {
       const chunks: Buffer[] = []; let size = 0;
       for await (const chunk of req) {
@@ -26,6 +26,7 @@ export function createTelegramRelayServer(store: TelegramStore, secret: string, 
       const identity = signed ? null : await openRelayIdentity(identityPrivateKey, String(req.headers["x-relay-identity"] ?? ""), body);
       if (!signed && !identity) { reply(401, { error: "unauthorized" }); return; }
       if (route === "/status") { reply(200, { ...status(), ...store.stats() }); return; }
+      if (route === "/targets") { reply(200, { ...status(), groups: store.targets() }); return; }
       if (route === "/updates") {
         const got = identity?.sourceSecret ?? "", expected = webhook?.secret ?? "";
         if (!expected || got.length !== expected.length || !timingSafeEqual(Buffer.from(got), Buffer.from(expected))) { reply(401, { error: "invalid webhook" }); return; }
@@ -35,15 +36,19 @@ export function createTelegramRelayServer(store: TelegramStore, secret: string, 
         await webhook!.handle(update);
         reply(200, { ok: true }); return;
       }
-      const data = JSON.parse(body) as { id?: unknown; content?: unknown; png?: unknown };
+      const data = JSON.parse(body) as { id?: unknown; content?: unknown; png?: unknown; chatIds?: unknown };
+      const chatIds = data.chatIds === undefined ? undefined : Array.isArray(data.chatIds) && data.chatIds.every((id) => typeof id === "string" && id.length > 0 && id.length < 64)
+        ? data.chatIds as string[]
+        : null;
       if (!data || typeof data !== "object" || typeof data.id !== "string" || !/^[a-f0-9]{64}$/.test(data.id) || typeof data.content !== "string" || data.content.length > 1024 ||
         typeof data.png !== "string" || data.png.length > 8_000_000 || !/^[A-Za-z0-9+/]+={0,2}$/.test(data.png) ||
-        !Buffer.from(data.png, "base64").subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
+        !Buffer.from(data.png, "base64").subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) ||
+        chatIds === null) {
         reply(400, { error: "invalid image job" }); return;
       }
       // 未开始接收群事件前拒绝入队，避免把暂时未知的订阅群误当作空列表。
       if (!status().ok) { reply(503, { error: "starting" }); return; }
-      const queued = store.enqueue(data.id, data.content, data.png);
+      const queued = store.enqueue(data.id, data.content, data.png, undefined, Date.now(), undefined, chatIds);
       console.info(`[telegram] enqueue id=${data.id.slice(0, 12)} recipients=${queued.recipients} duplicate=${queued.duplicate}`);
       reply(200, { ok: true, ...queued });
     } catch (e) { if (!res.writableEnded) reply(e instanceof SyntaxError ? 400 : 500, { error: "request failed" }); }

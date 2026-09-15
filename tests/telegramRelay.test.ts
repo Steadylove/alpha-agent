@@ -47,6 +47,11 @@ it("真实 HTTP 入队需签名；响应前持久化，重复提交保持已发�
     const status = await (await fetch(`${base}/status`, { headers: relayHeaders('test-secret') })).json();
     expect(status).toMatchObject({ ok: true, sent: 1 });
     expect(JSON.stringify(status)).not.toContain('private group name');
+    const targets = await (await fetch(`${base}/targets`, { headers: relayHeaders('test-secret') })).json();
+    expect(targets.groups).toEqual([expect.objectContaining({ id: '-1', title: 'private group name', subscribed: true })]);
+    const other = createHash("sha256").update("other signal").digest("hex");
+    const targeted = JSON.stringify({ id: other, content: "signal", png: png.toString('base64'), chatIds: ['-1'] });
+    expect(await (await post(targeted)).json()).toMatchObject({ ok: true, recipients: 1, duplicate: false });
   } finally { server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve())); rmSync(dir, { recursive: true, force: true }); }
 });
 

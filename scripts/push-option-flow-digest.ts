@@ -50,8 +50,7 @@ function requestedDays(posts: { kind: string; postedAt: string }[]): string[] {
 }
 
 async function main() {
-  const webhook = webhookUrl();
-  if (!webhook) throw new Error("未配置 DISCORD_SIGNAL_WEBHOOK_URL / DISCORD_WEBHOOK_URL");
+  const webhook = webhookUrl() || "";
   const posts = await loadFlowPosts();
   const snapshot = loadSnapshot();
   const test = process.env.GEX_TEST === "1";
@@ -63,6 +62,7 @@ async function main() {
     }
     try {
       await postSignalImage(webhook, {
+        kind: "option-flow-digest",
         filename: `option-flow-digest-${day}.png`,
         eventKey: JSON.stringify(["option-flow-digest.png", view.day, view.legs, view.spy, view.notes]),
         bytes: await renderDailyDigestPng(view),

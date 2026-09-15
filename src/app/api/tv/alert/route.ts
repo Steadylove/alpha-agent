@@ -23,7 +23,6 @@ import {
   type AlertPayload,
 } from "@/lib/discord/tvAlertCopy";
 import { STRATEGY_NAME } from "@/lib/discord/brand";
-import { discordMirrorWebhook, postDiscordMirror } from "@/lib/discord/mirrorWebhook";
 import { lookupAlertFundScore } from "@/lib/jobs/fundScore";
 import { postSignalImage } from "@/lib/notifications/postSignalImage";
 import { assessedAlertView } from "@/lib/signals/journal";
@@ -94,13 +93,13 @@ export async function deliverTvAlert(payload: AlertPayload, webhookUrl: string):
   }
   const view = await assessedAlertView(payload, label, payload.event === "buy" && !timely ? undefined : rps ?? undefined, fund);
   const image = {
+    kind: tf === "2h" ? "signal-2h" as const : "signal-4h" as const,
     filename: `signal-${payload.symbol}.png`,
     eventKey,
     bytes: await renderSignalOgPng(view),
     content: `**${STRATEGY_NAME} ${view.title} · ${payload.symbol}**${alertTimeframeSuffix(label)}`,
   };
   await postSignalImage(webhookUrl, image);
-  if (tf === "4h" || tf === "2h") await postDiscordMirror(discordMirrorWebhook(tf), image);
   return {
     ok: true,
     forwarded: true,
@@ -111,13 +110,7 @@ export async function deliverTvAlert(payload: AlertPayload, webhookUrl: string):
 }
 
 export async function POST(request: Request) {
-  const webhookUrl = process.env.DISCORD_SIGNAL_WEBHOOK_URL || process.env.DISCORD_WEBHOOK_URL;
-  if (!webhookUrl) {
-    return NextResponse.json(
-      { error: "Neither DISCORD_SIGNAL_WEBHOOK_URL nor DISCORD_WEBHOOK_URL is configured." },
-      { status: 503 },
-    );
-  }
+  const webhookUrl = process.env.DISCORD_SIGNAL_WEBHOOK_URL || process.env.DISCORD_WEBHOOK_URL || "";
 
   let payload: AlertPayload | null = null;
   try {

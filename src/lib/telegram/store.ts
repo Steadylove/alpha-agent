@@ -43,12 +43,24 @@ export class TelegramStore {
     writeJsonAtomic(path.join(this.dir, "jobs", `${job.id}.json`), job);
     this.jobs.set(job.id, job);
   }
-  enqueue(id: string, content: string, png?: string, directChat?: string, now = Date.now(), directThreadId?: number) {
+  targets() {
+    return Object.values(this.state.groups)
+      .filter((g) => g.present && !g.migratedTo)
+      .map((g) => ({ id: g.id, title: g.title, subscribed: subscribed(g), messageThreadId: g.messageThreadId }));
+  }
+  enqueue(id: string, content: string, png?: string, directChat?: string, now = Date.now(), directThreadId?: number, chatIds?: readonly string[]) {
     const prior = this.jobs.get(id);
     // 空收件人记录没有实际安排投递。绑定群/话题后重新提交时，
     // 使用本次图片与时间建立任务；已有投递进度的任务仍保持去重。
     if (prior?.deliveries.length) return { duplicate: true, recipients: prior.deliveries.length };
-    const chats = directChat ? [directChat] : Object.values(this.state.groups).filter(subscribed).map((g) => g.id);
+    const chats = directChat
+      ? [directChat]
+      : chatIds
+        ? chatIds.filter((chatId) => {
+          const group = this.state.groups[chatId];
+          return Boolean(group && subscribed(group));
+        })
+        : Object.values(this.state.groups).filter(subscribed).map((g) => g.id);
     this.saveJob({ id, content, png, createdAt: now, direct: !!directChat,
       deliveries: chats.map((chatId) => ({ chatId, state: "pending", attempts: 0, nextAt: now,
         messageThreadId: directChat ? directThreadId : this.state.groups[chatId].messageThreadId })) });

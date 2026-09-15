@@ -20,14 +20,12 @@ export async function POST(request: Request) {
 
   const skipAi = parseSkipAi(request);
   const result = await runAlphaScreenerJob({ skipAi });
-  const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+  const webhookUrl = process.env.DISCORD_WEBHOOK_URL || "";
   let discordError: string | null = null;
-  if (webhookUrl) {
-    try {
-      await sendAlphaScreenerToDiscord(webhookUrl, result);
-    } catch (err) {
-      discordError = err instanceof Error ? err.message : String(err);
-    }
+  try {
+    await sendAlphaScreenerToDiscord(webhookUrl, result);
+  } catch (err) {
+    discordError = err instanceof Error ? err.message : String(err);
   }
 
   return NextResponse.json({
@@ -38,7 +36,7 @@ export async function POST(request: Request) {
     skipAi,
     eliteCount: result.elite.length,
     newHighsCount: result.newHighs.length,
-    pushedToDiscord: Boolean(webhookUrl) && !discordError,
+    pushedToDiscord: !discordError,
     elite: result.elite.map((p) => ({
       symbol: p.symbol,
       name: p.name,

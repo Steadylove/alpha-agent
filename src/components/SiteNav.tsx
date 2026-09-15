@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Bell,
   FlaskConical,
   Layers,
   LayoutDashboard,
@@ -21,6 +22,7 @@ const primaryNav = [
   { href: "/mpr", label: "市场雷达", icon: Radar },
   { href: "/rotation", label: "轮动持仓", icon: Repeat },
   { href: "/lab", label: "调参实验室", icon: FlaskConical },
+  { href: "/push", label: "推送", icon: Bell },
 ];
 
 export function SiteNav() {
