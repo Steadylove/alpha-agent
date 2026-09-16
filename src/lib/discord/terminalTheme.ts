@@ -1,6 +1,8 @@
 import sharp from "sharp";
 
-export const FONT = "PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, Microsoft YaHei, sans-serif";
+import { OG_FONT, withOgFontFace } from "./ogFont";
+
+export const FONT = OG_FONT;
 export const MONO = "SF Mono, Menlo, Consolas, Trebuchet MS, monospace";
 export const SCALE = 2;
 
@@ -29,8 +31,14 @@ export function esc(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-export function svgToPng(svg: string, width: number): Promise<Buffer> {
-  return sharp(Buffer.from(svg))
+export async function svgToPng(svg: string, width: number): Promise<Buffer> {
+  let payload = svg;
+  try {
+    payload = await withOgFontFace(svg);
+  } catch (error) {
+    console.warn("[card] 嵌入中文字体失败，退回系统字体", error);
+  }
+  return sharp(Buffer.from(payload))
     .resize({ width: width * SCALE, kernel: "lanczos3" })
     .png({ compressionLevel: 8, quality: 100 })
     .toBuffer();

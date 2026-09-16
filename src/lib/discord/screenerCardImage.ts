@@ -1,15 +1,11 @@
-import sharp from "sharp";
 import type { ScreenerResult, ScreenerRow } from "@/lib/jobs/alphaScreener";
 import { withDisclaimer } from "./cardDisclaimer";
+import { FONT, MONO, svgToPng } from "./terminalTheme";
 
 /** 一张图展示，金融终端数据表风格（TradingView / Bloomberg 风格），极简、高密度、对齐 */
 const WIDTH = 840;
-const SCALE = 2; // 1680px 足够清晰，避免长图高度超出限制
 const ROW_H = 56;
 const HEADER_H = 110;
-
-const FONT = "PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, Microsoft YaHei, sans-serif";
-const MONO = "SF Mono, Menlo, Consolas, Trebuchet MS, monospace";
 
 // 金融终端深色主题 (TradingView Dark 变体)
 const C = {
@@ -138,8 +134,5 @@ export async function renderScreenerCardPng(
   ${body}
 </svg>`;
 
-  return sharp(Buffer.from(svg))
-    .resize({ width: WIDTH * SCALE, kernel: "lanczos3" })
-    .png({ compressionLevel: 8, quality: 100 })
-    .toBuffer();
+  return svgToPng(svg, WIDTH);
 }
