@@ -1,5 +1,4 @@
 import type { ScreenerResult, ScreenerRow } from "@/lib/jobs/alphaScreener";
-import { withDisclaimer } from "./cardDisclaimer";
 import { FONT, MONO, svgToPng } from "./terminalTheme";
 
 /** 一张图展示，金融终端数据表风格（TradingView / Bloomberg 风格），极简、高密度、对齐 */
@@ -122,8 +121,8 @@ export async function renderScreenerCardPng(
 
   const titleSvg = `
   <text x="32" y="44" font-size="22" font-weight="bold" fill="${C.title}" font-family="${MONO}">MARKET COMPASS</text>
-  <text x="230" y="42" font-size="14" fill="${C.subtitle}" font-family="${FONT}">${title}</text>
-  <text x="${WIDTH - 32}" y="43" font-size="14" fill="${C.subtitle}" text-anchor="end" font-family="${MONO}">${esc(withDisclaimer(subtitleInfo))}</text>
+  <text x="248" y="43" font-size="15" fill="${C.subtitle}" font-family="${FONT}">${esc(title)}</text>
+  <text x="${WIDTH - 32}" y="43" font-size="14" fill="${C.subtitle}" text-anchor="end" font-family="${MONO}">${esc(subtitleInfo)}</text>
   `;
 
   const svg = `<?xml version="1.0" encoding="UTF-8"?>

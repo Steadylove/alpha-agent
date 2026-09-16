@@ -124,7 +124,7 @@ export async function sendAlphaScreenerToDiscord(
   const route = (await readPushRoutes()).routes.screener;
   if (!route.enabled) return;
 
-  const dateStr = formatEtFromUtc(result.generatedAt.toISOString());
+  const dateStr = formatEtFromUtc(result.generatedAt.toISOString()).slice(0, 10);
   const eliteSymbols = new Set(result.elite.map((row) => row.symbol));
   const overlapSymbols = new Set(
     result.newHighs.filter((row) => eliteSymbols.has(row.symbol)).map((row) => row.symbol),
@@ -134,8 +134,8 @@ export async function sendAlphaScreenerToDiscord(
   const elitePng = await renderScreenerCardPng(
     result,
     result.elite,
-    "强势股精英池",
-    `${dateStr} // RPS > ${result.baseThreshold} // ROWS: ${result.elite.length} // BOTH: ${overlapSymbols.size}`,
+    "强势股",
+    dateStr,
     { overlapSymbols },
   );
   
@@ -143,8 +143,8 @@ export async function sendAlphaScreenerToDiscord(
   const newHighsPng = await renderScreenerCardPng(
     result,
     result.newHighs,
-    "盘中新高(趋势发现)",
-    `${dateStr} // 252日新高 // ROWS: ${result.newHighs.length} // BOTH: ${overlapSymbols.size}`,
+    "盘中新高",
+    dateStr,
     { overlapSymbols },
   );
 

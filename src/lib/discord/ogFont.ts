@@ -9,7 +9,8 @@ export const SIGNAL_NUMBER_FONT = "IBM Plex Mono";
 const FONT_UA =
   "Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10_6_8; de-at) AppleWebKit/533.21.1 (KHTML, like Gecko) Version/5.0.5 Safari/533.21.1";
 const FONT_DIR = join(tmpdir(), "alpha-agent-og-fonts");
-const fontCache = new Map<string, Promise<{ name: string; data: ArrayBuffer; weight: 400 | 700 }[]>>();
+const FONT_CACHE = join(tmpdir(), "alpha-agent-og-fonts-cache");
+const fontCache = new Map<string, Promise<OgFontFace[]>>();
 
 export type OgFontFace = { name: string; data: ArrayBuffer; weight: 400 | 700 };
 
@@ -35,17 +36,40 @@ export async function loadSignalNumberFont(text: string) {
   return { name: SIGNAL_NUMBER_FONT, data: await loadWeight(subset, 700, SIGNAL_NUMBER_FONT, AbortSignal.timeout(2500)), weight: 700 as const };
 }
 
-export function injectSvgFontFace(svg: string, fonts: readonly OgFontFace[]): string {
+/** Sharp 在 Linux 走 fontconfig，不认 SVG @font-face。TTF 写入目录并设置 FONTCONFIG_FILE。 */
+export function registerOgFonts(fonts: readonly OgFontFace[]): string {
   mkdirSync(FONT_DIR, { recursive: true });
-  const css = fonts
-    .map((font) => {
-      const hash = createHash("sha1").update(Buffer.from(font.data)).digest("hex").slice(0, 12);
-      const file = join(FONT_DIR, `${font.name.replace(/\s+/g, "")}-${font.weight}-${hash}.ttf`);
-      writeFileSync(file, Buffer.from(font.data));
-      const href = file.replace(/\\/g, "/");
-      return `@font-face{font-family:'${font.name}';font-weight:${font.weight};font-style:normal;src:url('file://${href}') format('truetype');}`;
-    })
-    .join("");
+  mkdirSync(FONT_CACHE, { recursive: true });
+  const css: string[] = [];
+  for (const font of fonts) {
+    const hash = createHash("sha1").update(Buffer.from(font.data)).digest("hex").slice(0, 12);
+    const file = join(FONT_DIR, `${font.name.replace(/\s+/g, "")}-${font.weight}-${hash}.ttf`);
+    writeFileSync(file, Buffer.from(font.data));
+    const href = file.replace(/\\/g, "/");
+    css.push(`@font-face{font-family:'${font.name}';font-weight:${font.weight};font-style:normal;src:url('file://${href}') format('truetype');}`);
+  }
+  writeFileSync(join(FONT_DIR, "fonts.conf"), `<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+<fontconfig>
+  <dir>${FONT_DIR}</dir>
+  <dir>/usr/share/fonts</dir>
+  <dir>/usr/local/share/fonts</dir>
+  <cachedir>${FONT_CACHE}</cachedir>
+  <include ignore_missing="yes">/etc/fonts/fonts.conf</include>
+  <match target="pattern">
+    <test qual="any" name="family"><string>Noto Sans SC</string></test>
+    <edit name="family" mode="append" binding="strong">
+      <string>Noto Sans CJK SC</string>
+    </edit>
+  </match>
+</fontconfig>
+`);
+  process.env.FONTCONFIG_FILE = join(FONT_DIR, "fonts.conf");
+  return css.join("");
+}
+
+export function injectSvgFontFace(svg: string, fonts: readonly OgFontFace[]): string {
+  const css = registerOgFonts(fonts);
   return svg.replace(/<svg\b([^>]*)>/i, `<svg$1><defs><style type="text/css">${css}</style></defs>`);
 }
 
