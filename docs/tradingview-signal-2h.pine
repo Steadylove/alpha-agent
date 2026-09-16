@@ -180,6 +180,25 @@ float ef2   = ta.ema(close, 169)
 float es1   = ta.ema(close, 576)
 float es2   = ta.ema(close, 676)
 
+// 告警函数不每根执行。函数里对自算序列做动态偏移（ef1[newer]）只会留下本根，
+// K 线是内置序列所以还在，Vegas 通道就只剩最后一点，图上看不见。
+var array<float> histEf1 = array.new_float()
+var array<float> histEf2 = array.new_float()
+var array<float> histEs1 = array.new_float()
+var array<float> histEs2 = array.new_float()
+var int histBar = -1
+if histBar != bar_index
+    array.push(histEf1, ef1)
+    array.push(histEf2, ef2)
+    array.push(histEs1, es1)
+    array.push(histEs2, es2)
+    histBar := bar_index
+else
+    array.set(histEf1, array.size(histEf1) - 1, ef1)
+    array.set(histEf2, array.size(histEf2) - 1, ef2)
+    array.set(histEs1, array.size(histEs1) - 1, es1)
+    array.set(histEs2, array.size(histEs2) - 1, es2)
+
 bool vegasOk = not na(ef1) and not na(ef2) and not na(es1) and not na(es2) and math.min(ef1, ef2) > math.max(es1, es2)
 bool rsiOk   = not na(rsi14) and rsi14 >= minRsi
 
@@ -417,6 +436,9 @@ string strategyKey = "aa-2h-v1|" + syminfo.tickerid + "|" + timeframe.period + "
 // 列：[开盘毫秒,收盘毫秒,O,H,L,C,EMA166,EMA169,EMA576,EMA676]。
 // 使用图表本身的数据与 EMA，服务端不猜入场日期，也不拼接滞后的日更行情。
 chartNumber(float v) => na(v) ? "null" : n4(v)
+chartEma(array<float> hist, int barsAgo) =>
+    int idx = array.size(hist) - 1 - barsAgo
+    idx < 0 ? na : array.get(hist, idx)
 signalChartJson(int anchorBar) =>
     int window = math.min(2000, math.min(bar_index + 1, math.max(80, bar_index - anchorBar + 21)))
     int stride = int(math.ceil(window / 120.0))
@@ -432,7 +454,7 @@ signalChartJson(int anchorBar) =>
             groupLow := math.min(groupLow, low[offset])
         string row = '[' + str.tostring(time[older]) + ',' + str.tostring(time_close[newer]) +
            ',' + chartNumber(open[older]) + ',' + chartNumber(groupHigh) + ',' + chartNumber(groupLow) + ',' + chartNumber(close[newer]) +
-           ',' + chartNumber(ef1[newer]) + ',' + chartNumber(ef2[newer]) + ',' + chartNumber(es1[newer]) + ',' + chartNumber(es2[newer]) + ']'
+           ',' + chartNumber(chartEma(histEf1, newer)) + ',' + chartNumber(chartEma(histEf2, newer)) + ',' + chartNumber(chartEma(histEs1, newer)) + ',' + chartNumber(chartEma(histEs2, newer)) + ']'
         array.push(rows, row)
     '{"version":1,"stride":' + str.tostring(stride) + ',"bars":[' + array.join(rows, ',') + ']}'
 
