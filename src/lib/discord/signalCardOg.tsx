@@ -3,16 +3,9 @@ import { loadOgFonts, loadSignalNumberFont, OG_FONT, SIGNAL_NUMBER_FONT } from "
 import { signalCardLayout, SIGNAL_CARD_SCALE, SIGNAL_INK, type SignalCardItem } from "./signalCardLayout";
 import { signalTradeChartSvg, TRADE_CHART_HEIGHT, TRADE_CHART_WIDTH } from "./signalTradeChart";
 import type { AlertView } from "./tvAlertCopy";
-import { qualityEmojiSvg } from "./qualityEmoji";
 
 function DrawItem({ item, numberFont }: { item: SignalCardItem; numberFont: string }) {
   const s = SIGNAL_CARD_SCALE;
-  if (item.type === "emoji") return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img alt="买点质量表情" width={item.size*s} height={item.size*s}
-      style={{position:"absolute",left:item.x*s,top:item.y*s}}
-      src={`data:image/svg+xml;base64,${Buffer.from(qualityEmojiSvg(item.mood)).toString("base64")}`} />
-  );
   if (item.type === "chart") return (
     // SVG 源、文字和输出画布均使用 2× 像素，不放大已生成的低分辨率 PNG。
     // eslint-disable-next-line @next/next/no-img-element

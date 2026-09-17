@@ -5,15 +5,18 @@ import { qualityDimensionLabel, qualityReasonText } from "@/lib/signals/qualityC
 import { qualityPanel } from "@/lib/signals/assessment";
 import { withDisclaimer } from "./cardDisclaimer";
 import { CARD_TZ_ET } from "./cardTime";
-import { qualityBadge, type QualityMood } from "./qualityEmoji";
 
 import { CARD_WIDTH as SIGNAL_CARD_WIDTH, CARD_INK as SIGNAL_INK } from "./cardTheme";
 export { CARD_WIDTH as SIGNAL_CARD_WIDTH, CARD_SCALE as SIGNAL_CARD_SCALE, CARD_INK as SIGNAL_INK } from "./cardTheme";
 export type SignalCardItem =
   | { type: "rect"; x: number; y: number; width: number; height: number; fill: string; radius?: number; stroke?: string }
   | { type: "text"; x: number; y: number; width: number; height: number; text: string; size: number; color: string; weight: 400 | 700; align: "left" | "right" | "center"; numeric?: boolean }
-  | { type: "chart"; x: number; y: number; chart: SignalTradeChart }
-  | { type: "emoji"; x: number; y: number; size: number; mood: QualityMood };
+  | { type: "chart"; x: number; y: number; chart: SignalTradeChart };
+
+function qualityColor(points: number, available: number): string {
+  if (available !== 100) return SIGNAL_INK.muted;
+  return points >= 65 ? SIGNAL_INK.buy : points >= 50 ? SIGNAL_INK.take : SIGNAL_INK.stop;
+}
 
 function readableText(text: string): string {
   // 仅改展示用语，兼容已经冻结的评分文本，不改入场快照或评分结果。
@@ -125,14 +128,12 @@ export function signalCardLayout(view: AlertView): { width: number; height: numb
   const q = view.quality?.version === "quality-v2" ? view.quality : undefined;
   const panel = view.quality?.version === "quality-v1" ? qualityPanel(view.quality) : view.assessment;
   if (panel && q) {
-    const badge = qualityBadge(q.points,q.available);
+    const scoreColor = qualityColor(q.points, q.available);
     const h = 222;
     rect(left, y, inner, h, T.panel, 12, T.line);
-    text("买点质量", left + 20, y + 16, 180, 14, T.secondary);
-    text(q.available ? `${q.points}` : "—", left + 20, y + 43, 170, 46, badge.color, 700, "left", true);
-    text(q.available ? `/ ${q.available}` : "暂无评分", left + 22, y + 106, 165, 14, T.muted);
-    items.push({type:"emoji",x:left+20,y:y+148,size:38,mood:badge.mood});
-    text(badge.label,left+70,y+151,126,24,badge.color,700);
+    text("买点质量", left + 20, y + 48, 180, 14, T.secondary);
+    text(q.available ? `${q.points}` : "—", left + 20, y + 75, 170, 46, scoreColor, 700, "left", true);
+    text(q.available ? `/ ${q.available}` : "暂无评分", left + 22, y + 138, 165, 14, T.muted);
     const start = left + 216, w = (inner - 236) / 5;
     q.dimensions.forEach((d, i) => {
       const x = start + i * w;
@@ -155,11 +156,10 @@ export function signalCardLayout(view: AlertView): { width: number; height: numb
     const h = (structured ? body.length ? 181 : 159 : 89) + body.length * 24;
     rect(left, y, inner, h, T.panel, 12, T.line);
     text(panel.heading.startsWith("交易复盘") ? "交易复盘" : panel.heading, left + 20, y + 18, 220, 16, T.text, 700);
-    const headline = panel.headline.split(" → ")[0];
-    const rating = headline.match(/^入场 ([\d.]+)\/(\d+) · (优秀|良好|一般|偏弱|资料未齐)$/);
-    const entryBadge = rating ? qualityBadge(Number(rating[1]),Number(rating[2])) : undefined;
-    if (entryBadge) items.push({type:"emoji",x:left+inner-20-Math.min(inner-285,textWidth(headline,18))-36,y:y+17,size:28,mood:entryBadge.mood});
-    text(headline, left + 265, y + 18, inner - 285, 18, entryBadge?.color ?? T.secondary, 400, "right");
+    const headline = panel.headline.split(" → ")[0].replace(/ · (优秀|良好|一般|偏弱|资料未齐)$/, "");
+    const rating = headline.match(/^(?:入场 )?([\d.]+)\s*\/\s*(\d+)$/);
+    const entryColor = rating ? qualityColor(Number(rating[1]), Number(rating[2])) : T.secondary;
+    text(headline, left + 265, y + 18, inner - 285, 18, entryColor, 400, "right");
     if (structured) {
       const stats = [
         ["持仓", `${duration![2]} 天`, `${duration![1]} 根 K 线`],

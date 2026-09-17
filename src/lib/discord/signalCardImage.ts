@@ -2,13 +2,11 @@ import { FONT, MONO, esc, svgToPng } from "./terminalTheme";
 import { signalCardLayout, SIGNAL_CARD_SCALE, SIGNAL_INK } from "./signalCardLayout";
 import { signalTradeChartSvg } from "./signalTradeChart";
 import type { AlertView } from "./tvAlertCopy";
-import { qualityEmojiSvg } from "./qualityEmoji";
 
 /** 可编辑矢量预览与线上 OG 来自同一份布局。 */
 export function signalCardSvg(view: AlertView): string {
   const layout = signalCardLayout(view), scale = SIGNAL_CARD_SCALE;
   const body = layout.items.map((item) => {
-    if (item.type === "emoji") return `<g transform="translate(${item.x},${item.y}) scale(${item.size/64})">${qualityEmojiSvg(item.mood)}</g>`;
     if (item.type === "chart") return `<g transform="translate(${item.x},${item.y})">${signalTradeChartSvg(item.chart)}</g>`;
     if (item.type === "rect") return `<rect x="${item.x}" y="${item.y}" width="${item.width}" height="${item.height}" rx="${item.radius ?? 0}" fill="${item.fill}"${item.stroke ? ` stroke="${item.stroke}"` : ""}/>`;
     const x = item.x + (item.align === "right" ? item.width : item.align === "center" ? item.width / 2 : 0);
