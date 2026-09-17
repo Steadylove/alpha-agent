@@ -7,7 +7,7 @@ import { buildAlertView, type AlertPayload } from "@/lib/discord/tvAlertCopy";
 import { renderSignalOgPng } from "@/lib/discord/signalCardOg";
 import { signalCardSvg } from "@/lib/discord/signalCardImage";
 import { signalCardLayout } from "@/lib/discord/signalCardLayout";
-import { signalReturnOf, tradeReviewOf, type EntrySnapshot } from "@/lib/signals/assessment";
+import { QUALITY_VERSION, signalReturnOf, tradeReviewOf, type EntrySnapshot } from "@/lib/signals/assessment";
 import { emaSeries } from "@/lib/scoring/series";
 import { aggregateMinuteWindow, minuteVolumeSnapshot, prepareMinutes, reconcileParent, type MinuteBar } from "./lib/signalVolumeReplay";
 
@@ -135,7 +135,7 @@ async function main() {
     } else {
       assert(entry && entry.payload.symbol === payload.symbol && entry.payload.strategyKey === payload.strategyKey &&
         entry.payload.entrySignalTime === payload.entrySignalTime, "买卖点不属于同一笔历史交易");
-      view.assessment = tradeReviewOf(payload, entry, "历史行情回放；入场分按 V2 重算，仅作预览；未计费用及下一根开盘价差");
+      view.assessment = tradeReviewOf(payload, entry, `历史行情回放；入场分按 ${QUALITY_VERSION} 重算，仅作预览；未计费用及下一根开盘价差`);
     }
     const date = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(payload.barTime);
     const name = `${payload.symbol}-${event}-${date}`;
