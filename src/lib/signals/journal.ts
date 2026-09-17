@@ -60,18 +60,19 @@ export async function assessedAlertView(p: AlertPayload, label: string, rps?: nu
   try {
     if (p.event === "buy") {
       const saved = await saveFirst<EntrySnapshot>(`signal-entries/${id}.json`, {
-        version: 1, id, capturedAt: new Date().toISOString(), payload: p, quality: view.quality!, rps, fund,
+        version: 1, id, capturedAt: new Date().toISOString(), payload: p, quality: view.quality!, rps,
       });
-      return { ...buildAlertView(saved.payload, label, saved.rps, saved.fund), quality: saved.quality, assessment: qualityPanel(saved.quality) };
+      return { ...buildAlertView(saved.payload, label, saved.rps),
+        quality: saved.quality.version === "quality-v1" ? undefined : saved.quality, assessment: qualityPanel(saved.quality) };
     } else {
       const saved = await readRecord<EntrySnapshot>(`signal-entries/${id}.json`);
       const entry = saved?.id === id && saved.version === 1 && tradeIdOf(saved.payload) === id ? saved : undefined;
       view.assessment = tradeReviewOf(p, entry);
       // 未读到入场快照时也保留当时的缺失说明，重放不会用事后分数补历史。
       const review = await saveFirst(`signal-reviews/${id}.json`, {
-        version: 1, id, capturedAt: new Date().toISOString(), payload: p, rps, fund, entry: entry ?? null, assessment: view.assessment,
+        version: 1, id, capturedAt: new Date().toISOString(), payload: p, rps, entry: entry ?? null, assessment: view.assessment,
       });
-      return { ...buildAlertView(review.payload, label, review.rps, review.fund), assessment: review.assessment };
+      return { ...buildAlertView(review.payload, label, review.rps), assessment: review.assessment };
     }
   } catch {
     view.assessment = p.event === "buy" ? qualityPanel(view.quality!, "入场快照保存失败，本次分数未固定；请检查持久化服务") :

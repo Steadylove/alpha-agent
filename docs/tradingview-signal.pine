@@ -434,6 +434,97 @@ string strategyKey = "aa-daily-v1|" + syminfo.tickerid + "|" + timeframe.period 
 // 列：[开盘毫秒,收盘毫秒,O,H,L,C,EMA166,EMA169,EMA576,EMA676]。
 // 使用图表本身的数据与 EMA，服务端不猜入场日期，也不拼接滞后的日更行情。
 chartNumber(float v) => na(v) ? "null" : n4(v)
+
+// ───────────────────────── 五因子 V2：分钟量价估算 ─────────────────────────
+// 独立于交易状态机。CVD 为 1m 涨跌方向估算，非逐笔主动买卖；成交分布以 1m HLC3 分桶。
+// 固定最近 20 根父级 K 线、32 个价格桶；只在确认收盘时追加并随实时告警传输。
+type SignalVolumeSlice
+    int startTime
+    int endTime
+    float openPrice
+    float highPrice
+    float lowPrice
+    float closePrice
+    float parentVolume
+    float delta
+    float coveredVolume
+    int firstTime
+    int lastTime
+    bool complete
+    array<float> prices
+    array<float> weights
+
+signalMinuteDelta() =>
+    var int direction = 0
+    direction := close > open ? 1 : close < open ? -1 : close > close[1] ? 1 : close < close[1] ? -1 : nz(direction[1], 0)
+    volume * direction
+
+[svTimes, svEnds, svPrices, svVolumes, svDeltas] = request.security_lower_tf(syminfo.tickerid, "1", [time, time_close, hlc3, volume, signalMinuteDelta()], ignore_invalid_timeframe = true)
+var array<SignalVolumeSlice> signalVolumeWindow = array.new<SignalVolumeSlice>()
+if barstate.isconfirmed
+    array<float> prices = array.new_float()
+    array<float> weights = array.new_float()
+    float covered = 0.0
+    float delta = 0.0
+    int firstTime = na
+    int lastTime = na
+    bool complete = array.size(svTimes) > 0
+    if array.size(svTimes) > 0
+        for i = 0 to array.size(svTimes) - 1
+            float v = array.get(svVolumes, i)
+            float d = array.get(svDeltas, i)
+            float p = array.get(svPrices, i)
+            int t = array.get(svTimes, i)
+            int e = array.get(svEnds, i)
+            bool valid = not na(v) and v >= 0 and not na(d) and not na(p) and p > 0 and t >= time and e <= time_close and e > t
+            if valid
+                array.push(prices, p)
+                array.push(weights, v)
+                covered += v
+                delta += d
+                firstTime := na(firstTime) ? t : firstTime
+                lastTime := e
+            else
+                complete := false
+    complete := complete and not na(volume) and volume > 0 and covered > 0 and covered / volume >= 0.98 and covered / volume <= 1.02
+    SignalVolumeSlice slice = SignalVolumeSlice.new(time, time_close, open, high, low, close, volume, delta, covered, firstTime, lastTime, complete, prices, weights)
+    array.push(signalVolumeWindow, slice)
+    if array.size(signalVolumeWindow) > 20
+        array.shift(signalVolumeWindow)
+
+signalVolumeJson() =>
+    string result = "null"
+    if array.size(signalVolumeWindow) == 20
+        bool valid = true
+        float profileLow = na
+        float profileHigh = na
+        array<string> rows = array.new_string()
+        int samples = 0
+        for slice in signalVolumeWindow
+            valid := valid and slice.complete
+            // 父级 high/low 作为共同价格桶边界；分钟 HLC3 决定成交量归桶位置。
+            profileLow := na(profileLow) ? slice.lowPrice : math.min(profileLow, slice.lowPrice)
+            profileHigh := na(profileHigh) ? slice.highPrice : math.max(profileHigh, slice.highPrice)
+            samples += array.size(slice.prices)
+            array.push(rows, '[' + str.tostring(slice.startTime) + ',' + str.tostring(slice.endTime) + ',' + chartNumber(slice.openPrice) + ',' + chartNumber(slice.highPrice) + ',' + chartNumber(slice.lowPrice) + ',' + chartNumber(slice.closePrice) + ',' + chartNumber(slice.parentVolume) + ',' + chartNumber(slice.delta) + ',' + chartNumber(slice.coveredVolume) + ',' + str.tostring(slice.firstTime) + ',' + str.tostring(slice.lastTime) + ']')
+        if valid
+            string profileJson = "null"
+            if profileHigh > profileLow
+                array<float> bins = array.new_float(32, 0.0)
+                float width = (profileHigh - profileLow) / 32.0
+                for slice in signalVolumeWindow
+                    if array.size(slice.prices) > 0
+                        for i = 0 to array.size(slice.prices) - 1
+                            int binIndex = int(math.max(0, math.min(31, math.floor((array.get(slice.prices, i) - profileLow) / width))))
+                            array.set(bins, binIndex, array.get(bins, binIndex) + array.get(slice.weights, i))
+                array<string> binText = array.new_string()
+                for weight in bins
+                    array.push(binText, chartNumber(weight))
+                profileJson := '{"method":"ltf-hlc3-v1","low":' + chartNumber(profileLow) + ',"high":' + chartNumber(profileHigh) + ',"samples":' + str.tostring(samples) + ',"volumes":[' + array.join(binText, ',') + ']}'
+            result := '{"version":1,"method":"ltf-direction-v1","timeframe":"1","bars":[' + array.join(rows, ',') + '],"profile":' + profileJson + '}'
+    result
+// ───────────────────────── 五因子 V2 快照结束 ─────────────────────────
+
 signalChartJson(int anchorBar) =>
     int window = math.min(2000, math.min(bar_index + 1, math.max(80, bar_index - anchorBar + 21)))
     int stride = int(math.ceil(window / 120.0))
@@ -455,6 +546,7 @@ signalChartJson(int anchorBar) =>
 
 if entrySignal and barstate.isconfirmed
     string chartPayload = barstate.isrealtime ? signalChartJson(bar_index) : "null"
+    string volumePayload = barstate.isrealtime ? signalVolumeJson() : "null"
     // atr 交给服务端换算参考止损：建仓价要等下一根开盘，这里只报点火根的口径
     string buyPayload = '{"event":"buy","symbol":"' + syminfo.ticker +
        '","tf":"' + timeframe.period +
@@ -465,11 +557,12 @@ if entrySignal and barstate.isconfirmed
        ',"price":' + n4(close) +
        ',"atr":' + n4(atrRisk) +
        ',"stopMult":' + n2(stopMult) +
-       ',"chart":' + chartPayload + '}'
+       ',"chart":' + chartPayload + ',"volumeSnapshot":' + volumePayload + '}'
     alert(buyPayload, alert.freq_once_per_bar_close)
 
 if exitSignal and barstate.isconfirmed
     string chartPayload = barstate.isrealtime ? signalChartJson(entryBar) : "null"
+    string volumePayload = barstate.isrealtime ? signalVolumeJson() : "null"
     string exitReason = trailLevel > stopLevel ? "trailing_stop" : (stopLevel > entryPrice ? "protective_stop" : "initial_stop")
     string sellPayload = '{"event":"sell","symbol":"' + syminfo.ticker +
        '","tf":"' + timeframe.period +
@@ -488,5 +581,5 @@ if exitSignal and barstate.isconfirmed
        ',"stop":' + n4(math.max(stopLevel, trailLevel)) +
        ',"pnl":' + n2((close - entryPrice) / entryPrice * 100) +
        ',"atr":' + n4(atrRisk) +
-       ',"chart":' + chartPayload + '}'
+       ',"chart":' + chartPayload + ',"volumeSnapshot":' + volumePayload + '}'
     alert(sellPayload, alert.freq_once_per_bar_close)

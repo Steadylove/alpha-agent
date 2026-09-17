@@ -1,10 +1,11 @@
 import type { Timeframe } from "@/lib/backtest/engine";
 import { SMALL_FUND_DEFAULT_CONFIG } from "@/lib/backtest/smallFundUniverse";
-import { formatFundRatio, type FundScore } from "@/lib/scoring/fundScore";
+import type { FundScore } from "@/lib/scoring/fundScore";
 import { STRATEGY_NAME } from "./brand";
 import type { DiscordPayload } from "./sendWebhook";
 import { buyChartOf, sellChartOf, type SignalTradeChart } from "./signalTradeChart";
 import { entryQualityOf, exitTitleOf, qualityPanel, signalReturnOf, tradeReviewOf, type AssessmentPanel, type EntryQuality, type ExitReason } from "@/lib/signals/assessment";
+import { volumeFactorsOf, type VolumeFactors } from "@/lib/signals/volumeFactors";
 
 export function rpsMinOf(tf: Timeframe): number {
   if (tf === "4h") return 30;
@@ -54,6 +55,8 @@ export type AlertPayload = {
   target?: number;
   /** Pine 随买卖点携带的 K 线与 Vegas 通道快照，需校验后使用。 */
   chart?: unknown;
+  /** 新版 Pine 随信号提供的分钟量价估算快照，服务端严格校验。 */
+  volumeSnapshot?: unknown;
 };
 
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
@@ -78,6 +81,7 @@ export type AlertView = {
   atrPct?: number;
   rps?: number;
   fund?: FundScore;
+  volume?: VolumeFactors;
   footer?: string;
   chart?: SignalTradeChart;
   quality?: EntryQuality;
@@ -88,7 +92,7 @@ export type AlertCardField = {
   label: string;
   value: string;
   sub?: string;
-  role: "price" | "stop" | "entry" | "pnl" | "atr" | "strength" | "fund";
+  role: "price" | "stop" | "entry" | "pnl" | "atr" | "strength" | "cvd" | "profile";
 };
 
 function rankedRps(rps?: number): number | undefined {
@@ -136,25 +140,16 @@ export function alertCardFields(view: AlertView): AlertCardField[] {
   if (view.rps != null) {
     fields.push({ label: "强度", value: strengthLabel(view.rps), role: "strength" });
   }
-  if (view.fund?.usable) {
-    fields.push({
-      label: "基本面",
-      value: view.fund.tier ? `${view.fund.tier} ${view.fund.total}` : String(view.fund.total),
-      sub: `${view.fund.filled}/6 维`,
-      role: "fund",
-    });
+  if (view.volume) {
+    fields.push({ label: "CVD背离", value: view.volume.cvd.label, sub: view.volume.cvd.reason, role: "cvd" });
+    fields.push({ label: "成交分布", value: view.volume.profile.label, sub: view.volume.profile.reason, role: "profile" });
   }
   return fields;
 }
 
-export function fundDimLabels(fund: FundScore): string[] {
-  return fund.dims.map((dim) =>
-    `${dim.label} ${dim.value == null ? "—" : formatFundRatio(dim.id, dim.value)} ${dim.value == null ? "缺" : dim.points}`,
-  );
-}
-
 export function buildAlertView(p: AlertPayload, label: string, rps?: number, fund?: FundScore): AlertView {
   const atr = atrOf(p);
+  const volume = volumeFactorsOf(p.volumeSnapshot, p.barTime, p.price);
   if (p.event === "buy") {
     const stop = isNum(p.atr) && isNum(p.stopMult) ? p.price - p.stopMult * p.atr : undefined;
     const quality = entryQualityOf(p, rps, fund);
@@ -170,7 +165,7 @@ export function buildAlertView(p: AlertPayload, label: string, rps?: number, fun
       stopMult: isNum(p.stopMult) ? p.stopMult : undefined,
       ...atr,
       rps: rankedRps(rps),
-      fund: fund?.usable ? fund : undefined,
+      volume,
       chart: buyChartOf(p.chart, p.barTime, p.price),
       quality,
       assessment: qualityPanel(quality),
@@ -190,7 +185,7 @@ export function buildAlertView(p: AlertPayload, label: string, rps?: number, fun
     pnl,
     ...atr,
     rps: rankedRps(rps),
-    fund: fund?.usable ? fund : undefined,
+    volume,
     chart: sellChartOf(p.chart, p.entryTime, p.entry, p.barTime, p.price),
     footer: p.exitReason === "target" && isNum(p.target) && p.price >= p.target ? `触发：收盘达到目标 ${money(p.target)}` :
       isNum(p.stop) && p.price < p.stop ? `触发：收盘跌破生效止损 ${money(p.stop)}` : undefined,
@@ -199,11 +194,13 @@ export function buildAlertView(p: AlertPayload, label: string, rps?: number, fun
 }
 
 function embedFieldsOf(view: AlertView): { name: string; value: string; inline: true }[] {
-  return alertCardFields(view).map((field) => ({
+  const fields = alertCardFields(view).map((field) => ({
     name: field.label,
     value: field.sub ? `\`${field.value}\`\n${field.sub}` : `\`${field.value}\``,
-    inline: true,
+    inline: true as const,
   }));
+  if (view.quality) fields.push({ name: "五因子评分", value: qualityPanel(view.quality).headline, inline: true });
+  return fields;
 }
 
 export function renderBuy(p: AlertPayload, label: string, rps: number, fund?: FundScore): DiscordPayload {

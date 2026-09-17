@@ -78,6 +78,12 @@ it('重放旧买点不会将当前财务和强度当作历史评分资料', asyn
   expect(mocks.render.mock.calls[0][0].quality.available).toBe(0);
   expect(mocks.render.mock.calls[0][0].rps).toBeUndefined();
 });
+it('实时买卖点均不再请求财务服务', async () => {
+  mocks.lookup.mockReturnValue({rps:90});
+  for(const event of ['buy','sell']) await deliverTvAlert({event,symbol:'CF',tf:'240',kind:1,price:100,barTime:Date.now()},hook);
+  expect(mocks.fund).not.toHaveBeenCalled();
+  expect(mocks.render.mock.calls.every(call=>!call[0].fund)).toBe(true);
+});
 it('卖点快照进入渲染器并复用同一张图发送双平台，坏快照仍发原卡片', async () => {
   const payload = { event: 'sell', symbol: 'CF', tf: '240', price: 110, entry: 100, kind: 1, entryTime: 1000, barTime: 3000,
     chart: { version: 1, stride: 1, bars: [[1000, 2000, 100, 105, 99, 104, 98, 97, 92, 90], [2000, 3000, 104, 112, 100, 110, 99, 98, 93, 91]] } };

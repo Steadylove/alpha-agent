@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { entryQualityOf, qualityPanel, tradeReviewOf } from "@/lib/signals/assessment";
@@ -7,12 +7,14 @@ import { assessedAlertView, tradeIdOf } from "@/lib/signals/journal";
 import { buildAlertView, type AlertPayload } from "@/lib/discord/tvAlertCopy";
 import { fundScoreOf } from "@/lib/scoring/fundScore";
 import { signalCardSvg } from "@/lib/discord/signalCardImage";
+import { signalBars, volumeFixture, SIGNAL_BAR_MS } from "./fixtures/signalVolume";
 
 const fund = fundScoreOf({ epsYoy: .5, revYoy: .4, roe: .3, dist52w: -1, gmTtm: .6, debtEquity: 1 });
-const bars = Array.from({ length: 30 }, (_, i) => [1000 + i * 100, 1100 + i * 100, 100, 103, 99, 102, 97 + i / 10, 96.8 + i / 10, 94 + i / 20, 93.8 + i / 20]);
+const bars = signalBars;
+const buyTime=bars.at(-1)![1];
 const buy: AlertPayload = { event: "buy", symbol: "TEST", tf: "240", kind: 1, price: 102, atr: 1.5, stopMult: 4,
-  barTime: 4000, strategyKey: "aa-4h-v1|4|6|3", entrySignalTime: 4000, chart: { version: 1, stride: 1, bars } };
-const sell: AlertPayload = { ...buy, event: "sell", price: 120, entry: 100, entryTime: 5000, barTime: 10000,
+  barTime: buyTime, strategyKey: "aa-4h-v1|4|6|3", entrySignalTime: buyTime, chart: { version: 1, stride: 1, bars }, volumeSnapshot:volumeFixture() };
+const sell: AlertPayload = { ...buy, event: "sell", price: 120, entry: 100, entryTime: buyTime+1000, barTime: buyTime+6*SIGNAL_BAR_MS,
   initialRisk: 6, barsHeld: 20, highSinceEntry: 125, lowSinceEntry: 95, exitReason: "target", target: 118, pnl: 20, chart: undefined };
 
 describe("买点观察分", () => {
@@ -23,19 +25,21 @@ describe("买点观察分", () => {
     expect(q.points).toBeGreaterThan(65);
     expect(q.dimensions.map((d) => d.max)).toEqual([30, 25, 15, 15, 15]);
     const future = { ...buy, chart: { version: 1, stride: 1, bars: [...bars, [4000, 4100, 100, 103, 99, 102, 100, 99, 97, 96]] } };
-    expect(entryQualityOf(future, 80, fund).available).toBe(55);
+    expect(entryQualityOf(future, 80, fund).available).toBe(85);
+    expect(q.dimensions.map(d=>d.name)).toEqual(["CVD背离","强度","位置","风险","成交分布"]);
   });
-  it("财务不重复计接近新高，缺项不补零或放大到百分制", () => {
+  it("财务完全不参与新评分，缺少分钟快照不补零或放大到百分制", () => {
     const far = structuredClone(fund);
     far.dims.find((d) => d.id === "dist52w")!.points = 0;
     expect(entryQualityOf(buy, 80, far).points).toBe(entryQualityOf(buy, 80, fund).points);
-    const partial = entryQualityOf(buy, undefined, undefined);
-    expect(partial.available).toBe(60);
+    expect(entryQualityOf(buy,80).points).toBe(entryQualityOf(buy,80,fund).points);
+    const partial = entryQualityOf({...buy,volumeSnapshot:undefined}, 80, fund);
+    expect(partial.available).toBe(55);
     expect(partial.label).toBe("资料未齐");
     expect(qualityPanel(partial).note).toContain("非胜率");
     expect(entryQualityOf(buy, NaN, fund).available).toBe(75);
   });
-  it("不把通道下方当成支撑，不使用压缩快照计算 10 根斜率", () => {
+  it("不把通道下方当成支撑，独立分钟快照不依赖压缩图", () => {
     const lowerBars = bars.map((b) => [...b.slice(0, 6), 110, 109, 105, 104]);
     const q = entryQualityOf({ ...buy, chart: { version: 1, stride: 1, bars: lowerBars } }, 80, fund);
     expect(q.dimensions.find((d) => d.name === "位置")?.points).toBe(0);
@@ -105,5 +109,20 @@ describe("不可变入场快照", () => {
     const sold = await assessedAlertView(sell, "4H", 80, fund);
     expect(sold.assessment?.headline).toContain("入场评分未记录");
     expect(sold.assessment?.note).toContain("存储不可用");
+  });
+  it("旧 V1 入场记录保持原始总分，新卡不展示已移除的维度或财务明细", async () => {
+    const id=tradeIdOf(buy)!;
+    const quality={version:"quality-v1",points:81,available:100,complete:true,label:"较强",
+      dimensions:[{name:"趋势",max:30,points:25,reason:"旧趋势"},{name:"财务",max:15,points:15,reason:"旧财务"}]};
+    const record={version:1,id,capturedAt:new Date().toISOString(),payload:buy,quality,fund,rps:80};
+    mkdirSync(join(dir,"signal-entries"));
+    const file=join(dir,"signal-entries",`${id}.json`);writeFileSync(file,JSON.stringify(record));
+    const before=readFileSync(file,"utf8");
+    const view=await assessedAlertView(buy,"4H",99);
+    expect(view.quality).toBeUndefined();
+    expect(view.assessment?.headline).toContain("81 / 100");
+    expect(view.assessment?.heading).toContain("V1");
+    expect(signalCardSvg(view)).not.toMatch(/旧趋势|旧财务|财务与位置概览|基本面/);
+    expect(readFileSync(file,"utf8")).toBe(before);
   });
 });

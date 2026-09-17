@@ -2,11 +2,12 @@ import type { FundScore } from "@/lib/scoring/fundScore";
 import { buyChartOf } from "@/lib/discord/signalTradeChart";
 import type { AlertPayload } from "@/lib/discord/tvAlertCopy";
 import { qualityDimensionLabel, qualityReasonText } from "./qualityCopy";
+import { volumeFactorsOf } from "./volumeFactors";
 
-export const QUALITY_VERSION = "quality-v1";
+export const QUALITY_VERSION = "quality-v2";
 export type QualityDimension = { name: string; points: number | null; max: number; reason: string };
 export type EntryQuality = {
-  version: typeof QUALITY_VERSION;
+  version: "quality-v1" | typeof QUALITY_VERSION;
   points: number;
   available: number;
   complete: boolean;
@@ -31,22 +32,14 @@ const round = (n: number) => Math.round(n * 10) / 10;
 const signed = (n: number, suffix = "%") => `${n >= 0 ? "+" : ""}${n.toFixed(2)}${suffix}`;
 
 /** 观察性规则分，不改变交易决策；全部输入必须是买点当时可知的信息。 */
-export function entryQualityOf(p: AlertPayload, rps?: number, fund?: FundScore): EntryQuality {
+export function entryQualityOf(p: AlertPayload, rps?: number, _legacyFund?: FundScore): EntryQuality {
   const chart = buyChartOf(p.chart, p.barTime, p.price);
   const bars = chart?.stride === 1 ? chart.bars : undefined;
   const last = bars?.at(-1);
-  const prior = bars && bars.length >= 11 ? bars.at(-11) : undefined;
+  const volume = volumeFactorsOf(p.volumeSnapshot, p.barTime, p.price);
   const dimensions: QualityDimension[] = [];
   const add = (name: string, max: number, points: number | null, reason: string) => dimensions.push({ name, max, points: points == null ? null : round(points), reason });
-  if (last && prior && positive(p.atr) && [...last.slice(6), ...prior.slice(6)].every(positive)) {
-    const fast = ((last[6] as number) + (last[7] as number)) / 2;
-    const slow = ((last[8] as number) + (last[9] as number)) / 2;
-    const fastSlope = (fast - ((prior[6] as number) + (prior[7] as number)) / 2) / p.atr;
-    const slowSlope = (slow - ((prior[8] as number) + (prior[9] as number)) / 2) / p.atr;
-    const aligned = Math.min(last[6] as number, last[7] as number) > Math.max(last[8] as number, last[9] as number);
-    add("趋势", 30, (aligned ? 12 : 0) + 10 * clamp(fastSlope / .5) + 8 * clamp(slowSlope / .25),
-      `${aligned ? "快通道在慢通道之上" : "通道未形成多头排列"}；近 10 根快线${fastSlope > 0 ? "上行" : "走平或下行"}`);
-  } else add("趋势", 30, null, "缺少连续 K 线、Vegas 或 ATR");
+  add("CVD背离", 30, volume.cvd.points, volume.cvd.reason);
   add("强度", 25, finite(rps) && rps >= 1 && rps <= 100 ? rps / 4 : null,
     finite(rps) && rps >= 1 && rps <= 100 ? `强于大池 ${Math.round(rps)}% 的股票` : "缺少当时的有效大池排名");
   if (last && positive(p.atr) && last.slice(6).every(positive)) {
@@ -59,24 +52,26 @@ export function entryQualityOf(p: AlertPayload, rps?: number, fund?: FundScore):
   const riskPct = positive(p.atr) && positive(p.stopMult) && positive(p.price) ? p.atr * p.stopMult / p.price * 100 : null;
   add("风险", 15, riskPct == null || riskPct >= 100 ? null : 15 * clamp((20 - riskPct) / 15),
     riskPct == null || riskPct >= 100 ? "缺少有效初始止损距离" : `参考初始风险 ${riskPct.toFixed(2)}%；未假设上涨目标`);
-  const financial = fund?.dims.filter((d) => d.id !== "dist52w");
-  const completeFinance = financial?.length === 5 && financial.every((d) => finite(d.value));
-  add("财务", 15, completeFinance ? financial.reduce((sum, d) => sum + d.points, 0) / 85 * 15 : null,
-    completeFinance ? "使用 5 项财务指标，不含接近新高" : `财务资料 ${financial?.filter((d) => finite(d.value)).length ?? 0}/5 项，不补估`);
+  add("成交分布", 15, volume.profile.points, volume.profile.reason);
   const points = round(dimensions.reduce((sum, d) => sum + (d.points ?? 0), 0));
   const available = dimensions.reduce((sum, d) => sum + (d.points == null ? 0 : d.max), 0);
   return { version: QUALITY_VERSION, points, available, complete: available === 100,
-    label: available !== 100 ? "资料未齐" : points >= 80 ? "较强" : points >= 65 ? "中上" : points >= 50 ? "一般" : "偏弱", dimensions };
+    label: qualityGrade(points, available), dimensions };
+}
+
+export function qualityGrade(points: number, available = 100): string {
+  return available !== 100 ? "资料未齐" : points >= 80 ? "优秀" : points >= 65 ? "良好" : points >= 50 ? "一般" : "偏弱";
 }
 
 export function qualityPanel(q: EntryQuality, note?: string): AssessmentPanel {
-  const position = q.dimensions.find((d) => d.name === "位置")!;
-  const trend = q.dimensions.find((d) => d.name === "趋势")!;
-  const risk = q.dimensions.find((d) => d.name === "风险")!;
-  return { heading: "买点评分 · V1", headline: q.available ? `${q.points} / ${q.available} · ${q.label}` : "暂无评分 · 资料未齐",
+  const headline = q.available ? `${q.points} / ${q.available} · ${q.label}` : "暂无评分 · 资料未齐";
+  if (q.version === "quality-v1") return { heading: "历史入场评分 · V1", headline,
+    lines: ["保留当时总分；旧告警未采集新指标，不使用后来的数据重算。"], note: note ?? "历史规则观察分，非胜率；与 V2 分数不直接比较" };
+  const reason = (name: string) => q.dimensions.find((d) => d.name === name)?.reason ?? "资料未齐";
+  return { heading: "买点评分 · V2", headline,
     lines: [q.dimensions.map((d) => `${qualityDimensionLabel(d.name)} ${d.points == null ? "缺" : d.points}/${d.max}`).join(" · "),
-      trend.reason, `${position.reason} · ${qualityReasonText(risk.reason)}`],
-    note: note ? `观察分非胜率；${note}` : "规则观察分，非胜率；缺项不补分、不折算为百分制" };
+      reason("CVD背离"), reason("成交分布"), `${reason("位置")} · ${qualityReasonText(reason("风险"))}`],
+    note: `规则观察分，非胜率；分钟量价估算，非逐笔主动买卖；缺项不补分${note ? `；${note}` : ""}` };
 }
 
 export const EXIT_REASONS = { initial_stop: "初始止损", protective_stop: "保本止损", trailing_stop: "移动止损", target: "目标止盈" } as const;

@@ -23,7 +23,6 @@ import {
   type AlertPayload,
 } from "@/lib/discord/tvAlertCopy";
 import { STRATEGY_NAME } from "@/lib/discord/brand";
-import { lookupAlertFundScore } from "@/lib/jobs/fundScore";
 import { postSignalImage } from "@/lib/notifications/postSignalImage";
 import { assessedAlertView } from "@/lib/signals/journal";
 import { EXIT_REASONS } from "@/lib/signals/assessment";
@@ -83,15 +82,10 @@ export async function deliverTvAlert(payload: AlertPayload, webhookUrl: string):
     };
   }
 
-  let fund;
-  // 重放旧买点不能把今天的财务/截面排名写成历史入场评分。
+  // 重放旧买点不能把今天的截面排名写成历史入场评分。
   // 已存快照由 journal 原样复用；没存过的旧信号仅评可核对的技术部分。
   const timely = !isNum(payload.barTime) || (Date.now() - payload.barTime >= -60_000 && Date.now() - payload.barTime <= 15 * 60_000);
-  if (payload.event !== "buy" || timely) {
-    try { fund = await lookupAlertFundScore(payload.symbol); }
-    catch { fund = undefined; }
-  }
-  const view = await assessedAlertView(payload, label, payload.event === "buy" && !timely ? undefined : rps ?? undefined, fund);
+  const view = await assessedAlertView(payload, label, payload.event === "buy" && !timely ? undefined : rps ?? undefined);
   const image = {
     kind: tf === "2h" ? "signal-2h" as const : "signal-4h" as const,
     filename: `signal-${payload.symbol}.png`,

@@ -80,16 +80,19 @@ describe("tv alert copy", () => {
     expect(svg).not.toMatch(/一买|二买|RPS|未达标/);
   });
 
-  it("买卖点卡写入基本面梯队，不另出图", () => {
+  it("买卖点卡移除财务基本面，替换为 CVD 和成交分布", () => {
     const fund = fundScoreOf({
       epsYoy: 0.41, revYoy: 0.3, roe: 0.2, dist52w: -9, gmTtm: 0.45, debtEquity: 1.2,
     });
     const svg = signalCardSvg(
       buildAlertView({ event: "buy", symbol: "NVDA", tf: "240", kind: 1, price: 178.4, atr: 4.2, stopMult: 4 }, "4H", 79, fund),
     );
-    expect(svg).toContain("基本面");
-    expect(svg).toContain("S+ 100");
-    expect(svg).toContain("盈利增速");
+    expect(svg).not.toMatch(/基本面|S\+ 100|盈利增速|财务与位置概览/);
+    expect(svg).toContain("CVD背离");
+    expect(svg).toContain("成交分布");
     expect(svg).toContain("买点");
+    const sold=signalCardSvg(buildAlertView({event:"sell",symbol:"NVDA",tf:"240",kind:1,price:178.4,entry:170},"4H",79,fund));
+    expect(sold).not.toMatch(/基本面|盈利增速|财务与位置概览/);
+    expect(sold).toContain("订单流与成交分布");
   });
 });

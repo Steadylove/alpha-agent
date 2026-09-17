@@ -1,17 +1,19 @@
 import { STRATEGY_NAME, STRATEGY_TAGLINE } from "./brand";
 import { alertCardFields, alertTimeframeSuffix, type AlertView } from "./tvAlertCopy";
-import { formatFundRatio } from "@/lib/scoring/fundScore";
 import { signalTradeChartLabels, signalTradeChartNote, TRADE_CHART_HEIGHT, type SignalTradeChart } from "./signalTradeChart";
 import { qualityDimensionLabel, qualityReasonText } from "@/lib/signals/qualityCopy";
+import { qualityPanel } from "@/lib/signals/assessment";
 import { withDisclaimer } from "./cardDisclaimer";
 import { CARD_TZ_ET } from "./cardTime";
+import { qualityBadge, type QualityMood } from "./qualityEmoji";
 
 import { CARD_WIDTH as SIGNAL_CARD_WIDTH, CARD_INK as SIGNAL_INK } from "./cardTheme";
 export { CARD_WIDTH as SIGNAL_CARD_WIDTH, CARD_SCALE as SIGNAL_CARD_SCALE, CARD_INK as SIGNAL_INK } from "./cardTheme";
 export type SignalCardItem =
   | { type: "rect"; x: number; y: number; width: number; height: number; fill: string; radius?: number; stroke?: string }
   | { type: "text"; x: number; y: number; width: number; height: number; text: string; size: number; color: string; weight: 400 | 700; align: "left" | "right" | "center"; numeric?: boolean }
-  | { type: "chart"; x: number; y: number; chart: SignalTradeChart };
+  | { type: "chart"; x: number; y: number; chart: SignalTradeChart }
+  | { type: "emoji"; x: number; y: number; size: number; mood: QualityMood };
 
 function readableText(text: string): string {
   // 仅改展示用语，兼容已经冻结的评分文本，不改入场快照或评分结果。
@@ -52,6 +54,26 @@ export function signalCardLayout(view: AlertView): { width: number; height: numb
     return lines.length * leading;
   };
   const line = (y: number, x = left, width = inner) => rect(x, y, width, 1, T.line);
+  const volumeMetrics = (x: number, top: number, width: number) => {
+    const v = view.volume, p = v?.profile;
+    const nearest = [...(p?.lowVolumeZones ?? [])].sort((a,b) =>
+      Math.max(a.low-view.price,view.price-a.high,0)-Math.max(b.low-view.price,view.price-b.high,0))[0];
+    const money = (n?: number) => n == null ? "—" : `$${n.toFixed(2)}`;
+    const range = (lo?: number, hi?: number) => lo == null || hi == null ? "—" : `$${lo.toFixed(2)}–${hi.toFixed(2)}`;
+    const rows = [
+      ["CVD · 估算", v?.cvd.label === "无明显背离" ? "无背离" : v?.cvd.label ?? "未采集",
+        v?.cvd.deltaRatio == null ? "" : `近5根净量 ${v.cvd.deltaRatio >= 0 ? "+" : ""}${(v.cvd.deltaRatio*100).toFixed(1)}%`],
+      ["POC", money(p?.poc), ""],
+      ["70% 价值区", range(p?.val,p?.vah), ""],
+      [p?.lowVolume ? "当前低量区" : "最近低量区", nearest ? range(nearest.low,nearest.high) : p?.points != null ? "无" : "—", ""],
+    ];
+    rows.forEach(([label,value,sub],i) => {
+      const w = width/rows.length, bx = x+i*w;
+      text(label,bx,top,w-12,12,T.muted);
+      text(value,bx,top+22,w-12,16,T.secondary,700,"left",i>0);
+      if (sub) text(sub,bx,top+47,w-12,12,T.muted);
+    });
+  };
 
   rect(left, 0, 56, 3, accent);
   text(view.symbol, left, 15, 490, 54, T.text, 700, "left", true);
@@ -80,7 +102,7 @@ export function signalCardLayout(view: AlertView): { width: number; height: numb
     if (i > 0) rect(x - 20, 153, 1, 72, T.line);
   });
   let y = primary.some((f) => f.sub) ? 263 : 244;
-  const secondary = fields.filter((f) => ["strength", "fund"].includes(f.role) || (f.role === "atr" && !primary.includes(f)));
+  const secondary = fields.filter((f) => f.role === "strength" || (f.role === "atr" && !primary.includes(f)));
   if (secondary.length) {
     const w = inner / secondary.length;
     secondary.forEach((f, i) => {
@@ -100,15 +122,17 @@ export function signalCardLayout(view: AlertView): { width: number; height: numb
     y += secondary.some((f) => f.role === "atr") ? 94 : 72;
   }
 
-  const panel = view.assessment;
-  if (panel && view.quality) {
-    const q = view.quality;
-    const summaries = panel.lines.slice(1).flatMap((s) => wrap(s, 15, inner - 40));
-    const h = 165 + summaries.length * 24;
+  const q = view.quality?.version === "quality-v2" ? view.quality : undefined;
+  const panel = view.quality?.version === "quality-v1" ? qualityPanel(view.quality) : view.assessment;
+  if (panel && q) {
+    const badge = qualityBadge(q.points,q.available);
+    const h = 222;
     rect(left, y, inner, h, T.panel, 12, T.line);
-    text(panel.heading, left + 20, y + 16, 180, 14, T.secondary);
-    text(q.available ? `${q.points}` : "—", left + 20, y + 43, 170, 42, T.text, 700, "left", true);
-    text(q.available ? `/ ${q.available} · ${q.label}` : q.label, left + 22, y + 106, 177, 14, T.secondary);
+    text("买点质量", left + 20, y + 16, 180, 14, T.secondary);
+    text(q.available ? `${q.points}` : "—", left + 20, y + 43, 170, 46, badge.color, 700, "left", true);
+    text(q.available ? `/ ${q.available}` : "暂无评分", left + 22, y + 106, 165, 14, T.muted);
+    items.push({type:"emoji",x:left+20,y:y+148,size:38,mood:badge.mood});
+    text(badge.label,left+70,y+151,126,24,badge.color,700);
     const start = left + 216, w = (inner - 236) / 5;
     q.dimensions.forEach((d, i) => {
       const x = start + i * w;
@@ -116,10 +140,10 @@ export function signalCardLayout(view: AlertView): { width: number; height: numb
       text(d.points == null ? "—" : String(d.points), x, y + 57, w - 18, 26, d.points == null ? T.muted : T.text, 700, "left", true);
       text(`/ ${d.max}`, x + 75, y + 65, w - 89, 12, T.muted);
       rect(x, y + 108, w - 22, 3, T.line, 1);
-      if (d.points != null && d.points > 0) rect(x, y + 108, (w - 22) * d.points / d.max, 3, accent, 1);
+      if (d.points != null && d.points > 0) rect(x, y + 108, (w - 22) * d.points / d.max, 3, d.points/d.max >= .65 ? T.buy : d.points/d.max >= .5 ? T.take : T.stop, 1);
     });
-    line(y + 136, left + 20, inner - 40);
-    summaries.forEach((s, i) => text(s, left + 20, y + 147 + i * 24, inner - 40, 15, T.secondary));
+    line(y + 132, start, inner - 236);
+    volumeMetrics(start,y+144,inner-236);
     y += h + 20;
   } else if (panel) {
     // 冻结复盘仍沿用保存时的事实文本；仅将已知格式拆成整齐的指标列。
@@ -127,11 +151,15 @@ export function signalCardLayout(view: AlertView): { width: number; height: numb
     const risk = panel.lines[0]?.match(/风险收益\s+([+-][\d.]+ R)/);
     const range = panel.lines[1]?.match(/最大浮盈\s+([+-][\d.]+%)\s*·?\s*最大浮亏\s+([+-][\d.]+%)\s*·?\s*回吐\s+([\d.]+) 个百分点/);
     const structured = Boolean(duration && risk && range);
-    const body = (structured ? panel.lines.slice(2) : panel.lines).flatMap((s) => wrap(s, 15, inner - 40));
-    const h = (structured ? 181 : 89) + body.length * 24;
+    const body = (structured ? panel.lines.slice(2).filter(s=>/异常|缺少|无法|未记录/.test(s)) : panel.lines).flatMap((s) => wrap(s, 15, inner - 40));
+    const h = (structured ? body.length ? 181 : 159 : 89) + body.length * 24;
     rect(left, y, inner, h, T.panel, 12, T.line);
-    text("交易复盘", left + 20, y + 18, 220, 16, T.text, 700);
-    text(panel.headline.split(" → ")[0], left + 265, y + 18, inner - 285, 18, T.secondary, 400, "right");
+    text(panel.heading.startsWith("交易复盘") ? "交易复盘" : panel.heading, left + 20, y + 18, 220, 16, T.text, 700);
+    const headline = panel.headline.split(" → ")[0];
+    const rating = headline.match(/^入场 ([\d.]+)\/(\d+) · (优秀|良好|一般|偏弱|资料未齐)$/);
+    const entryBadge = rating ? qualityBadge(Number(rating[1]),Number(rating[2])) : undefined;
+    if (entryBadge) items.push({type:"emoji",x:left+inner-20-Math.min(inner-285,textWidth(headline,18))-36,y:y+17,size:28,mood:entryBadge.mood});
+    text(headline, left + 265, y + 18, inner - 285, 18, entryBadge?.color ?? T.secondary, 400, "right");
     if (structured) {
       const stats = [
         ["持仓", `${duration![2]} 天`, `${duration![1]} 根 K 线`],
@@ -146,7 +174,7 @@ export function signalCardLayout(view: AlertView): { width: number; height: numb
         text(value, x, y + 87, w - 14, 23, T.text, 700);
         text(sub, x, y + 125, w - 14, 12, T.muted);
       });
-      line(y + 159, left + 20, inner - 40);
+      if (body.length) line(y + 159, left + 20, inner - 40);
     }
     body.forEach((s, i) => text(s, left + 20, y + (structured ? 172 : 64) + i * 24, inner - 40, 15, T.secondary));
     y += h + 20;
@@ -171,24 +199,20 @@ export function signalCardLayout(view: AlertView): { width: number; height: numb
     y += paragraph(signalTradeChartNote(view.chart), y, 13, T.muted, left, inner, 21);
     y += 16;
   }
-  if (view.fund?.usable) {
+  if (view.volume && !q) {
     line(y);
     y += 15;
-    text("财务与位置概览", left, y, 230, 14, T.secondary, 700);
+    text("订单流与成交分布 · 估算", left, y, 300, 14, T.secondary, 700);
     y += 25;
-    const col = inner / 3;
-    view.fund.dims.forEach((d, i) => {
-      const x = left + (i % 3) * col, top = y + Math.floor(i / 3) * 29;
-      text(d.label, x, top, 88, 13, T.muted);
-      text(d.value == null ? "—" : formatFundRatio(d.id, d.value), x + 93, top - 1, 101, 14, T.secondary, 700);
-      text(d.value == null ? "缺" : `${d.points}/${d.max}`, x + 205, top, 64, 13, T.muted);
-    });
-    y += 66;
+    volumeMetrics(left,y,inner);
+    y += 82;
   }
   if (panel) {
     line(y);
     y += 12;
-    y += paragraph(panel.note, y, 13, T.muted, left, inner, 21);
+    const note = /失败|不可用|异常/.test(panel.note) ? panel.note : q ? "量价估算 · 评分非胜率" :
+      panel.heading.startsWith("交易复盘") ? "量价估算 · 信号价复盘 · 未计费用" : "历史评分 · 量价估算";
+    y += paragraph(note, y, 13, T.muted, left, inner, 21);
   }
   const contentHeight = Math.ceil(y + 24);
   return { width: SIGNAL_CARD_WIDTH, height: contentHeight, items };
