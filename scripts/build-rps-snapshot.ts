@@ -1,82 +1,9 @@
-import { mkdirSync, writeFileSync } from "node:fs";
-import path from "node:path";
+import "dotenv/config";
+import { buildAndStoreSignalRps } from "@/lib/backtest/buildSignalRps";
 
-import type { Timeframe } from "@/lib/backtest/engine";
-import { getPreparedUniverse } from "@/lib/backtest/load";
-import {
-  RPS_SNAPSHOT_PATH,
-  type RpsEntry,
-  type RpsSnapshot,
-} from "@/lib/backtest/rpsSnapshot";
-/**
- * 把每只标的最后一根的截面 RPS 落成 data/rps-latest.json，供 /api/tv/alert 读。
- * 见 rpsSnapshot.ts 头部：这一步在请求里做要十几秒，TV 的 webhook 等不了。
- */
-
-const SNAPSHOT_POOL = "sf-broad" as const;
-const TIMEFRAMES: readonly Timeframe[] = ["1d", "4h", "2h", "1h"];
-
-async function tableFor(tf: Timeframe): Promise<Record<string, RpsEntry>> {
-  const universe = await getPreparedUniverse("SMALLFUND", tf, SNAPSHOT_POOL);
-  const table: Record<string, RpsEntry> = {};
-
-  for (const sym of universe.symbols) {
-    const last = sym.rps.length - 1;
-    if (last < 0) continue;
-
-    // 0 表示当日未进入截面（回看未齐），与「不在池里」同等对待，直接不写
-    const rps = sym.rps[last];
-    if (rps < 1) continue;
-
-    table[sym.ticker] = {
-      rps: Number(rps.toFixed(2)),
-      asOf: universe.axis[sym.axisIndex[last]],
-    };
-  }
-
-  return table;
+// Vercel 始终取 VPS 动态快照，不再在构建阶段固化排名或全量下载行情。
+if (process.env.VERCEL) {
+  console.log("[rps] Vercel 运行时读取 VPS 动态快照，跳过构建期排名。");
+} else {
+  buildAndStoreSignalRps().catch(error => { console.error(error); process.exitCode = 1; });
 }
-
-async function main() {
-  const timeframes: RpsSnapshot["timeframes"] = {};
-  const failed: Timeframe[] = [];
-
-  for (const tf of TIMEFRAMES) {
-    try {
-      const table = await tableFor(tf);
-      const asOf = Object.values(table).map((e) => e.asOf).sort().at(-1) ?? "—";
-      timeframes[tf] = table;
-      console.log(`[rps] ${tf} ${Object.keys(table).length} 只  截至 ${asOf}`);
-    } catch (error) {
-      failed.push(tf);
-      console.warn(`[rps] ${tf} 跳过：${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
-  // 日线是主档，线上缺了等于没有闸门，宁可让构建失败也不要静默上线
-  if (!timeframes["1d"]) {
-    const msg = "[rps] 日线快照生成失败，先跑 npm run smallfund:fetch。";
-    if (process.env.VERCEL) {
-      console.log(`${msg} 运行时从 MARKET_DATA_BASE_URL 拉 rps-latest.json。`);
-      process.exit(0);
-    }
-    console.log(msg);
-  }
-
-  const snapshot: RpsSnapshot = {
-    generatedAt: new Date().toISOString(),
-    poolId: SNAPSHOT_POOL,
-    timeframes,
-  };
-
-  mkdirSync(path.dirname(RPS_SNAPSHOT_PATH), { recursive: true });
-  writeFileSync(RPS_SNAPSHOT_PATH, JSON.stringify(snapshot));
-  console.log(
-    `[rps] 已写入 ${RPS_SNAPSHOT_PATH}` + (failed.length > 0 ? `，缺 ${failed.join("/")}` : ""),
-  );
-}
-
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});

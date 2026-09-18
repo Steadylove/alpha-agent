@@ -11,6 +11,9 @@ vi.mock("@/lib/scoring/sectorUniverse", () => ({ SECTOR_UNIVERSE: [] }));
 vi.mock("@/lib/scoring/mpr", () => ({ MPR_SYMBOLS: [] }));
 vi.mock("@/lib/data-sources/cboe", () => ({ fetchCboeVolIndexHistory: async () => [] }));
 
+const ranking = vi.hoisted(() => ({ build: vi.fn() }));
+vi.mock("@/lib/backtest/buildSignalRps", () => ({ buildAndStoreSignalRps: ranking.build }));
+
 let root: string;
 let failSymbol: string | null;
 let requests: URL[];
@@ -22,6 +25,7 @@ const file = (tf: string, symbol: string) => path.join(root, tf, `${symbol}.csv`
 
 beforeEach(() => {
   vi.resetModules();
+  ranking.build.mockReset().mockResolvedValue({});
   root = mkdtempSync(path.join(tmpdir(), "market-refresh-"));
   vi.stubEnv("MARKET_DATA_DIR", root);
   for (const name of ["ALPACA_API_KEY", "ALPACA_API_SECRET", "APCA_API_KEY_ID", "APCA_API_SECRET_KEY"]) vi.stubEnv(name, "");
@@ -89,6 +93,15 @@ describe("改代码股票的完整 CSV 刷新", () => {
     await refresh();
     expect(process.exitCode).toBe(0);
     expect(readFileSync(file("2h", "MMC"), "utf8")).toBe(first);
+  });
+
+  it("RPS 生成失败时不发布新行情版本，也不移除更新标记", async () => {
+    ranking.build.mockRejectedValue(new Error("RPS 样本不足"));
+    const oldManifest = readFileSync(path.join(root, "MANIFEST.json"), "utf8");
+    await refresh();
+    expect(process.exitCode).toBe(1);
+    expect(readFileSync(path.join(root, "MANIFEST.json"), "utf8")).toBe(oldManifest);
+    expect(existsSync(path.join(root, ".market-updating"))).toBe(true);
   });
 
   it("新代码也请求失败时仍中止，旧2H和已发布清单保持原样", async () => {

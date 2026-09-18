@@ -1,3 +1,4 @@
+import type { RpsEvidence } from "@/lib/backtest/rpsSnapshot";
 import type { Timeframe } from "@/lib/backtest/engine";
 import { SMALL_FUND_DEFAULT_CONFIG } from "@/lib/backtest/smallFundUniverse";
 import type { FundScore } from "@/lib/scoring/fundScore";
@@ -57,6 +58,8 @@ export type AlertPayload = {
   chart?: unknown;
   /** 新版 Pine 随信号提供的分钟量价估算快照，服务端严格校验。 */
   volumeSnapshot?: unknown;
+  signalProtocol?: number;
+  scriptVersion?: string;
 };
 
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
@@ -80,6 +83,7 @@ export type AlertView = {
   atr?: number;
   atrPct?: number;
   rps?: number;
+  rpsEvidence?: RpsEvidence;
   fund?: FundScore;
   volume?: VolumeFactors;
   footer?: string;

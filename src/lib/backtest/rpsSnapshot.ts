@@ -1,120 +1,112 @@
-import { existsSync, readFileSync } from "node:fs";
-
+import { existsSync, readFileSync, statSync } from "node:fs";
 import type { Timeframe } from "./engine";
-import { rpsSnapshotFile } from "./marketStore";
-
-/**
- * 每只标的「最后一根」的截面 RPS，构建时算好落成一个小 JSON。
- *
- * 为什么不在请求里现算：RPS 是截面分位，`getPreparedUniverse` 要把全池 195 只
- * 13 年的行情全部载入并重算一遍准备段（MACD 背离链、Vegas 四条 EMA、RSI、
- * 逐日全池排序），冷启动十几秒。TV 的 webhook 等不了，盘后第一条会直接丢。
- *
- * 而这一步的输入是随仓库部署的静态 CSV，最后一根的分位在构建时就定了。
- * 所以构建时算一次，运行时只读文件。
- *
- * 快照按 `sf-broad` 排名。盘中 RPS 本就是日线分位贴上去的，缺档时回落日线。
- */
+import { marketBaseUrl, rpsSnapshotFile } from "./marketStore";
 
 export const RPS_SNAPSHOT_PATH = rpsSnapshotFile();
-
-export type RpsEntry = {
-  rps: number;
-  /** 该标的最后一根的日期。面板靠离线抓取，通常落后 TV 几天，要让人看得见。 */
-  asOf: string;
-};
-
+export const RPS_CACHE_MS = 60_000;
+export type RpsEntry = { rps: number; asOf: string };
+export type RpsCalendar = { from: string; through: string; sessions: string[] };
 export type RpsSnapshot = {
   generatedAt: string;
   poolId: string;
+  sourceTimeframe?: "1d";
+  benchmark?: "SP500";
+  calendar?: RpsCalendar;
   timeframes: Partial<Record<Timeframe, Record<string, RpsEntry>>>;
 };
+export type RpsEvidence = { asOf: string; generatedAt: string; sourceTimeframe: "1d"; benchmark: "SP500" };
 
-/**
- * 从快照对象里取值。三种结果要能分开：
- * 抛错=快照不可用，null=不在池里或回看未齐，有值=可用。
- */
-export function pickRps(
-  snapshot: RpsSnapshot | null,
-  symbol: string,
-  timeframe: Timeframe,
-): RpsEntry | null {
-  if (!snapshot) {
-    throw new Error(
-      `RPS 快照缺失：${RPS_SNAPSHOT_PATH}。跑 npm run rps:snapshot 生成（构建时会自动跑）。`,
-    );
-  }
-
+export function pickRps(snapshot: RpsSnapshot | null, symbol: string, timeframe: Timeframe): RpsEntry | null {
+  if (!snapshot) throw new Error(`RPS 快照缺失：${RPS_SNAPSHOT_PATH}。跑 npm run rps:snapshot。`);
   const table = snapshot.timeframes[timeframe];
-  if (!table) {
-    throw new Error(`RPS 快照里没有 ${timeframe} 这一档，生成时该周期的 CSV 可能缺失。`);
-  }
-
+  if (!table) throw new Error(`RPS 快照里没有 ${timeframe} 这一档。`);
   return table[symbol] ?? null;
 }
 
-// 文件随部署固定，读到就一直用。缺失不缓存：本地先起 dev 再补生成也能自愈
-let cached: RpsSnapshot | null = null;
+let cached: { source: string; snapshot: RpsSnapshot; at: number; mtime?: number; size?: number } | null = null;
+let pending: { source: string; task: Promise<RpsSnapshot | null> } | null = null;
 
+/** 配置远程行情时绝不回落构建时打包的旧文件。 */
 export function readRpsSnapshot(): RpsSnapshot | null {
-  if (cached) return cached;
-  if (!existsSync(RPS_SNAPSHOT_PATH)) return null;
-
-  cached = JSON.parse(readFileSync(RPS_SNAPSHOT_PATH, "utf8")) as RpsSnapshot;
-  return cached;
+  const base = marketBaseUrl();
+  if (base) return cached?.source === base && Date.now() - cached.at < RPS_CACHE_MS ? cached.snapshot : null;
+  const file = rpsSnapshotFile();
+  if (!existsSync(file)) return null;
+  const stat = statSync(file);
+  if (cached?.source === file && cached.mtime === stat.mtimeMs && cached.size === stat.size && Date.now() - cached.at < RPS_CACHE_MS) return cached.snapshot;
+  const snapshot = JSON.parse(readFileSync(file, "utf8")) as RpsSnapshot;
+  cached = { source: file, snapshot, at: Date.now(), mtime: stat.mtimeMs, size: stat.size };
+  return snapshot;
 }
 
-/** 本地没有快照时，从行情机拉一份。告警路径必须先 await 这个再查分位。 */
+/** 60秒刷新、并发合并；超时/失败不延长旧快照寿命。 */
 export async function ensureRpsSnapshot(): Promise<RpsSnapshot | null> {
-  const local = readRpsSnapshot();
-  if (local) return local;
-
-  const { marketBaseUrl } = await import("./marketStore");
-  if (!marketBaseUrl()) return null;
-
-  const { fetchMarketText } = await import("./marketRemote");
-  const text = await fetchMarketText("rps/rps-latest.json");
-  if (!text) return null;
-  cached = JSON.parse(text) as RpsSnapshot;
-  return cached;
+  const hit = readRpsSnapshot();
+  if (hit) return hit;
+  const base = marketBaseUrl();
+  if (!base) return null;
+  if (pending?.source === base) return pending.task;
+  const task = (async () => {
+    const { fetchMarketText } = await import("./marketRemote");
+    const text = await fetchMarketText("rps/rps-latest.json", AbortSignal.timeout(5000));
+    if (!text) throw new Error("远程 RPS 快照缺失");
+    const snapshot = JSON.parse(text) as RpsSnapshot;
+    if (!snapshot?.timeframes || !Number.isFinite(Date.parse(snapshot.generatedAt))) throw new Error("远程 RPS 快照格式无效");
+    cached = { source: base, snapshot, at: Date.now() };
+    return snapshot;
+  })();
+  pending = { source: base, task };
+  try { return await task; } finally { if (pending?.task === task) pending = null; }
 }
 
 export function latestRps(symbol: string, timeframe: Timeframe): RpsEntry | null {
   return pickRps(readRpsSnapshot(), symbol, timeframe);
 }
 
-/** TV 的 `timeframe.period`：分钟数或 `2H`/`D`/`W` 都认。 */
 export function resolveAlertTimeframe(period: string): Timeframe {
   const p = period.trim().toUpperCase();
-  if (p === "D" || p === "1D" || p === "W" || p === "M") return "1d";
-  if (p === "240" || p === "4H") return "4h";
-  if (p === "120" || p === "2H") return "2h";
-  if (p === "60" || p === "1H") return "1h";
-  const mins = Number(period);
-  if (Number.isFinite(mins) && mins > 0) {
-    if (mins >= 240) return "4h";
-    if (mins >= 120) return "2h";
-    if (mins >= 60) return "1h";
-  }
-  return "1d";
+  if (["D", "1D", "W", "M"].includes(p)) return "1d";
+  if (["240", "4H"].includes(p)) return "4h";
+  if (["120", "2H"].includes(p)) return "2h";
+  if (["60", "1H"].includes(p)) return "1h";
+  const mins = Number(p);
+  return mins >= 240 ? "4h" : mins >= 120 ? "2h" : mins >= 60 ? "1h" : "1d";
 }
 
-/**
- * 告警查分位：先看对应周期，没有那一档就用日线。
- * 票不在快照里返回 null，不抛「不在 Small Fund 池」。
- */
-export function lookupAlertRps(symbol: string, timeframe: Timeframe): RpsEntry | null {
-  const snapshot = readRpsSnapshot();
-  if (!snapshot) {
-    throw new Error(
-      `RPS 快照缺失：${RPS_SNAPSHOT_PATH}。跑 npm run rps:snapshot 生成（构建时会自动跑）。`,
-    );
+export function nySessionDay(at: Date): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(at);
+}
+
+/** 用真实交易日历确定前一交易日，周末/节假日不按自然日猜测。 */
+export function previousRpsSession(calendar: RpsCalendar | undefined, signalDay: string): string {
+  if (!calendar || !Array.isArray(calendar.sessions) || calendar.from >= signalDay || calendar.through < signalDay) {
+    throw new Error("RPS 交易日历缺失或过期，请重建快照");
   }
-  const ticker = symbol.includes(":") ? symbol.slice(symbol.lastIndexOf(":") + 1) : symbol;
-  const key = ticker.trim().toUpperCase();
+  const days = calendar.sessions;
+  if (!days.length || days.some((day, i) => !/^\d{4}-\d{2}-\d{2}$/.test(day) || day < calendar.from || day > calendar.through || (i > 0 && day <= days[i - 1]))) {
+    throw new Error("RPS 交易日历无效");
+  }
+  const previous = days.filter(day => day < signalDay).at(-1);
+  if (!previous) throw new Error("RPS 日历没有覆盖前一交易日");
+  return previous;
+}
+
+/** 盘中只使用前一交易日日线排名，禁止把旧/未来数据用于打分和入场闸门。 */
+export function freshAlertRps(snapshot: RpsSnapshot | null, symbol: string, timeframe: Timeframe, at = new Date()): (RpsEntry & RpsEvidence) | null {
+  if (!snapshot) throw new Error("RPS 快照缺失或缓存已过期，先调用 ensureRpsSnapshot");
+  if (snapshot.sourceTimeframe !== "1d" || snapshot.benchmark !== "SP500") throw new Error("RPS 旧版快照缺少数据来源，请重建");
+  const generated = Date.parse(snapshot.generatedAt);
+  if (!Number.isFinite(generated) || generated > at.getTime() + 60_000) throw new Error("RPS 快照在信号之后生成，不能用于历史告警");
+  const expected = previousRpsSession(snapshot.calendar, nySessionDay(at));
+  const ticker = symbol.slice(symbol.lastIndexOf(":") + 1).trim().toUpperCase();
   const table = snapshot.timeframes[timeframe] ?? snapshot.timeframes["1d"];
-  if (!table) {
-    throw new Error(`RPS 快照里没有 ${timeframe} 也没有日线。跑 npm run rps:snapshot。`);
-  }
-  return table[key] ?? null;
+  const entry = table?.[ticker];
+  if (!entry) return null;
+  if (!Number.isFinite(entry.rps) || entry.rps < 1 || entry.rps > 99) throw new Error("RPS 排名无效");
+  if (entry.asOf !== expected) throw new Error(`RPS 数据过期或超前：${ticker} 截至 ${entry.asOf}，需要 ${expected}`);
+  return { ...entry, generatedAt: snapshot.generatedAt, sourceTimeframe: "1d", benchmark: "SP500" };
+}
+
+export function lookupAlertRps(symbol: string, timeframe: Timeframe, at = new Date()) {
+  return freshAlertRps(readRpsSnapshot(), symbol, timeframe, at);
 }

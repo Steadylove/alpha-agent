@@ -87,7 +87,7 @@ export function signalCardLayout(view: AlertView): { width: number; height: numb
   rect(left, 90, badgeWidth, 25, T.panel, 4, accent);
   text(view.code, left, 92.5, badgeWidth, 14, accent, 700, "center", true);
   text(title, left + badgeWidth + 14, 86, 400, 22, accent, 700);
-  const context = meta.join(" · ") || (view.chart ? `${dateLabel(view.chart.signalTime)} · 美东收盘信号` : "");
+  const context = meta.join(" · ") || (view.chart ? `${dateLabel(view.chart.signalTime)} · K线收盘信号` : "");
   text(withDisclaimer(context), 500, 92, 420, 14, T.muted, 400, "right");
   line(130);
 
@@ -110,7 +110,7 @@ export function signalCardLayout(view: AlertView): { width: number; height: numb
     const w = inner / secondary.length;
     secondary.forEach((f, i) => {
       const x = left + i * w;
-      text(f.role === "strength" ? "相对大池" : f.label, x, y, w - 20, 14, T.muted);
+      text(f.role === "strength" ? (view.rpsEvidence ? `相对标普 · 截至 ${view.rpsEvidence.asOf}` : "相对大池") : f.label, x, y, w - 20, 14, T.muted);
       text(f.value, x, y + 25, w - 24, 21, T.secondary, 700);
       if (f.role === "strength") {
         const track = Math.min(124, w - 168);
@@ -133,7 +133,7 @@ export function signalCardLayout(view: AlertView): { width: number; height: numb
     rect(left, y, inner, h, T.panel, 12, T.line);
     text(`买点质量 · ${qualityVersionLabel(q.version)}`, left + 20, y + 48, 180, 14, T.secondary);
     text(q.available ? `${q.points}` : "—", left + 20, y + 75, 170, 46, scoreColor, 700, "left", true);
-    text(q.available ? `/ ${q.available}` : "暂无评分", left + 22, y + 138, 165, 14, T.muted);
+    text(q.available ? `/ ${q.available}${q.complete ? "" : ` · 缺${q.dimensions.filter(d => d.points == null).length}项`}` : "暂无评分", left + 22, y + 138, 165, 14, T.muted);
     const start = left + 216, w = (inner - 236) / 5;
     q.dimensions.forEach((d, i) => {
       const x = start + i * w;

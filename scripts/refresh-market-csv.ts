@@ -13,15 +13,16 @@ import {
   writeCsvPanel,
   type CsvBar,
 } from "@/lib/backtest/csvPanel";
-import { marketDataRoot, rpsScaleFile, writeManifest } from "@/lib/backtest/marketStore";
-import type { RpsScaleFile } from "@/lib/backtest/rpsScale";
+import { marketDataRoot, writeManifest } from "@/lib/backtest/marketStore";
+import { buildAndStoreSignalRps, fetchRpsCalendar, latestRpsSession } from "@/lib/backtest/buildSignalRps";
 import { rebuildTwoHourCsv } from "@/lib/backtest/rebuildTwoHour";
 import { assertFourHourShape } from "@/lib/backtest/intradayShape";
 import { lastSettledSession, mergeNewBars, type OhlcvBar } from "@/lib/backtest/mergeBars";
 import type { PanelBars } from "@/lib/backtest/panel";
 import { tickersForPool } from "@/lib/backtest/smallFundPools";
-import { fetchAlpaca30MBars, hasAlpacaCredentials } from "@/lib/data-sources/alpaca";
+import { fetchAlpaca30MBars, fetchAlpacaDailyBars, hasAlpacaCredentials } from "@/lib/data-sources/alpaca";
 import { fetchCboeVolIndexHistory, type CboeVolIndex } from "@/lib/data-sources/cboe";
+import { fetchSp500Universe } from "@/lib/data-sources/sp500";
 import { fetchStooqDailyBars } from "@/lib/data-sources/stooq";
 import { fetchYahooDailyBars } from "@/lib/data-sources/yahoo";
 import { alpacaDataSymbol, marketDataSymbol } from "@/lib/data-sources/marketSymbol";
@@ -85,7 +86,9 @@ async function mapPool<T, R>(items: T[], worker: (item: T) => Promise<R>): Promi
   return out;
 }
 
-async function fetchDaily(ticker: string): Promise<OhlcvBar[]> {
+async function fetchDaily(ticker: string, from: string): Promise<OhlcvBar[]> {
+  // Yahoo 可能成功返回但少最后一个已收盘日；有付费行情时优先使用同源 SIP 日线。
+  if (hasAlpacaCredentials()) return fetchAlpacaDailyBars(ticker, from);
   try {
     return await fetchYahooDailyBars(ticker, { years: 2 });
   } catch {
@@ -142,7 +145,8 @@ async function refreshDaily(wanted: readonly string[], until: string) {
   await mapPool(need, async (ticker) => {
     try {
       const existing = readCsvPanel(CSV_PANEL_DIR, ticker);
-      const merged = mergeNewBars(existing ? toBars(existing) : [], await fetchDaily(ticker), until);
+      const merged = mergeNewBars(existing ? toBars(existing) : [], await fetchDaily(ticker, existing?.dates.at(-1) ? `${existing.dates.at(-1)}T00:00:00Z` : "2013-01-01T00:00:00Z"), until);
+      if ((merged.at(-1)?.date ?? "") < until) throw new Error(`日线未更新到 ${until}`);
       if (!existing || merged.length !== existing.dates.length) {
         writeBars(CSV_PANEL_DIR, ticker, merged);
         updated += 1;
@@ -198,27 +202,6 @@ function toOhlcv(raw: IntradayBar[]): OhlcvBar[] {
   }));
 }
 
-/** 日线比标尺新时，用最后一天切点往后垫，避免 assertScaleFresh 挡入场。完整重算仍走 rps:scale。 */
-function extendRpsScale(until: string) {
-  const path = rpsScaleFile();
-  if (!existsSync(path)) return;
-  const scale = JSON.parse(readFileSync(path, "utf8")) as RpsScaleFile;
-  const aapl = readCsvPanel(CSV_PANEL_DIR, "AAPL");
-  if (!aapl) return;
-  const lastCut = scale.dates.at(-1) ?? "";
-  const extra = aapl.dates.map((d) => d.slice(0, 10)).filter((d) => d > lastCut && d <= until);
-  if (extra.length === 0) return;
-  const lastCuts = scale.cuts.at(-1) ?? [];
-  const lastCount = scale.counts.at(-1) ?? 0;
-  for (const d of extra) {
-    scale.dates.push(d);
-    scale.cuts.push(lastCuts);
-    scale.counts.push(lastCount);
-  }
-  writeFileSync(path, JSON.stringify(scale));
-  console.log(`RPS 标尺垫到 ${extra.at(-1)}（${extra.length} 日，切点沿用 ${lastCut}）`);
-}
-
 async function refreshMacro(until: string) {
   const failed: string[] = [];
   let updated = 0;
@@ -227,6 +210,7 @@ async function refreshMacro(until: string) {
       const existing = readCsvPanel(CSV_PANEL_DIR, target.symbol);
       const incoming = await fetchYahooDailyBars(target.fetchSymbol ?? target.symbol, { years: 2 });
       const merged = mergeNewBars(existing ? toBars(existing) : [], incoming, until);
+      if ((merged.at(-1)?.date ?? "") < until) throw new Error(`日线未更新到 ${until}`);
       if (!existing || merged.length !== existing.dates.length) {
         writeBars(CSV_PANEL_DIR, target.symbol, merged);
         updated += 1;
@@ -240,6 +224,7 @@ async function refreshMacro(until: string) {
       const existing = readCsvPanel(CSV_PANEL_DIR, symbol);
       const incoming = await fetchCboeVolIndexHistory(symbol);
       const merged = mergeNewBars(existing ? toBars(existing) : [], incoming, until);
+      if ((merged.at(-1)?.date ?? "") < until) throw new Error(`日线未更新到 ${until}`);
       if (!existing || merged.length !== existing.dates.length) {
         writeBars(CSV_PANEL_DIR, symbol, merged);
         updated += 1;
@@ -252,10 +237,15 @@ async function refreshMacro(until: string) {
 }
 
 async function main() {
-  const until = lastSettledSession();
+  const calendar = hasAlpacaCredentials() ? await fetchRpsCalendar() : undefined;
+  const until = calendar ? latestRpsSession(calendar) : lastSettledSession();
+  if (!until) throw new Error("无法确定最近已收盘交易日");
+  const benchmark = hasAlpacaCredentials() ? await fetchSp500Universe() : [];
+  if (hasAlpacaCredentials() && benchmark.length < 450) throw new Error("标普名单缺失，停止刷新");
   const wanted = [
     ...new Set([
       ...tickersForPool("sf-broad"),
+      ...benchmark.map(row => row.symbol),
       ...ROTATION_UNIVERSE.map((t) => t.symbol),
       ...SECTOR_UNIVERSE.map((s) => s.symbol),
       ...MPR_SYMBOLS,
@@ -302,7 +292,8 @@ async function main() {
   // 每次从完整 1H 重建，旧目录即使已经更新到今天也会被替换。
   const rebuilt = rebuildTwoHourCsv(CSV_1H_DIR, CSV_2H_DIR, tfWanted);
   report("2h", { updated: rebuilt.length, failed: [] });
-  extendRpsScale(until);
+  // 快照/标尺失败必须阻止发布，不能再用旧分位顶替新日期。
+  await buildAndStoreSignalRps();
   if (root) {
     const man = writeManifest(root);
     console.log(`清单 ${man.timeframes["1d"]?.files ?? 0} 只日线  ${man.generatedAt}`);

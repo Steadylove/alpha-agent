@@ -105,6 +105,16 @@ describe("不可变入场快照", () => {
     expect(concurrent[0].quality).toEqual(concurrent[1].quality);
     expect(readdirSync(join(dir, "signal-entries"))).toHaveLength(1);
   });
+  it("保存排名日期，重复告警和卖点复盘不使用新日期覆盖入场证据", async () => {
+    const evidence = { asOf: "2026-09-17", generatedAt: "2026-09-18T00:45:00Z", sourceTimeframe: "1d" as const, benchmark: "SP500" as const };
+    const first = await assessedAlertView(buy, "4H", 80, undefined, evidence);
+    expect(first.rpsEvidence).toEqual(evidence);
+    const replay = await assessedAlertView(buy, "4H", 99, undefined, { ...evidence, asOf: "2026-09-18" });
+    expect(replay.rpsEvidence).toEqual(evidence);
+    expect(signalCardSvg(first)).toContain("截至 2026-09-17");
+    const record = JSON.parse(readFileSync(join(dir, "signal-entries", `${tradeIdOf(buy)}.json`), "utf8"));
+    expect(record.rpsEvidence).toEqual(evidence);
+  });
   it("2H、参数版本、另一笔同价交易不串单；旧版不猜测匹配", async () => {
     await assessedAlertView(buy, "4H", 80, fund);
     for (const changed of [{ tf: "120" }, { strategyKey: "new-rules" }, { entrySignalTime: 4100 }]) {

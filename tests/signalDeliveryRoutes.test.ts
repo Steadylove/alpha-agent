@@ -66,6 +66,15 @@ it('买点仍需通过原 RPS 门槛，卖点照常走双平台入口', async ()
   await deliverTvAlert({ ...payload, event: 'sell' }, hook);
   expect(mocks.push).toHaveBeenCalledTimes(3);
 });
+it('RPS 过期时阻止新买点，卖点仍发送且不显示旧强度', async () => {
+  mocks.lookup.mockImplementation(() => { throw new Error("RPS 数据过期"); });
+  const payload = { event: 'buy', symbol: 'CF', tf: '240', price: 100, kind: 1, barTime: Date.now() };
+  expect(await deliverTvAlert(payload, hook)).toMatchObject({ forwarded: false, gate: 'unknown', lookupError: 'RPS 数据过期' });
+  expect(mocks.push).not.toHaveBeenCalled();
+  expect(await deliverTvAlert({ ...payload, event: 'sell' }, hook)).toMatchObject({ forwarded: true });
+  expect(mocks.render.mock.calls[0][0].rps).toBeUndefined();
+});
+
 it('旧版没有 K 线时间时不误吞另一笔同价位交易', async () => {
   const payload = { event: 'sell', symbol: 'CF', tf: '240', price: 100, kind: 1 };
   await deliverTvAlert(payload, hook); await deliverTvAlert(payload, hook);

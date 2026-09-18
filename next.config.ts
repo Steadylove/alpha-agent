@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
    * Hobby 上限 12 个；再叠 data/ 体积还会超 250MB。
    */
   outputFileTracingIncludes: {
-    "*": ["data/rps-latest.json", "data/desk/**"],
+    "*": ["data/desk/**"],
   },
   outputFileTracingExcludes: {
     "*": [

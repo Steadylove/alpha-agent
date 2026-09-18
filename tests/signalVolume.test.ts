@@ -59,6 +59,8 @@ describe("分钟量价估算", () => {
     expect(block(sources[0])).toBe(block(sources[1]));expect(block(sources[1])).toBe(block(sources[2]));
     sources.forEach(s=>{
       expect(s.match(/\"volumeSnapshot\":/g)).toHaveLength(2);
+      expect(s.match(/\"signalProtocol\":2/g)).toHaveLength(2);
+      expect(s.match(/aa-volume-v2-20260918/g)?.length).toBeGreaterThanOrEqual(2);
       expect(s).toContain('ignore_invalid_timeframe = true');
       expect(s).toContain('if barstate.isconfirmed');
     });

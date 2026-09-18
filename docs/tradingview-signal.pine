@@ -1,3 +1,4 @@
+// 告警协议 aa-volume-v2-20260918：含分钟 CVD / 成交分布；更新后必须重建已有告警。
 // =============================================================================
 // Alpha Agent · 一买/二买 + 吊灯止损　买卖点推送
 // =============================================================================
@@ -570,7 +571,7 @@ if entrySignal and barstate.isconfirmed
     string chartPayload = barstate.isrealtime ? signalChartJson(bar_index) : "null"
     string volumePayload = barstate.isrealtime ? signalVolumeJson() : "null"
     // atr 交给服务端换算参考止损：建仓价要等下一根开盘，这里只报点火根的口径
-    string buyPayload = '{"event":"buy","symbol":"' + syminfo.ticker +
+    string buyPayload = '{"signalProtocol":2,"scriptVersion":"aa-volume-v2-20260918","event":"buy","symbol":"' + syminfo.ticker +
        '","tf":"' + timeframe.period +
        '","kind":' + str.tostring(pendingEntry) +
        ',"barTime":' + str.tostring(time_close) +
@@ -586,7 +587,7 @@ if exitSignal and barstate.isconfirmed
     string chartPayload = barstate.isrealtime ? signalChartJson(entryBar) : "null"
     string volumePayload = barstate.isrealtime ? signalVolumeJson() : "null"
     string exitReason = trailLevel > stopLevel ? "trailing_stop" : (stopLevel > entryPrice ? "protective_stop" : "initial_stop")
-    string sellPayload = '{"event":"sell","symbol":"' + syminfo.ticker +
+    string sellPayload = '{"signalProtocol":2,"scriptVersion":"aa-volume-v2-20260918","event":"sell","symbol":"' + syminfo.ticker +
        '","tf":"' + timeframe.period +
        '","kind":' + str.tostring(sigType) +
        ',"barTime":' + str.tostring(time_close) +

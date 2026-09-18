@@ -14,7 +14,7 @@
 import { after, NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 
-import { ensureRpsSnapshot, lookupAlertRps, resolveAlertTimeframe } from "@/lib/backtest/rpsSnapshot";
+import { ensureRpsSnapshot, lookupAlertRps, resolveAlertTimeframe, type RpsEvidence } from "@/lib/backtest/rpsSnapshot";
 import { renderSignalOgPng } from "@/lib/discord/signalCardOg";
 import {
   alertTimeframeSuffix,
@@ -25,6 +25,7 @@ import {
 import { STRATEGY_NAME } from "@/lib/discord/brand";
 import { postSignalImage } from "@/lib/notifications/postSignalImage";
 import { assessedAlertView } from "@/lib/signals/journal";
+import { volumeFactorsOf } from "@/lib/signals/volumeFactors";
 import { EXIT_REASONS } from "@/lib/signals/assessment";
 
 function tfLabel(period: string): string {
@@ -65,11 +66,22 @@ export async function deliverTvAlert(payload: AlertPayload, webhookUrl: string):
 
   let rps: number | null = null;
   let lookupError: string | null = null;
+  let rpsEvidence: RpsEvidence | undefined;
   try {
     await ensureRpsSnapshot();
-    rps = lookupAlertRps(payload.symbol, tf)?.rps ?? null;
+    const quote = lookupAlertRps(payload.symbol, tf, new Date(isNum(payload.barTime) ? Math.min(payload.barTime, Date.now()) : Date.now()));
+    rps = quote?.rps ?? null;
+    if (quote) rpsEvidence = { asOf: quote.asOf, generatedAt: quote.generatedAt, sourceTimeframe: quote.sourceTimeframe, benchmark: quote.benchmark };
   } catch (error) {
     lookupError = error instanceof Error ? error.message : String(error);
+  }
+
+  if (lookupError) console.warn("[tv-alert] rps-unavailable", payload.symbol, tf, lookupError);
+  const volume = volumeFactorsOf(payload.volumeSnapshot, payload.barTime, payload.price);
+  if (volume.cvd.points == null || volume.profile.points == null) {
+    console.warn("[tv-alert] volume-incomplete", JSON.stringify({ symbol: payload.symbol, tf, signalProtocol: payload.signalProtocol ?? null,
+      status: payload.volumeSnapshot === undefined ? "legacy-alert" : payload.volumeSnapshot == null ? "not-collected" : "invalid-snapshot",
+      cvd: volume.cvd.reason, profile: volume.profile.reason }));
   }
 
   if (payload.event === "buy" && (!buyPassesGate(rps, rpsMin) || rps == null)) {
@@ -85,7 +97,7 @@ export async function deliverTvAlert(payload: AlertPayload, webhookUrl: string):
   // 重放旧买点不能把今天的截面排名写成历史入场评分。
   // 已存快照由 journal 原样复用；没存过的旧信号仅评可核对的技术部分。
   const timely = !isNum(payload.barTime) || (Date.now() - payload.barTime >= -60_000 && Date.now() - payload.barTime <= 15 * 60_000);
-  const view = await assessedAlertView(payload, label, payload.event === "buy" && !timely ? undefined : rps ?? undefined);
+  const view = await assessedAlertView(payload, label, payload.event === "buy" && !timely ? undefined : rps ?? undefined, undefined, timely ? rpsEvidence : undefined);
   const image = {
     kind: tf === "2h" ? "signal-2h" as const : "signal-4h" as const,
     filename: `signal-${payload.symbol}.png`,

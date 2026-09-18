@@ -40,7 +40,7 @@ const parseCsvLine = (line: string): string[] => {
 export async function fetchSp500Universe(): Promise<Instrument[]> {
   let response: Response;
   try {
-    response = await fetch(CONSTITUENTS_URL, { next: { revalidate: 24 * 60 * 60 } });
+    response = await fetch(CONSTITUENTS_URL, { next: { revalidate: 24 * 60 * 60 }, signal: AbortSignal.timeout(15000) });
   } catch {
     return [];
   }

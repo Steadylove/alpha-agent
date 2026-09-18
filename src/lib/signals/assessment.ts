@@ -1,3 +1,4 @@
+import type { RpsEvidence } from "@/lib/backtest/rpsSnapshot";
 import type { FundScore } from "@/lib/scoring/fundScore";
 import { buyChartOf } from "@/lib/discord/signalTradeChart";
 import type { AlertPayload } from "@/lib/discord/tvAlertCopy";
@@ -24,6 +25,7 @@ export type EntrySnapshot = {
   payload: AlertPayload;
   quality: EntryQuality;
   rps?: number;
+  rpsEvidence?: RpsEvidence;
   fund?: FundScore;
 };
 export type AssessmentPanel = { heading: string; headline: string; lines: string[]; note: string };
