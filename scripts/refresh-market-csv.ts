@@ -245,7 +245,6 @@ async function main() {
   const wanted = [
     ...new Set([
       ...tickersForPool("sf-broad"),
-      ...benchmark.map(row => row.symbol),
       ...ROTATION_UNIVERSE.map((t) => t.symbol),
       ...SECTOR_UNIVERSE.map((s) => s.symbol),
       ...MPR_SYMBOLS,
@@ -271,7 +270,8 @@ async function main() {
   }
 
   const daily = await refreshDaily(
-    wanted.filter((t) => !MACRO_CBOE.includes(t as CboeVolIndex) && t !== "DXY"),
+    // 排名基准只需要日线；新成分股不触发与交易池无关的多年分钟行情回补。
+    [...new Set([...wanted, ...benchmark.map(row => row.symbol)])].filter((t) => !MACRO_CBOE.includes(t as CboeVolIndex) && t !== "DXY"),
     until,
   );
   const macro = await refreshMacro(until);
