@@ -114,6 +114,11 @@ describe("不可变入场快照", () => {
     expect(signalCardSvg(first)).toContain("截至 2026-09-17");
     const record = JSON.parse(readFileSync(join(dir, "signal-entries", `${tradeIdOf(buy)}.json`), "utf8"));
     expect(record.rpsEvidence).toEqual(evidence);
+    expect(record.quality.version).toBe("quality-v4");
+    expect(record.candidate.quality.version).toBe("quality-v5");
+    expect(record.candidate.raw.rps).toBe(80);
+    expect(record.candidate.replay).toBe(false);
+    expect(record.candidate.quality.dimensions.some((d: { name: string }) => d.name === "风险")).toBe(false);
   });
   it("2H、参数版本、另一笔同价交易不串单；旧版不猜测匹配", async () => {
     await assessedAlertView(buy, "4H", 80, fund);

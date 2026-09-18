@@ -129,9 +129,10 @@ export function signalCardLayout(view: AlertView): { width: number; height: numb
   const panel = view.quality?.version === "quality-v1" ? qualityPanel(view.quality) : view.assessment;
   if (panel && q) {
     const scoreColor = qualityColor(q.points, q.available);
-    const h = 222;
+    const candidate = q.version === "quality-v5" ? view.candidate : undefined;
+    const h = candidate ? 298 : 222;
     rect(left, y, inner, h, T.panel, 12, T.line);
-    text(`买点质量 · ${qualityVersionLabel(q.version)}`, left + 20, y + 48, 180, 14, T.secondary);
+    text(`买点质量 · ${qualityVersionLabel(q.version)}${candidate ? "试算" : ""}`, left + 20, y + 48, 180, 14, T.secondary);
     text(q.available ? `${q.points}` : "—", left + 20, y + 75, 170, 46, scoreColor, 700, "left", true);
     text(q.available ? `/ ${q.available}${q.complete ? "" : ` · 缺${q.dimensions.filter(d => d.points == null).length}项`}` : "暂无评分", left + 22, y + 138, 165, 14, T.muted);
     const start = left + 216, w = (inner - 236) / 5;
@@ -145,6 +146,14 @@ export function signalCardLayout(view: AlertView): { width: number; height: numb
     });
     line(y + 132, start, inner - 236);
     volumeMetrics(start,y+144,inner-236);
+    if (candidate) {
+      const raw = candidate.position.raw, sector = candidate.sector;
+      line(y + 218, left + 20, inner - 40);
+      text(`位置 · ${candidate.position.state}`, left + 20, y + 231, 390, 13, T.secondary, 700);
+      text(raw ? `WR14 ${raw.wr14.toFixed(1)} / WR34 ${raw.wr34.toFixed(1)} · 偏离 ${raw.distanceAtr.toFixed(2)} ATR` : "缺少位置数据", left + 20, y + 256, 390, 13, T.muted);
+      text(sector.row ? `板块 · ${sector.row.name} / ${sector.row.etf}` : "板块 · 归属或数据缺失", left + 440, y + 231, 420, 13, T.secondary, 700);
+      text(sector.row?.breadth != null ? `站上50日线 ${(sector.row.breadth * 100).toFixed(0)}% · 截至 ${sector.asOf}` : "样本不足，不补分", left + 440, y + 256, 420, 13, T.muted);
+    }
     y += h + 20;
   } else if (panel) {
     // 冻结复盘仍沿用保存时的事实文本；仅将已知格式拆成整齐的指标列。

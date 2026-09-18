@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import type { Timeframe } from "./engine";
 import { marketBaseUrl, rpsSnapshotFile } from "./marketStore";
+import type { SectorSnapshot } from "@/lib/signals/sectorFactor";
 
 export const RPS_SNAPSHOT_PATH = rpsSnapshotFile();
 export const RPS_CACHE_MS = 60_000;
@@ -12,6 +13,7 @@ export type RpsSnapshot = {
   sourceTimeframe?: "1d";
   benchmark?: "SP500";
   calendar?: RpsCalendar;
+  sector?: SectorSnapshot;
   timeframes: Partial<Record<Timeframe, Record<string, RpsEntry>>>;
 };
 export type RpsEvidence = { asOf: string; generatedAt: string; sourceTimeframe: "1d"; benchmark: "SP500" };

@@ -10,6 +10,9 @@ import type { PanelBars } from "./panel";
 import { alpacaCredentials } from "@/lib/data-sources/alpaca";
 import { fetchSp500Universe } from "@/lib/data-sources/sp500";
 import { writeJsonAtomic } from "@/lib/files/atomicJson";
+import { buildSectorSnapshot } from "@/lib/signals/sectorFactor";
+import { SECTOR_UNIVERSE } from "@/lib/scoring/sectorUniverse";
+import { VERIFIED_SECTOR_CLASSIFICATIONS } from "@/lib/signals/sectorClassification";
 
 /** 信号排名只需已收盘日的动量分，不必准备整池盘中交易指标。 */
 export function signalRpsFromPanels(panels: readonly PanelBars[], benchmark: readonly string[], day: string, calendar: RpsCalendar, now = new Date()) {
@@ -59,9 +62,17 @@ export async function buildAndStoreSignalRps(now = new Date()) {
   const [calendar, constituents] = await Promise.all([fetchRpsCalendar(now), fetchSp500Universe()]);
   const day = latestRpsSession(calendar, now);
   const benchmark = constituents.map(row => row.symbol);
-  const wanted = [...new Set([...tickersForPool("sf-broad"), ...benchmark])];
+  const wanted = [...new Set([...tickersForPool("sf-broad"), ...benchmark, "SPY", ...SECTOR_UNIVERSE.map(s => s.symbol)])];
   const panels = readCsvPanels(csvDir("1d"), wanted);
   const result = signalRpsFromPanels(panels, benchmark, day, calendar, now);
+  result.snapshot.sector = buildSectorSnapshot(panels, constituents, day, { generatedAt: now.toISOString(),
+    membershipAsOf: nySessionDay(now), membershipSource: "datasets/s-and-p-500-companies (current snapshot)" });
+  for (const [symbol, verified] of Object.entries(VERIFIED_SECTOR_CLASSIFICATIONS)) {
+    if (verified.verifiedAt <= nySessionDay(now) && !result.snapshot.sector.classification[symbol]) {
+      result.snapshot.sector.classification[symbol] = verified.id;
+      (result.snapshot.sector.classificationEvidence ??= {})[symbol] = { asOf: verified.verifiedAt, source: verified.source };
+    }
+  }
   const file = rpsScaleFile();
   if (existsSync(file)) {
     const old = JSON.parse(readFileSync(file, "utf8")) as RpsScaleFile;

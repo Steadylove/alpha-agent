@@ -6,6 +6,7 @@ import { deskRemoteUrl, readDeskJson, writeDeskJson } from "@/lib/fund/deskRemot
 import { buildAlertView, type AlertPayload, type AlertView } from "@/lib/discord/tvAlertCopy";
 import type { FundScore } from "@/lib/scoring/fundScore";
 import { qualityPanel, tradeReviewOf, type EntrySnapshot } from "./assessment";
+import { candidateAssessmentOf, type CandidateContext } from "./candidateAssessment";
 
 /** 参数、交易周期和买点时间都是身份的一部分。旧告警不猜测关联。 */
 export function tradeIdOf(p: AlertPayload): string | null {
@@ -50,7 +51,7 @@ async function saveFirst<T>(file: string, value: T): Promise<T> {
   return JSON.parse(readFileSync(name, "utf8")) as T;
 }
 
-export async function assessedAlertView(p: AlertPayload, label: string, rps?: number, fund?: FundScore, rpsEvidence?: RpsEvidence): Promise<AlertView> {
+export async function assessedAlertView(p: AlertPayload, label: string, rps?: number, fund?: FundScore, rpsEvidence?: RpsEvidence, candidateContext?: CandidateContext): Promise<AlertView> {
   const view = { ...buildAlertView(p, label, rps, fund), rpsEvidence };
   const id = tradeIdOf(p);
   if (!id) {
@@ -62,6 +63,7 @@ export async function assessedAlertView(p: AlertPayload, label: string, rps?: nu
     if (p.event === "buy") {
       const saved = await saveFirst<EntrySnapshot>(`signal-entries/${id}.json`, {
         version: 1, id, capturedAt: new Date().toISOString(), payload: p, quality: view.quality!, rps, rpsEvidence,
+        candidate: candidateAssessmentOf(p, rps, { ...candidateContext, asOf: rpsEvidence?.asOf, replay: false }),
       });
       return { ...buildAlertView(saved.payload, label, saved.rps),
         rpsEvidence: saved.rpsEvidence, quality: saved.quality.version === "quality-v1" ? undefined : saved.quality, assessment: qualityPanel(saved.quality) };

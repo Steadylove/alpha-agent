@@ -7,6 +7,7 @@ import type { DiscordPayload } from "./sendWebhook";
 import { buyChartOf, sellChartOf, type SignalTradeChart } from "./signalTradeChart";
 import { entryQualityOf, exitTitleOf, qualityPanel, signalReturnOf, tradeReviewOf, type AssessmentPanel, type EntryQuality, type ExitReason } from "@/lib/signals/assessment";
 import { volumeFactorsOf, type VolumeFactors } from "@/lib/signals/volumeFactors";
+import type { CandidateAssessment } from "@/lib/signals/candidateAssessment";
 
 export function rpsMinOf(tf: Timeframe): number {
   if (tf === "4h") return 30;
@@ -90,6 +91,7 @@ export type AlertView = {
   chart?: SignalTradeChart;
   quality?: EntryQuality;
   assessment?: AssessmentPanel;
+  candidate?: CandidateAssessment;
 };
 
 export type AlertCardField = {

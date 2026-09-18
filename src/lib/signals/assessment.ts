@@ -5,13 +5,14 @@ import type { AlertPayload } from "@/lib/discord/tvAlertCopy";
 import { qualityDimensionLabel, qualityReasonText } from "./qualityCopy";
 import { volumeFactorsOf } from "./volumeFactors";
 import { positionFactorOf } from "./positionFactor";
+import type { CandidateAssessment } from "./candidateAssessment";
 
 export const QUALITY_VERSION = "quality-v4";
 /** 结构性观察权重，尚未经过样本外收益标定；原生指标先归一化再加权。 */
 export const QUALITY_WEIGHTS = { cvd: 20, strength: 30, position: 25, risk: 15, profile: 10 } as const;
 export type QualityDimension = { name: string; points: number | null; max: number; reason: string };
 export type EntryQuality = {
-  version: "quality-v1" | "quality-v2" | "quality-v3" | typeof QUALITY_VERSION;
+  version: "quality-v1" | "quality-v2" | "quality-v3" | "quality-v5" | typeof QUALITY_VERSION;
   points: number;
   available: number;
   complete: boolean;
@@ -24,6 +25,8 @@ export type EntrySnapshot = {
   capturedAt: string;
   payload: AlertPayload;
   quality: EntryQuality;
+  /** V5 同时记录供后续验证；线上总分仍是 quality 中冻结的 V4。 */
+  candidate?: CandidateAssessment;
   rps?: number;
   rpsEvidence?: RpsEvidence;
   fund?: FundScore;
@@ -67,6 +70,9 @@ export function qualityGrade(points: number, available = 100): string {
 
 export function qualityPanel(q: EntryQuality, note?: string): AssessmentPanel {
   const headline = q.available ? `${q.points} / ${q.available} · ${q.label}` : "暂无评分 · 资料未齐";
+  if (q.version === "quality-v5") return { heading: "候选买点评分 · V5", headline,
+    lines: q.dimensions.map(d => `${d.name} ${d.points ?? "缺"}/${d.max} · ${d.reason}`),
+    note: `候选规则分，未做样本外收益标定；缺项不补分；止损独立于质量分${note ? `；${note}` : ""}` };
   const currentVersion = qualityVersionLabel(QUALITY_VERSION);
   if (q.version === "quality-v1") return { heading: "历史入场评分 · V1", headline,
     lines: ["保留当时总分；旧告警未采集新指标，不使用后来的数据重算。"], note: note ?? `历史规则观察分，非胜率；与 ${currentVersion} 分数不直接比较` };
