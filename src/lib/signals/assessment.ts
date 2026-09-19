@@ -7,12 +7,13 @@ import { volumeFactorsOf } from "./volumeFactors";
 import { positionFactorOf } from "./positionFactor";
 import type { CandidateAssessment } from "./candidateAssessment";
 
-export const QUALITY_VERSION = "quality-v4";
+export const QUALITY_VERSION = "quality-v5";
+export const BASELINE_QUALITY_VERSION = "quality-v4";
 /** 结构性观察权重，尚未经过样本外收益标定；原生指标先归一化再加权。 */
-export const QUALITY_WEIGHTS = { cvd: 20, strength: 30, position: 25, risk: 15, profile: 10 } as const;
+export const BASELINE_QUALITY_WEIGHTS = { cvd: 20, strength: 30, position: 25, risk: 15, profile: 10 } as const;
 export type QualityDimension = { name: string; points: number | null; max: number; reason: string };
 export type EntryQuality = {
-  version: "quality-v1" | "quality-v2" | "quality-v3" | "quality-v5" | typeof QUALITY_VERSION;
+  version: "quality-v1" | "quality-v2" | "quality-v3" | typeof BASELINE_QUALITY_VERSION | typeof QUALITY_VERSION;
   points: number;
   available: number;
   complete: boolean;
@@ -25,7 +26,7 @@ export type EntrySnapshot = {
   capturedAt: string;
   payload: AlertPayload;
   quality: EntryQuality;
-  /** V5 同时记录供后续验证；线上总分仍是 quality 中冻结的 V4。 */
+  /** V5 原始特征和独立风险；旧 V4 记录中的候选不能替换其冻结 quality。 */
   candidate?: CandidateAssessment;
   rps?: number;
   rpsEvidence?: RpsEvidence;
@@ -41,14 +42,14 @@ const signed = (n: number, suffix = "%") => `${n >= 0 ? "+" : ""}${n.toFixed(2)}
 const weighted = (points: number | null, originalMax: number, weight: number) => points == null ? null : weight * clamp(points / originalMax);
 export const qualityVersionLabel = (version: EntryQuality["version"]) => version.replace("quality-v", "V");
 
-/** 观察性规则分，不改变交易决策；全部输入必须是买点当时可知的信息。 */
-export function entryQualityOf(p: AlertPayload, rps?: number, _legacyFund?: FundScore): EntryQuality {
+/** 保留 V4 对照算法；正式买点使用 V5，历史冻结评分不重算。 */
+export function baselineEntryQualityOf(p: AlertPayload, rps?: number, _legacyFund?: FundScore): EntryQuality {
   const chart = buyChartOf(p.chart, p.barTime, p.price);
   const bars = chart?.stride === 1 ? chart.bars : undefined;
   const volume = volumeFactorsOf(p.volumeSnapshot, p.barTime, p.price);
   const dimensions: QualityDimension[] = [];
   const add = (name: string, max: number, points: number | null, reason: string) => dimensions.push({ name, max, points: points == null ? null : round(points), reason });
-  const weights = QUALITY_WEIGHTS;
+  const weights = BASELINE_QUALITY_WEIGHTS;
   add("CVD背离", weights.cvd, weighted(volume.cvd.points, 30, weights.cvd), volume.cvd.reason);
   add("强度", weights.strength, finite(rps) && rps >= 1 && rps <= 100 ? weights.strength * rps / 100 : null,
     finite(rps) && rps >= 1 && rps <= 100 ? `强于大池 ${Math.round(rps)}% 的股票` : "缺少当时的有效大池排名");
@@ -60,7 +61,7 @@ export function entryQualityOf(p: AlertPayload, rps?: number, _legacyFund?: Fund
   add("成交分布", weights.profile, weighted(volume.profile.points, 15, weights.profile), volume.profile.reason);
   const points = round(dimensions.reduce((sum, d) => sum + (d.points ?? 0), 0));
   const available = dimensions.reduce((sum, d) => sum + (d.points == null ? 0 : d.max), 0);
-  return { version: QUALITY_VERSION, points, available, complete: available === 100,
+  return { version: BASELINE_QUALITY_VERSION, points, available, complete: available === 100,
     label: qualityGrade(points, available), dimensions };
 }
 
@@ -70,17 +71,17 @@ export function qualityGrade(points: number, available = 100): string {
 
 export function qualityPanel(q: EntryQuality, note?: string): AssessmentPanel {
   const headline = q.available ? `${q.points} / ${q.available} · ${q.label}` : "暂无评分 · 资料未齐";
-  if (q.version === "quality-v5") return { heading: "候选买点评分 · V5", headline,
+  if (q.version === QUALITY_VERSION) return { heading: "买点评分 · V5", headline,
     lines: q.dimensions.map(d => `${d.name} ${d.points ?? "缺"}/${d.max} · ${d.reason}`),
-    note: `候选规则分，未做样本外收益标定；缺项不补分；止损独立于质量分${note ? `；${note}` : ""}` };
+    note: `规则观察分，非胜率；分钟量价估算，非逐笔主动买卖；缺项不补分；止损独立于质量分${note ? `；${note}` : ""}` };
   const currentVersion = qualityVersionLabel(QUALITY_VERSION);
   if (q.version === "quality-v1") return { heading: "历史入场评分 · V1", headline,
     lines: ["保留当时总分；旧告警未采集新指标，不使用后来的数据重算。"], note: note ?? `历史规则观察分，非胜率；与 ${currentVersion} 分数不直接比较` };
   const reason = (name: string) => q.dimensions.find((d) => d.name === name)?.reason ?? "资料未齐";
-  return { heading: `${q.version === QUALITY_VERSION ? "买点评分" : "历史入场评分"} · ${qualityVersionLabel(q.version)}`, headline,
+  return { heading: `历史入场评分 · ${qualityVersionLabel(q.version)}`, headline,
     lines: [q.dimensions.map((d) => `${qualityDimensionLabel(d.name)} ${d.points == null ? "缺" : d.points}/${d.max}`).join(" · "),
       reason("CVD背离"), reason("成交分布"), `${reason("位置")} · ${qualityReasonText(reason("风险"))}`],
-    note: `规则观察分，非胜率；分钟量价估算，非逐笔主动买卖；缺项不补分${q.version !== QUALITY_VERSION ? `；保留历史算法和权重，与 ${currentVersion} 不直接比较` : ""}${note ? `；${note}` : ""}` };
+    note: `规则观察分，非胜率；分钟量价估算，非逐笔主动买卖；缺项不补分；保留历史算法和权重，与 ${currentVersion} 不直接比较${note ? `；${note}` : ""}` };
 }
 
 export const EXIT_REASONS = { initial_stop: "初始止损", protective_stop: "保本止损", trailing_stop: "移动止损", target: "目标止盈" } as const;

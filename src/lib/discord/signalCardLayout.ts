@@ -1,5 +1,5 @@
-import { STRATEGY_NAME, STRATEGY_TAGLINE } from "./brand";
-import { alertCardFields, alertTimeframeSuffix, type AlertView } from "./tvAlertCopy";
+import { STRATEGY_NAME } from "./brand";
+import { alertCardFields, type AlertView } from "./tvAlertCopy";
 import { signalTradeChartLabels, signalTradeChartNote, TRADE_CHART_HEIGHT, type SignalTradeChart } from "./signalTradeChart";
 import { qualityDimensionLabel, qualityReasonText } from "@/lib/signals/qualityCopy";
 import { qualityPanel, qualityVersionLabel } from "@/lib/signals/assessment";
@@ -81,7 +81,7 @@ export function signalCardLayout(view: AlertView): { width: number; height: numb
   rect(left, 0, 56, 3, accent);
   text(view.symbol, left, 15, 490, 54, T.text, 700, "left", true);
   text(STRATEGY_NAME, 625, 26, 295, 13, T.secondary, 700, "right", true);
-  text(`${STRATEGY_TAGLINE}${alertTimeframeSuffix(view.tfLabel)}`, 625, 50, 295, 13, T.muted, 400, "right");
+  if (view.tfLabel.toUpperCase() !== "4H") text(view.tfLabel, 625, 50, 295, 13, T.muted, 400, "right");
   const [title, ...meta] = view.title.split(" · ");
   const badgeWidth = Math.ceil(textWidth(view.code, 14)) + 18;
   rect(left, 90, badgeWidth, 25, T.panel, 4, accent);
@@ -132,7 +132,7 @@ export function signalCardLayout(view: AlertView): { width: number; height: numb
     const candidate = q.version === "quality-v5" ? view.candidate : undefined;
     const h = candidate ? 298 : 222;
     rect(left, y, inner, h, T.panel, 12, T.line);
-    text(`买点质量 · ${qualityVersionLabel(q.version)}${candidate ? "试算" : ""}`, left + 20, y + 48, 180, 14, T.secondary);
+    text(`买点质量 · ${qualityVersionLabel(q.version)}${view.qualityPreview ? "试算" : ""}`, left + 20, y + 48, 180, 14, T.secondary);
     text(q.available ? `${q.points}` : "—", left + 20, y + 75, 170, 46, scoreColor, 700, "left", true);
     text(q.available ? `/ ${q.available}${q.complete ? "" : ` · 缺${q.dimensions.filter(d => d.points == null).length}项`}` : "暂无评分", left + 22, y + 138, 165, 14, T.muted);
     const start = left + 216, w = (inner - 236) / 5;

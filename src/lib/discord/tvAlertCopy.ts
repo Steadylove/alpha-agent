@@ -5,9 +5,9 @@ import type { FundScore } from "@/lib/scoring/fundScore";
 import { STRATEGY_NAME } from "./brand";
 import type { DiscordPayload } from "./sendWebhook";
 import { buyChartOf, sellChartOf, type SignalTradeChart } from "./signalTradeChart";
-import { entryQualityOf, exitTitleOf, qualityPanel, signalReturnOf, tradeReviewOf, type AssessmentPanel, type EntryQuality, type ExitReason } from "@/lib/signals/assessment";
+import { exitTitleOf, qualityPanel, signalReturnOf, tradeReviewOf, type AssessmentPanel, type EntryQuality, type ExitReason } from "@/lib/signals/assessment";
 import { volumeFactorsOf, type VolumeFactors } from "@/lib/signals/volumeFactors";
-import type { CandidateAssessment } from "@/lib/signals/candidateAssessment";
+import { candidateAssessmentOf, type CandidateAssessment, type CandidateContext } from "@/lib/signals/candidateAssessment";
 
 export function rpsMinOf(tf: Timeframe): number {
   if (tf === "4h") return 30;
@@ -92,6 +92,7 @@ export type AlertView = {
   quality?: EntryQuality;
   assessment?: AssessmentPanel;
   candidate?: CandidateAssessment;
+  qualityPreview?: boolean;
 };
 
 export type AlertCardField = {
@@ -147,18 +148,19 @@ export function alertCardFields(view: AlertView): AlertCardField[] {
     fields.push({ label: "强度", value: strengthLabel(view.rps), role: "strength" });
   }
   if (view.volume) {
-    fields.push({ label: "CVD背离", value: view.volume.cvd.label, sub: view.volume.cvd.reason, role: "cvd" });
+    fields.push({ label: view.quality?.version === "quality-v5" ? "量价压力" : "CVD背离", value: view.volume.cvd.label, sub: view.volume.cvd.reason, role: "cvd" });
     fields.push({ label: "成交分布", value: view.volume.profile.label, sub: view.volume.profile.reason, role: "profile" });
   }
   return fields;
 }
 
-export function buildAlertView(p: AlertPayload, label: string, rps?: number, fund?: FundScore): AlertView {
+export function buildAlertView(p: AlertPayload, label: string, rps?: number, _fund?: FundScore, context?: CandidateContext): AlertView {
   const atr = atrOf(p);
   const volume = volumeFactorsOf(p.volumeSnapshot, p.barTime, p.price);
   if (p.event === "buy") {
     const stop = isNum(p.atr) && isNum(p.stopMult) ? p.price - p.stopMult * p.atr : undefined;
-    const quality = entryQualityOf(p, rps, fund);
+    const candidate = candidateAssessmentOf(p, rps, context);
+    const quality = candidate.quality;
     return {
       tone: "buy",
       title: "买点",
@@ -174,6 +176,7 @@ export function buildAlertView(p: AlertPayload, label: string, rps?: number, fun
       volume,
       chart: buyChartOf(p.chart, p.barTime, p.price),
       quality,
+      candidate,
       assessment: qualityPanel(quality),
     };
   }

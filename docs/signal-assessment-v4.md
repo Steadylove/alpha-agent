@@ -17,7 +17,7 @@
 
 ## 实现口径
 
-权重集中在 `src/lib/signals/assessment.ts` 的 `QUALITY_WEIGHTS`。
+V4 历史对照权重保留在 `src/lib/signals/assessment.ts` 的 `BASELINE_QUALITY_WEIGHTS`；2026-09-19 起新买点默认使用 [V5](signal-assessment-v5.md)，历史快照不重算。
 
 - CVD 原生规则保持 0–30 分，先除以 30，再乘新权重 20。
 - RPS / 100 × 30。

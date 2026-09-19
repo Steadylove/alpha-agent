@@ -2,12 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { entryQualityOf, QUALITY_WEIGHTS, qualityPanel, tradeReviewOf } from "@/lib/signals/assessment";
+import { baselineEntryQualityOf, BASELINE_QUALITY_WEIGHTS, qualityPanel, tradeReviewOf } from "@/lib/signals/assessment";
 import { assessedAlertView, tradeIdOf } from "@/lib/signals/journal";
 import { buildAlertView, type AlertPayload } from "@/lib/discord/tvAlertCopy";
 import { fundScoreOf } from "@/lib/scoring/fundScore";
 import { signalCardSvg } from "@/lib/discord/signalCardImage";
 import { signalBars, volumeFixture, SIGNAL_BAR_MS } from "./fixtures/signalVolume";
+import type { SectorSnapshot } from "@/lib/signals/sectorFactor";
 
 const fund = fundScoreOf({ epsYoy: .5, revYoy: .4, roe: .3, dist52w: -1, gmTtm: .6, debtEquity: 1 });
 const bars = signalBars;
@@ -19,29 +20,29 @@ const sell: AlertPayload = { ...buy, event: "sell", price: 120, entry: 100, entr
 
 describe("买点观察分", () => {
   it("只使用买点截止的图和排名，完整资料按 100 分展示", () => {
-    const q = entryQualityOf(buy, 80, fund);
+    const q = baselineEntryQualityOf(buy, 80, fund);
     expect(q.complete).toBe(true);
     expect(q.available).toBe(100);
     expect(q.points).toBeGreaterThan(65);
     expect(q.dimensions.map((d) => d.max)).toEqual([20, 30, 25, 15, 10]);
-    expect(Object.values(QUALITY_WEIGHTS).reduce((a, b) => a + b, 0)).toBe(100);
+    expect(Object.values(BASELINE_QUALITY_WEIGHTS).reduce((a, b) => a + b, 0)).toBe(100);
     const future = { ...buy, chart: { version: 1, stride: 1, bars: [...bars, [4000, 4100, 100, 103, 99, 102, 100, 99, 97, 96]] } };
-    expect(entryQualityOf(future, 80, fund).available).toBe(75);
+    expect(baselineEntryQualityOf(future, 80, fund).available).toBe(75);
     expect(q.dimensions.map(d=>d.name)).toEqual(["CVD背离","强度","位置","风险","成交分布"]);
   });
   it("财务完全不参与新评分，缺少分钟快照不补零或放大到百分制", () => {
     const far = structuredClone(fund);
     far.dims.find((d) => d.id === "dist52w")!.points = 0;
-    expect(entryQualityOf(buy, 80, far).points).toBe(entryQualityOf(buy, 80, fund).points);
-    expect(entryQualityOf(buy,80).points).toBe(entryQualityOf(buy,80,fund).points);
-    const partial = entryQualityOf({...buy,volumeSnapshot:undefined}, 80, fund);
+    expect(baselineEntryQualityOf(buy, 80, far).points).toBe(baselineEntryQualityOf(buy, 80, fund).points);
+    expect(baselineEntryQualityOf(buy,80).points).toBe(baselineEntryQualityOf(buy,80,fund).points);
+    const partial = baselineEntryQualityOf({...buy,volumeSnapshot:undefined}, 80, fund);
     expect(partial.available).toBe(70);
     expect(partial.label).toBe("资料未齐");
     expect(qualityPanel(partial).note).toContain("非胜率");
-    expect(entryQualityOf(buy, NaN, fund).available).toBe(70);
+    expect(baselineEntryQualityOf(buy, NaN, fund).available).toBe(70);
   });
   it("原生指标按新权重缩放，各项展示分数相加等于总分，缺项按新权重扣除", () => {
-    const q = entryQualityOf(buy, 80);
+    const q = baselineEntryQualityOf(buy, 80);
     const dimension = (name: string) => q.dimensions.find(d => d.name === name)!;
     expect(dimension("CVD背离")).toMatchObject({ points: 13.3, max: 20 }); // 原生 20/30。
     expect(dimension("强度")).toMatchObject({ points: 24, max: 30 });
@@ -50,16 +51,16 @@ describe("买点观察分", () => {
     expect(q.dimensions.every(d => d.points == null || d.points >= 0 && d.points <= d.max)).toBe(true);
     const noProfile = volumeFixture();
     noProfile.profile.volumes[0] += 200;
-    const partial = entryQualityOf({ ...buy, volumeSnapshot: noProfile }, 80);
+    const partial = baselineEntryQualityOf({ ...buy, volumeSnapshot: noProfile }, 80);
     expect(partial.available).toBe(90);
     expect(partial.points).toBeCloseTo(q.points - 10, 8);
     expect(partial.label).toBe("资料未齐");
   });
   it("不把通道下方当成支撑，独立分钟快照不依赖压缩图", () => {
     const lowerBars = bars.map((b) => [...b.slice(0, 6), 110, 109, 105, 104]);
-    const q = entryQualityOf({ ...buy, chart: { version: 1, stride: 1, bars: lowerBars } }, 80, fund);
+    const q = baselineEntryQualityOf({ ...buy, chart: { version: 1, stride: 1, bars: lowerBars } }, 80, fund);
     expect(q.dimensions.find((d) => d.name === "位置")?.points).toBe(0);
-    expect(entryQualityOf({ ...buy, chart: { version: 1, stride: 2, bars } }, 80, fund).complete).toBe(false);
+    expect(baselineEntryQualityOf({ ...buy, chart: { version: 1, stride: 2, bars } }, 80, fund).complete).toBe(false);
   });
 });
 
@@ -94,13 +95,27 @@ describe("不可变入场快照", () => {
   let dir: string;
   beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "signal-journal-")); vi.stubEnv("SIGNAL_JOURNAL_DIR", dir); });
   afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.restoreAllMocks(); rmSync(dir, { recursive: true, force: true }); });
+  it("新买点默认使用 V5，参考止损保留且不参与质量分，正式卡不标试算", async () => {
+    const view = await assessedAlertView(buy, "4H", 80);
+    expect(view.quality?.version).toBe("quality-v5");
+    expect(view.quality?.dimensions.map(({ name, max }) => [name, max])).toEqual([
+      ["强度", 30], ["位置", 25], ["量价压力", 20], ["板块共振", 15], ["成交分布", 10],
+    ]);
+    expect(view.stop).toBe(96);
+    expect(buildAlertView({ ...buy, stopMult: 10 }, "4H", 80).quality).toEqual(view.quality);
+    const svg = signalCardSvg(view);
+    expect(svg).toContain("买点质量 · V5");
+    expect(svg).toContain("板块共振");
+    expect(svg).toContain("参考止损");
+    expect(svg).not.toMatch(/止损评分|试算|候选/);
+  });
   it("重复买点、并发写入及卖出使用同一份最初评分", async () => {
     const original = await assessedAlertView(buy, "4H", 80, fund);
     const duplicate = await assessedAlertView(buy, "4H", 20);
     expect(duplicate.quality).toEqual(original.quality);
     expect(duplicate.rps).toBe(original.rps);
     const sold = await assessedAlertView(sell, "4H", 99);
-    expect(sold.assessment?.headline).toContain(`入场 ${original.quality!.points}/100`);
+    expect(sold.assessment?.headline).toContain(`入场 ${original.quality!.points}/${original.quality!.available}`);
     const concurrent = await Promise.all([assessedAlertView(buy, "4H", 10), assessedAlertView(buy, "4H", 90)]);
     expect(concurrent[0].quality).toEqual(concurrent[1].quality);
     expect(readdirSync(join(dir, "signal-entries"))).toHaveLength(1);
@@ -114,11 +129,27 @@ describe("不可变入场快照", () => {
     expect(signalCardSvg(first)).toContain("截至 2026-09-17");
     const record = JSON.parse(readFileSync(join(dir, "signal-entries", `${tradeIdOf(buy)}.json`), "utf8"));
     expect(record.rpsEvidence).toEqual(evidence);
-    expect(record.quality.version).toBe("quality-v4");
+    expect(record.quality.version).toBe("quality-v5");
+    expect(record.quality).toEqual(record.candidate.quality);
     expect(record.candidate.quality.version).toBe("quality-v5");
     expect(record.candidate.raw.rps).toBe(80);
     expect(record.candidate.replay).toBe(false);
     expect(record.candidate.quality.dimensions.some((d: { name: string }) => d.name === "风险")).toBe(false);
+  });
+  it("V5 重放保留首次板块分与原始详情，不用新板块快照覆盖", async () => {
+    const evidence = { asOf: "2026-09-04", generatedAt: "2026-09-05T00:45:00Z", sourceTimeframe: "1d" as const, benchmark: "SP500" as const };
+    const sector: SectorSnapshot = { version: 1, asOf: evidence.asOf, generatedAt: evidence.generatedAt,
+      membershipAsOf: "2026-09-01", membershipSource: "synthetic fixture", classification: { TEST: "TECH" },
+      sectors: [{ id: "TECH", name: "信息科技", etf: "XLK", relative20: .02, percentile: .8, breadth: .6,
+        above50: 12, valid: 20, total: 20, points: 10.5 }] };
+    const first = await assessedAlertView(buy, "4H", 80, undefined, evidence, { sector });
+    expect(first.quality?.dimensions.find(d => d.name === "板块共振")?.points).toBe(10.5);
+    const changed = { ...sector, sectors: sector.sectors.map(row => ({ ...row, points: 15, breadth: 1 })) };
+    const replay = await assessedAlertView(buy, "4H", 90, undefined, evidence, { sector: changed });
+    expect(replay.quality).toEqual(first.quality);
+    expect(replay.candidate).toEqual(first.candidate);
+    expect(signalCardSvg(replay)).toContain("60%");
+    expect(replay.qualityPreview).not.toBe(true);
   });
   it("2H、参数版本、另一笔同价交易不串单；旧版不猜测匹配", async () => {
     await assessedAlertView(buy, "4H", 80, fund);
@@ -136,6 +167,8 @@ describe("不可变入场快照", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const view = await assessedAlertView(buy, "4H", 80, fund);
     expect(view.symbol).toBe("TEST");
+    expect(view.quality?.version).toBe("quality-v5");
+    expect(view.quality?.dimensions.some(d => d.name === "板块共振")).toBe(true);
     expect(view.assessment?.note).toContain("保存失败");
     const sold = await assessedAlertView(sell, "4H", 80, fund);
     expect(sold.assessment?.headline).toContain("入场评分未记录");
@@ -156,7 +189,7 @@ describe("不可变入场快照", () => {
     expect(signalCardSvg(view)).not.toMatch(/旧趋势|旧财务|财务与位置概览|基本面/);
     expect(readFileSync(file,"utf8")).toBe(before);
   });
-  it.each(["quality-v2", "quality-v3"] as const)("旧 %s 重放继续使用冻结的权重和分数，买卖卡均不以 V4 覆盖", async (version) => {
+  it.each(["quality-v2", "quality-v3", "quality-v4"] as const)("旧 %s 重放继续使用冻结的权重和分数，买卖卡均不以 V5 覆盖", async (version) => {
     const id = tradeIdOf(buy)!;
     const quality = { version, points: 81, available: 100, complete: true, label: "优秀", dimensions: [
       { name: "CVD背离", points: 24, max: 30, reason: "旧 CVD 分" },
@@ -165,18 +198,20 @@ describe("不可变入场快照", () => {
       { name: "风险", points: 14, max: 15, reason: "旧止损分" },
       { name: "成交分布", points: 10, max: 15, reason: "旧成交分布" },
     ] };
-    const record = { version: 1, id, capturedAt: new Date().toISOString(), payload: buy, quality, rps: 80 };
+    const record = { version: 1, id, capturedAt: new Date().toISOString(), payload: buy, quality, rps: 80,
+      candidate: buildAlertView(buy, "4H", 80).candidate };
     mkdirSync(join(dir, "signal-entries"));
     const file = join(dir, "signal-entries", `${id}.json`);
     writeFileSync(file, JSON.stringify(record));
     const before = readFileSync(file, "utf8");
     const view = await assessedAlertView(buy, "4H", 99);
     expect(view.quality).toEqual(quality);
-    const label = version === "quality-v2" ? "V2" : "V3";
+    const label = version.replace("quality-v", "V");
     expect(view.assessment?.heading).toContain(label);
-    expect(view.assessment?.note).toContain("与 V4 不直接比较");
+    expect(view.assessment?.note).toContain("与 V5 不直接比较");
     expect(signalCardSvg(view)).toContain(`买点质量 · ${label}`);
-    expect(signalCardSvg(view)).not.toContain("买点质量 · V4");
+    expect(signalCardSvg(view)).not.toContain("买点质量 · V5");
+    expect(view.candidate).toBeUndefined();
     expect((await assessedAlertView(sell, "4H", 99)).assessment?.headline).toContain("入场 81/100");
     expect(readFileSync(file, "utf8")).toBe(before);
   });

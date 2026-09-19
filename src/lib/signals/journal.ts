@@ -6,7 +6,7 @@ import { deskRemoteUrl, readDeskJson, writeDeskJson } from "@/lib/fund/deskRemot
 import { buildAlertView, type AlertPayload, type AlertView } from "@/lib/discord/tvAlertCopy";
 import type { FundScore } from "@/lib/scoring/fundScore";
 import { qualityPanel, tradeReviewOf, type EntrySnapshot } from "./assessment";
-import { candidateAssessmentOf, type CandidateContext } from "./candidateAssessment";
+import type { CandidateContext } from "./candidateAssessment";
 
 /** 参数、交易周期和买点时间都是身份的一部分。旧告警不猜测关联。 */
 export function tradeIdOf(p: AlertPayload): string | null {
@@ -52,7 +52,7 @@ async function saveFirst<T>(file: string, value: T): Promise<T> {
 }
 
 export async function assessedAlertView(p: AlertPayload, label: string, rps?: number, fund?: FundScore, rpsEvidence?: RpsEvidence, candidateContext?: CandidateContext): Promise<AlertView> {
-  const view = { ...buildAlertView(p, label, rps, fund), rpsEvidence };
+  const view = { ...buildAlertView(p, label, rps, fund, { ...candidateContext, asOf: rpsEvidence?.asOf, replay: false }), rpsEvidence };
   const id = tradeIdOf(p);
   if (!id) {
     view.assessment = p.event === "buy" ? qualityPanel(view.quality!, "入场关联信息缺失；更新 Pine 告警后才能保存并关联复盘") :
@@ -63,10 +63,11 @@ export async function assessedAlertView(p: AlertPayload, label: string, rps?: nu
     if (p.event === "buy") {
       const saved = await saveFirst<EntrySnapshot>(`signal-entries/${id}.json`, {
         version: 1, id, capturedAt: new Date().toISOString(), payload: p, quality: view.quality!, rps, rpsEvidence,
-        candidate: candidateAssessmentOf(p, rps, { ...candidateContext, asOf: rpsEvidence?.asOf, replay: false }),
+        candidate: view.candidate,
       });
       return { ...buildAlertView(saved.payload, label, saved.rps),
-        rpsEvidence: saved.rpsEvidence, quality: saved.quality.version === "quality-v1" ? undefined : saved.quality, assessment: qualityPanel(saved.quality) };
+        rpsEvidence: saved.rpsEvidence, quality: saved.quality.version === "quality-v1" ? undefined : saved.quality,
+        candidate: saved.quality.version === "quality-v5" ? saved.candidate : undefined, assessment: qualityPanel(saved.quality) };
     } else {
       const saved = await readRecord<EntrySnapshot>(`signal-entries/${id}.json`);
       const entry = saved?.id === id && saved.version === 1 && tradeIdOf(saved.payload) === id ? saved : undefined;

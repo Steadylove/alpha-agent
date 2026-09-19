@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AlertPayload } from "@/lib/discord/tvAlertCopy";
 import type { SignalCandle } from "@/lib/discord/signalTradeChart";
-import { entryQualityOf } from "@/lib/signals/assessment";
+import { baselineEntryQualityOf } from "@/lib/signals/assessment";
 
 function payload(tail: number[], distance = 0): AlertPayload {
   const prices = [...Array<number>(20 - tail.length).fill(100), ...tail];
@@ -13,7 +13,7 @@ function payload(tail: number[], distance = 0): AlertPayload {
     barTime: bars.at(-1)![1], chart: { version: 1, stride: 1, bars } };
 }
 const chartOf = (p: AlertPayload) => p.chart as { version: 1; stride: number; bars: SignalCandle[] };
-const position = (p: AlertPayload) => entryQualityOf(p, 80).dimensions.find(d => d.name === "位置")!;
+const position = (p: AlertPayload) => baselineEntryQualityOf(p, 80).dimensions.find(d => d.name === "位置")!;
 
 describe("位置评分 V4：Vegas 与 WR 的规则保持，权重升至 25", () => {
   it("相同均线距离下，区分继续下跌、超卖内反弹和收复超卖区", () => {
@@ -60,7 +60,7 @@ describe("位置评分 V4：Vegas 与 WR 的规则保持，权重升至 25", () 
     chartOf(p).bars = chartOf(p).bars.slice(-17);
     expect(position(p).points).toBe(25);
     chartOf(p).bars = chartOf(p).bars.slice(-16);
-    const q = entryQualityOf(p, 80);
+    const q = baselineEntryQualityOf(p, 80);
     expect(position(p).points).toBeNull();
     expect(q.available).toBe(45); // 无分钟快照：只剩强度 30 与风险 15。
     expect(q.complete).toBe(false);
@@ -82,7 +82,7 @@ describe("位置评分 V4：Vegas 与 WR 的规则保持，权重升至 25", () 
 
   it("拒绝信号之后的数据，不修改传入行情，只改变观察评分", () => {
     const p = payload([91, 92, 95]), original = structuredClone(p);
-    const q = entryQualityOf(p, 80);
+    const q = baselineEntryQualityOf(p, 80);
     expect(q.version).toBe("quality-v4");
     expect(q.dimensions.map(d => d.max)).toEqual([20, 30, 25, 15, 10]);
     expect(p).toEqual(original);

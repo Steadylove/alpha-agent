@@ -34,6 +34,7 @@ describe("tv alert copy", () => {
       buildAlertView({ event: "buy", symbol: "NVDA", tf: "240", kind: 1, price: 178.4, atr: 4.2, stopMult: 4 }, "4H", 79),
     );
     expect(svg).toContain("TREND-ADAPTIVE");
+    expect(svg).not.toContain("趋势自适应系统");
     expect(svg).toContain("NVDA");
     expect(svg).toContain("买点");
     expect(svg).toContain("强于 79%");
@@ -88,7 +89,9 @@ describe("tv alert copy", () => {
       buildAlertView({ event: "buy", symbol: "NVDA", tf: "240", kind: 1, price: 178.4, atr: 4.2, stopMult: 4 }, "4H", 79, fund),
     );
     expect(svg).not.toMatch(/基本面|S\+ 100|盈利增速|财务与位置概览/);
-    expect(svg).toContain("CVD背离");
+    expect(svg).toContain("量价压力");
+    expect(svg).toContain("板块共振");
+    expect(svg).not.toContain("止损评分");
     expect(svg).toContain("成交分布");
     expect(svg).toContain("买点");
     const sold=signalCardSvg(buildAlertView({event:"sell",symbol:"NVDA",tf:"240",kind:1,price:178.4,entry:170},"4H",79,fund));

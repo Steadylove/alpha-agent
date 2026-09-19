@@ -10,7 +10,7 @@ export type CandidatePosition = { points: number | null; state: string; reason: 
 const positive = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v > 0;
 const avg = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
 
-/** V5 研究候选：固定规则先留痕；不修改 V4，也不把规则分当成胜率。 */
+/** V5 固定位置规则；保留原始特征，不把规则分当成胜率。 */
 export function candidatePositionOf(bars: SignalCandle[] | undefined, price: number, atr: number | undefined): CandidatePosition {
   const missing = (reason: string): CandidatePosition => ({ points: null, state: "资料未齐", reason });
   if (!bars || bars.length < 38) return missing("至少需要 38 根未压缩 K 线计算 WR34 的 5 根平滑值");
