@@ -81,7 +81,7 @@ export function signalCardLayout(view: AlertView): { width: number; height: numb
   rect(left, 0, 56, 3, accent);
   text(view.symbol, left, 15, 490, 54, T.text, 700, "left", true);
   text(STRATEGY_NAME, 625, 26, 295, 13, T.secondary, 700, "right", true);
-  if (view.tfLabel.toUpperCase() !== "4H") text(view.tfLabel, 625, 50, 295, 13, T.muted, 400, "right");
+  text(view.tfLabel, 625, 50, 295, 13, T.muted, 400, "right");
   const [title, ...meta] = view.title.split(" · ");
   const badgeWidth = Math.ceil(textWidth(view.code, 14)) + 18;
   rect(left, 90, badgeWidth, 25, T.panel, 4, accent);
