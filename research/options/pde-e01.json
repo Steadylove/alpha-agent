@@ -1,0 +1,28 @@
+{
+  "experiment_id": "PDE-E01",
+  "purpose": "Distribution and defined-risk payoff consistency; Q0 repricing diagnostics, not an alpha trading policy.",
+  "forecast_method": "spx-close-range-v1",
+  "snapshot_et": "10:00:00",
+  "expiry": "same-session SPXW PM",
+  "strike_step": 5,
+  "butterfly_half_width": 35,
+  "vertical_width": 10,
+  "condor_bands": ["68", "95"],
+  "fee_per_contract_usd": 1.5,
+  "extra_slippage_per_contract_points": 0.0,
+  "cost_stress_slippage_per_contract_points": 0.02,
+  "discount_factor": 1.0,
+  "tail_probability": 0.05,
+  "probability_levels": [0.01, 0.025, 0.05, 0.16, 0.25, 0.5, 0.75, 0.84, 0.95, 0.975, 0.99],
+  "distribution_stresses": [
+    {"id": "vol_80pct", "vol_multiplier": 0.8, "log_forward_shift_in_original_vol": 0.0},
+    {"id": "vol_120pct", "vol_multiplier": 1.2, "log_forward_shift_in_original_vol": 0.0},
+    {"id": "center_down_quarter_sigma", "vol_multiplier": 1.0, "log_forward_shift_in_original_vol": -0.25},
+    {"id": "center_up_quarter_sigma", "vol_multiplier": 1.0, "log_forward_shift_in_original_vol": 0.25}
+  ],
+  "candidates": ["call_butterfly_35", "iron_condor_68_10", "iron_condor_95_10", "call_credit_68_10", "put_credit_68_10", "bull_call_debit_atm_10", "bear_put_debit_atm_10"],
+  "execution": "One group. Buy ask, sell bid, exact snapshot and required displayed size. Mid is a diagnostic, never an assumed fill. Opening commission only, no extra exercise/settlement fee assumed. Hold intact to cash expiry. Quotes do not prove simultaneous fills.",
+  "risk": "Expiry loss includes opening commission and declared extra slippage. Funding reserve = maximum expiry loss; illustrative research reserve, not a broker margin quote. No account sizing or recommendations.",
+  "decision": "NO_TRADE_RESEARCH_ONLY: no validated physical P distribution. Positive Q0 residuals remain fit diagnostics.",
+  "sample": "All 38 sessions in the existing evaluation archive, already inspected. Each candidate evaluated separately; overlapping candidates are not independent trades and are not summed into a portfolio."
+}

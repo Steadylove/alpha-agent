@@ -1,0 +1,17 @@
+{
+  "date": "2026-09-15",
+  "symbol": "SPXW",
+  "source_url": "https://balder-ai.com/spx",
+  "retrieved_on": "2026-09-16",
+  "published_at": null,
+  "publication_note": "网站称为当日上午发布的预测；未取得当时的不可修改时间戳。以下是条件复盘，不能据此证明事前可交易。",
+  "bands": {"68": [7538, 7700], "95": [7460, 7780]},
+  "settlement_price": 7585.73,
+  "settlement_source_url": "https://apnews.com/article/b1b1bc9f943da62c6a639a8761b4eca3",
+  "settlement_note": "Balder 与 AP News 公布的 SPX 收盘价一致，以此作为 SPXW PM 到期损益的结算输入；未取得券商结算记录。",
+  "entry_times": ["10:00", "10:30", "11:00"],
+  "wing_widths": [5, 10, 20, 50],
+  "strike_step": 5,
+  "fee_per_contract": 1.5,
+  "fee_note": "每张每次成交 1.50 美元为研究假设，包含佣金和费用估算，不是 IBKR 实际账单。到期持有按 4 张开仓费计算，另展示成本敏感性。"
+}

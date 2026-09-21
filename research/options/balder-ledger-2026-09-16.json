@@ -1,0 +1,584 @@
+{
+  "source_url": "https://balder-ai.com/spx",
+  "retrieved_at": "2026-09-16T06:06:36.374885+00:00",
+  "sha256": "e7191bfff23efafe85b123436b56896a35e35c01e6f0d0ee23b16a3fb9d50075",
+  "publication_note": "Historical ledger retrieved after the fact; original publication timestamps unverified.",
+  "settlement_note": "全部 38 个收盘点位与独立获取的 Yahoo ^GSPC 日线一致（核对至 0.01 点）；未取得券商结算记录。",
+  "sessions": [
+    {
+      "date": "2026-07-23",
+      "bands": {
+        "68": [
+          7371.0,
+          7504.0
+        ],
+        "95": [
+          7302.0,
+          7529.0
+        ]
+      },
+      "settlement_price": 7408.3,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-07-24",
+      "bands": {
+        "68": [
+          7317.0,
+          7493.0
+        ],
+        "95": [
+          7231.0,
+          7581.0
+        ]
+      },
+      "settlement_price": 7411.98,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-07-27",
+      "bands": {
+        "68": [
+          7375.0,
+          7551.0
+        ],
+        "95": [
+          7289.0,
+          7639.0
+        ]
+      },
+      "settlement_price": 7413.18,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-07-28",
+      "bands": {
+        "68": [
+          7309.0,
+          7479.0
+        ],
+        "95": [
+          7227.0,
+          7563.0
+        ]
+      },
+      "settlement_price": 7428.78,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-07-29",
+      "bands": {
+        "68": [
+          7333.0,
+          7501.0
+        ],
+        "95": [
+          7251.0,
+          7584.0
+        ]
+      },
+      "settlement_price": 7316.15,
+      "published_result": "68% miss"
+    },
+    {
+      "date": "2026-07-30",
+      "bands": {
+        "68": [
+          7307.0,
+          7471.0
+        ],
+        "95": [
+          7228.0,
+          7552.0
+        ]
+      },
+      "settlement_price": 7437.63,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-07-31",
+      "bands": {
+        "68": [
+          7378.0,
+          7543.0
+        ],
+        "95": [
+          7298.0,
+          7625.0
+        ]
+      },
+      "settlement_price": 7489.72,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-08-03",
+      "bands": {
+        "68": [
+          7499.0,
+          7618.0
+        ],
+        "95": [
+          7476.0,
+          7641.0
+        ]
+      },
+      "settlement_price": 7600.5,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-08-04",
+      "bands": {
+        "68": [
+          7608.0,
+          7752.0
+        ],
+        "95": [
+          7538.0,
+          7808.0
+        ]
+      },
+      "settlement_price": 7736.52,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-08-05",
+      "bands": {
+        "68": [
+          7673.0,
+          7753.0
+        ],
+        "95": [
+          7649.0,
+          7776.0
+        ]
+      },
+      "settlement_price": 7723.55,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-08-06",
+      "bands": {
+        "68": [
+          7669.0,
+          7747.0
+        ],
+        "95": [
+          7646.0,
+          7772.0
+        ]
+      },
+      "settlement_price": 7709.96,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-08-07",
+      "bands": {
+        "68": [
+          7682.0,
+          7761.0
+        ],
+        "95": [
+          7660.0,
+          7784.0
+        ]
+      },
+      "settlement_price": 7757.64,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-08-10",
+      "bands": {
+        "68": [
+          7677.0,
+          7803.0
+        ],
+        "95": [
+          7613.0,
+          7825.0
+        ]
+      },
+      "settlement_price": 7753.11,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-08-11",
+      "bands": {
+        "68": [
+          7656.0,
+          7804.0
+        ],
+        "95": [
+          7584.0,
+          7878.0
+        ]
+      },
+      "settlement_price": 7728.2,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-08-12",
+      "bands": {
+        "68": [
+          7724.0,
+          7801.0
+        ],
+        "95": [
+          7703.0,
+          7823.0
+        ]
+      },
+      "settlement_price": 7748.5,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-08-13",
+      "bands": {
+        "68": [
+          7770.0,
+          7819.0
+        ],
+        "95": [
+          7748.0,
+          7841.0
+        ]
+      },
+      "settlement_price": 7798.99,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-08-14",
+      "bands": {
+        "68": [
+          7753.0,
+          7807.0
+        ],
+        "95": [
+          7731.0,
+          7829.0
+        ]
+      },
+      "settlement_price": 7785.76,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-08-17",
+      "bands": {
+        "68": [
+          7671.0,
+          7819.0
+        ],
+        "95": [
+          7598.0,
+          7893.0
+        ]
+      },
+      "settlement_price": 7745.06,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-08-18",
+      "bands": {
+        "68": [
+          7616.0,
+          7768.0
+        ],
+        "95": [
+          7543.0,
+          7843.0
+        ]
+      },
+      "settlement_price": 7691.76,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-08-19",
+      "bands": {
+        "68": [
+          7634.0,
+          7780.0
+        ],
+        "95": [
+          7564.0,
+          7851.0
+        ]
+      },
+      "settlement_price": 7707.98,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-08-20",
+      "bands": {
+        "68": [
+          7564.0,
+          7718.0
+        ],
+        "95": [
+          7489.0,
+          7795.0
+        ]
+      },
+      "settlement_price": 7641.16,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-08-21",
+      "bands": {
+        "68": [
+          7599.0,
+          7747.0
+        ],
+        "95": [
+          7527.0,
+          7820.0
+        ]
+      },
+      "settlement_price": 7674.37,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-08-24",
+      "bands": {
+        "68": [
+          7593.0,
+          7740.0
+        ],
+        "95": [
+          7521.0,
+          7813.0
+        ]
+      },
+      "settlement_price": 7652.86,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-08-25",
+      "bands": {
+        "68": [
+          7589.0,
+          7741.0
+        ],
+        "95": [
+          7515.0,
+          7816.0
+        ]
+      },
+      "settlement_price": 7677.28,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-08-26",
+      "bands": {
+        "68": [
+          7600.0,
+          7749.0
+        ],
+        "95": [
+          7527.0,
+          7823.0
+        ]
+      },
+      "settlement_price": 7675.7,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-08-27",
+      "bands": {
+        "68": [
+          7601.0,
+          7749.0
+        ],
+        "95": [
+          7529.0,
+          7823.0
+        ]
+      },
+      "settlement_price": 7730.99,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-08-28",
+      "bands": {
+        "68": [
+          7686.0,
+          7787.0
+        ],
+        "95": [
+          7664.0,
+          7817.0
+        ]
+      },
+      "settlement_price": 7711.76,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-08-31",
+      "bands": {
+        "68": [
+          7639.0,
+          7779.0
+        ],
+        "95": [
+          7570.0,
+          7849.0
+        ]
+      },
+      "settlement_price": 7686.14,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-09-01",
+      "bands": {
+        "68": [
+          7611.0,
+          7756.0
+        ],
+        "95": [
+          7540.0,
+          7828.0
+        ]
+      },
+      "settlement_price": 7631.47,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-09-02",
+      "bands": {
+        "68": [
+          7553.0,
+          7710.0
+        ],
+        "95": [
+          7477.0,
+          7787.0
+        ]
+      },
+      "settlement_price": 7666.6,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-09-03",
+      "bands": {
+        "68": [
+          7599.0,
+          7694.0
+        ],
+        "95": [
+          7577.0,
+          7717.0
+        ]
+      },
+      "settlement_price": 7747.71,
+      "published_result": "outside"
+    },
+    {
+      "date": "2026-09-04",
+      "bands": {
+        "68": [
+          7687.0,
+          7788.0
+        ],
+        "95": [
+          7665.0,
+          7818.0
+        ]
+      },
+      "settlement_price": 7718.6,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-09-08",
+      "bands": {
+        "68": [
+          7683.0,
+          7775.0
+        ],
+        "95": [
+          7662.0,
+          7813.0
+        ]
+      },
+      "settlement_price": 7673.52,
+      "published_result": "68% miss"
+    },
+    {
+      "date": "2026-09-09",
+      "bands": {
+        "68": [
+          7598.0,
+          7748.0
+        ],
+        "95": [
+          7525.0,
+          7822.0
+        ]
+      },
+      "settlement_price": 7636.36,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-09-10",
+      "bands": {
+        "68": [
+          7559.0,
+          7714.0
+        ],
+        "95": [
+          7483.0,
+          7791.0
+        ]
+      },
+      "settlement_price": 7591.7,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-09-11",
+      "bands": {
+        "68": [
+          7596.0,
+          7745.0
+        ],
+        "95": [
+          7569.0,
+          7775.0
+        ]
+      },
+      "settlement_price": 7656.98,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-09-14",
+      "bands": {
+        "68": [
+          7595.0,
+          7691.0
+        ],
+        "95": [
+          7571.0,
+          7715.0
+        ]
+      },
+      "settlement_price": 7619.98,
+      "published_result": "inside"
+    },
+    {
+      "date": "2026-09-15",
+      "bands": {
+        "68": [
+          7538.0,
+          7700.0
+        ],
+        "95": [
+          7460.0,
+          7780.0
+        ]
+      },
+      "settlement_price": 7585.73,
+      "published_result": "inside"
+    }
+  ],
+  "settlement_verification": {
+    "source_url": "https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?period1=1784764800&period2=1789516800&interval=1d",
+    "matched_sessions": 38,
+    "sha256": "ec2ae6fceddb0750ff879c87f61b0e1df15af13bbe27ed1797d16e57f795aaa7"
+  }
+}

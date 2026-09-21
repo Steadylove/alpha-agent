@@ -1,0 +1,31 @@
+{
+  "experiment_id": "PDE-E02",
+  "start_date": "2025-09-16",
+  "end_date": "2026-09-15",
+  "snapshot_et": "10:00:00",
+  "forecast_method": "spx-close-range-v1",
+  "minimum_training_sessions": 60,
+  "maximum_training_sessions": 120,
+  "models": ["Q0", "P_normal", "P_kernel"],
+  "primary_research_model": "P_kernel",
+  "signed_residual": "z = (log(close / F) + w*w/2) / w; only earlier valid sessions",
+  "normal_calibration": "Earlier residual sample mean and sample standard deviation. No parameter search.",
+  "kernel_calibration": "Equal-weight Gaussian kernels on earlier signed residuals. Bandwidth = 1.06 * sample_std * n^(-1/5). No clipping, tail deletion, bandwidth optimization or shrinkage.",
+  "degenerate_sample": "If sample_std <= 1e-8, refuse both calibrated forecasts; do not use outcomes to repair.",
+  "coverage_levels": [0.68, 0.95],
+  "scoring": ["standardized_CRPS", "PIT_histogram_10bins", "central_interval_score", "Brier_above_Q0_median", "Brier_outside_Q0_95_interval"],
+  "bootstrap": {"replicates": 2000, "block_length_sessions": 5, "seed": 20260916, "interval": [0.025, 0.975]},
+  "economic_probe": {
+    "candidate_plan": "research/options/pde-e01.json",
+    "geometry": "Same Q0-based seven candidate structures for all three probability models; separate fixed candidate series and one selector per model.",
+    "group_count": 1,
+    "maximum_loss_usd": 1000,
+    "additional_slippage_per_contract_points": 0.02,
+    "selection": "Require positive EV after additional cost stress and positive maximum profit; choose largest stressed EV / stressed maximum loss within risk cap; ties use E01 candidate order; otherwise no trade.",
+    "exit": "Intact combination held to cash expiry; daily SPX close proxy, no intraday management.",
+    "status": "RESEARCH_ONLY. The $1000 ceiling is a fixed experiment filter, not a broker margin or personal risk recommendation. No orders, no account return target."
+  },
+  "evaluation": "All models scored on the same post-warmup dates. Label 2026-07-23 onward as previously inspected E01 sample. Earlier history is a newly retrieved retrospective extension, not a prospective holdout. Report every month and data refusal.",
+  "future_protocol": {"start_date": "2026-09-16", "valid_scored_sessions": 60, "rule": "Keep this version fixed for 60 future valid scored sessions; issue immutable forecasts before outcome; prior completed sessions may update rolling training; no automatic scheduler is created."},
+  "limits": "Calibration candidates do not establish physical probabilities. Sparse tails, temporal dependence, changes in volatility regime and model selection remain limitations. Block intervals are approximate. Do not annualize this sample or select parameters by realized P&L."
+}

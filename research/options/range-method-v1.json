@@ -1,0 +1,90 @@
+{
+  "method_id": "spx-close-range-v1",
+  "adopted_at": "2026-09-16T06:57:56.643193+00:00",
+  "status": "fixed_research_baseline",
+  "target": {
+    "symbol": "SPX",
+    "outcome": "target_session_cash_close",
+    "contract_family": "SPXW PM-settled",
+    "coverage_levels": [
+      0.68,
+      0.95
+    ]
+  },
+  "primary_model": "option_implied",
+  "model_roles": {
+    "option_implied": "primary",
+    "preopen_history": "benchmark",
+    "option_calibrated": "experimental",
+    "blogger": "external_comparison_only"
+  },
+  "primary_recipe": [
+    "Use the target session 10:00 America/New_York snapshot of SPXW options expiring that session.",
+    "Require positive bid, ask >= bid, bid/ask sizes >= 1 and each leg spread <= 1 index point.",
+    "Select up to 7 call/put pairs with smallest absolute midpoint premium difference; require at least 3.",
+    "With discount factor approximated as 1, estimate F = median(K + call_mid - put_mid). Require forward dispersion <= 2 points.",
+    "Invert each selected call-plus-put premium with the Black straddle formula for total log volatility w; require at least 3 valid inversions and use their median.",
+    "For nominal central coverage c, z = NormalInverseCDF((1+c)/2); lower/upper = F * exp(-w^2/2 +/- z*w)."
+  ],
+  "validated_profile": {
+    "profile_id": "same-session-1000-et",
+    "quote_time_et": "10:00:00",
+    "quote_date": "target_session",
+    "expiration": "target_session"
+  },
+  "extension_policy": "Earlier or previous-session forecasts require a separately registered input profile and chronological evaluation; do not reuse the 10:00 hit rate or its calibration residuals.",
+  "failure_policy": "Report no forecast with the failed quality check; never silently widen, replace with another model, or count missing as a hit.",
+  "output_contract": {
+    "required_record_fields": [
+      "method_id",
+      "method_file_sha256",
+      "source_timestamp",
+      "recorded_at",
+      "target_session",
+      "model_id",
+      "profile_id",
+      "input_hashes",
+      "bands",
+      "nominal_coverage"
+    ],
+    "existing_mapping": {
+      "method_id": "method.method_id",
+      "method_file_sha256": "method.method_file_sha256",
+      "source_timestamp": "predictions[].quote_time_et + target_date for the primary profile",
+      "target_session": "target_date",
+      "model_id": "predictions[].model",
+      "profile_id": "method.validated_profile.profile_id for primary/experimental",
+      "input_hashes": "predictions[].source.sha256 or archived_daily_source; plan_sha256",
+      "nominal_coverage": "band labels 68/95; model levels, not empirical probabilities"
+    },
+    "meaning": "Central closing-price research intervals; not intraday high/low bounds and not trade win probabilities."
+  },
+  "validation_rules": [
+    "Use only inputs available at the prediction cutoff; append realized calibration error after all same-day predictions are fixed.",
+    "Report coverage together with width, overshoot distance, interval score and skipped dates.",
+    "Compare models on identical dates and, where independently verifiable, identical publication cutoffs.",
+    "Historical reconstructions and predictions recorded before outcomes must be labeled separately.",
+    "Keep each profile/version scorecard separate. Trade selection and P&L optimization do not tune forecast bands."
+  ],
+  "locked_artifacts": {
+    "parameters": {
+      "path": "research/options/self-forecast-v1.json",
+      "sha256": "6eecce40d37a2a396eff2f018b92f78e4621d087464ee55b2e928e6c07f45efe"
+    },
+    "mathematics": {
+      "path": "services/theta/range_model.py",
+      "sha256": "b3110a76e80133660e0194377ca21e83d7e0135f98338f6cf9fc87cd1896ef1b"
+    }
+  },
+  "evidence_at_adoption": {
+    "period_start": "2026-07-23",
+    "period_end": "2026-09-15",
+    "primary_eligible_sessions": 36,
+    "rejected_sessions": 2,
+    "primary_hits": {
+      "68": 28,
+      "95": 35
+    },
+    "interpretation": "Previously inspected retrospective sample; not an untouched holdout or guarantee."
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "experiment_id": "PDE-E03",
+  "purpose": "PDF-inspired end-to-end finite research search, not completion of live-trading phases or proof of alpha.",
+  "input_start": "2025-09-16",
+  "last_decision_date": "2026-09-14",
+  "last_settlement_date": "2026-09-15",
+  "entry_times_et": ["10:00:00", "11:00:00", "14:00:00"],
+  "expiry_session_offsets": [0, 1],
+  "download": {"interval": "1h", "start_time": "10:00:00", "end_time": "14:00:00", "workers": 2, "rpc_timeout_seconds": 60},
+  "market_density": {
+    "method": "Nonnegative discrete probabilities fitted to bid/ask option price intervals; total mass 1 and mean equals parity forward. L1 quote-interval violations minimized with weak L1 distance to ATM lognormal prior.",
+    "strike_window_original_sigma": 3.5,
+    "maximum_fitted_leg_spread_points": 2.0,
+    "maximum_normalized_mean_quote_violation": 0.5,
+    "maximum_single_quote_violation_points": 2.0,
+    "prior_regularization_points": 0.001,
+    "support": "5-point observed strikes around F within 4 sigma plus ATM-lognormal quantiles 0.000001 and 0.999999; finite tail is an explicit approximation",
+    "discount_factor": 1.0
+  },
+  "probability_models": ["P_normal", "P_kernel", "P_state"],
+  "minimum_training_sessions": 60,
+  "maximum_training_sessions": 120,
+  "state_model": {
+    "method": "Equal mixture of unconditional historical-residual KDE and a 1.5-bandwidth Gaussian-feature-weighted KDE; no fitted regression or ML.",
+    "features": ["log_atm_total_vol_over_prior20_daily_rv_scaled_by_calendar_horizon", "otm_put_to_call_iv_log_ratio_at_one_atm_sigma"],
+    "feature_bandwidth": 1.5,
+    "global_weight": 0.5,
+    "minimum_effective_sample_size": 20
+  },
+  "model_selection": {
+    "score": "trailing standardized CRPS on forecasts made with earlier-only training, matched by entry time and expiry offset",
+    "validation_minimum_sessions": 20,
+    "validation_maximum_sessions": 40,
+    "primary_gate": "Choose lowest prior CRPS P model; require its paired mean CRPS strictly below the fitted market density. Never use current/future outcomes or historical strategy PnL for model choice."
+  },
+  "structures": {
+    "vertical_width_points": [5, 10, 20],
+    "vertical_locations_sigma": [-1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5],
+    "condor_central_probabilities": [0.68, 0.80, 0.90, 0.95],
+    "butterfly_centers_sigma": [-0.5, 0.0, 0.5],
+    "butterfly_wings_points": [10, 25, 50],
+    "broken_wing_pairs": [[10, 20], [20, 10], [25, 50], [50, 25]],
+    "types": ["call_debit", "call_credit", "put_debit", "put_credit", "call_butterfly", "put_butterfly", "call_broken_wing", "iron_butterfly", "iron_condor"],
+    "strike_step": 5
+  },
+  "execution": {
+    "groups_per_position": 1,
+    "maximum_concurrent_positions": 1,
+    "maximum_entries_per_day": 1,
+    "price": "buy ask, sell bid; required execution-side displayed size; not guaranteed simultaneous execution",
+    "fee_per_contract_usd": 1.5,
+    "extra_slippage_per_contract_points": 0.02,
+    "stress_extra_slippage_per_contract_points": 0.05,
+    "maximum_leg_spread_points": 1.0,
+    "maximum_loss_usd": 1000,
+    "minimum_net_ev_usd": 10,
+    "minimum_net_ev_to_max_loss": 0.02,
+    "selection": "At each scheduled time compare available expiries and structures; choose largest net EV / max loss passing filters; first qualifying time enters. No ex-post best-time selection.",
+    "exit": "Hold intact to cash expiry; daily SPX close proxy. No stops, profit targets, rolling, early liquidation or account leverage assumptions."
+  },
+  "policies": ["primary_quality_gated", "ungated_research_ablation", "neutral_only_quality_gated"],
+  "neutral_families": ["call_butterfly", "put_butterfly", "call_broken_wing", "iron_butterfly", "iron_condor"],
+  "evaluation": {
+    "development_end": "2026-05-29",
+    "evaluation_start": "2026-06-01",
+    "sample_status": "All existing cash outcomes have been inspected before registration. Chronological research evaluation is not an untouched holdout. No retuning after E03 outcomes.",
+    "bootstrap": {"block_sessions": 5, "replicates": 2000, "seed": 20260916},
+    "requirements": ["report all skips and calendar months", "mark-to-market drawdown is not available from terminal-only scoring", "do not annualize or report account returns", "separate fitted Q repricing residual from P-minus-Q edge"]
+  }
+}

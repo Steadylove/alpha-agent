@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "research_status": "Exploratory: all 38 historical sessions were already inspected; no holdout claim.",
+  "entry_time_et": "10:00:00",
+  "bands": ["68", "95"],
+  "wing_widths": [10, 20],
+  "filters": ["baseline", "both_sides", "price_quality"],
+  "price_quality": {
+    "minimum_net_reward_to_expiry_risk": 0.15,
+    "maximum_half_spread_to_gross_credit": 0.25,
+    "require_each_side_credit_above_open_fees": true
+  },
+  "exits": ["expiry", "time_1530", "tp50", "tp50_sl25"],
+  "take_profit_fraction_of_net_max_profit": 0.5,
+  "stop_loss_fraction_of_expiry_max_loss": 0.25,
+  "exit_delay_minutes": 1,
+  "fee_per_contract": 1.5,
+  "extra_slippage_per_contract_points": [0.0, 0.02],
+  "illustrative_initial_equities_usd": [20000, 100000],
+  "risk_fraction_per_trade": 0.01,
+  "sizing": "Whole groups only; floor(current realized equity * risk fraction / per-group worst loss including opening and potential closing fees and adverse slippage), also limited by entry displayed sizes and conservative width collateral; no leverage or extra deposits.",
+  "execution": "Sell at bid, buy at ask; opening snapshot at 10:00 is a conditional fill assumption. TP/SL trigger on minute quotes and execute no earlier than next minute. At 15:30, time exit uses that minute's quote. Invalid quotes wait; last attempt 15:59, then settle. No interpolation or filling older timestamps with later quotes.",
+  "zero_bid_wings": "Buy back shorts and sell positive-bid long wings; keep zero-bid long wings to expiry and include their intrinsic payout. Fees only for executed contracts. Retain full risk allocation through the session.",
+  "expiry": "SPXW same-day PM; blogger close cross-checked against Yahoo ^GSPC, not a broker settlement statement.",
+  "notes": "Thresholds are research choices, not proven optimal. Separate each band/width/filter/exit as an independent strategy. No daily hindsight selection. The 100000 account is capital sensitivity, not a recommendation. Risk limits do not create positive expected returns. Publication times remain unverified. Minute snapshots cannot establish intra-minute triggers, original quote age, or simultaneous fills."
+}

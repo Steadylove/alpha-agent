@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "target": "SPX cash close on the specified session, not the day's high/low range",
+  "option_snapshot_et": "10:00:00",
+  "coverage_levels": [0.68, 0.95],
+  "daily_history_returns": 60,
+  "atm_pair_count": 7,
+  "minimum_atm_pairs": 3,
+  "maximum_leg_spread_points": 1.0,
+  "maximum_parity_forward_range_points": 2.0,
+  "discount_factor": 1.0,
+  "calibration_minimum_sessions": 20,
+  "calibration_maximum_sessions": 60,
+  "calibration_score": "abs(log(realized_close / implied_forward) + total_volatility^2 / 2) / total_volatility",
+  "calibration_quantile": "Order statistic ceil((n+1)*coverage), using only earlier sessions; no finite estimate if rank exceeds n.",
+  "models": ["preopen_history", "option_implied", "option_calibrated"],
+  "notes": "ATM Black lognormal approximation ignores volatility skew; option-implied bands are pricing distributions, not validated physical probabilities. Historical residual quantiles are a calibration heuristic for dependent financial time series, not a guarantee of conformal coverage. No OI, dealer-position signs, Gamma walls or arbitrary mean reversion are assumed. Existing historical sample has already been inspected. No trading or automatic scheduler."
+}

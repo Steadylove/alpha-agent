@@ -1,0 +1,37 @@
+{
+  "fixed_at": "2026-09-16T06:08:47.203272+00:00",
+  "entry_times_et": [
+    "10:00",
+    "10:30",
+    "11:00"
+  ],
+  "expiry": "same-day SPXW PM",
+  "exit": "hold to expiry, no adjustment or stop",
+  "band_labels": [
+    "68",
+    "95"
+  ],
+  "butterfly_widths": [
+    "band",
+    35,
+    50,
+    100
+  ],
+  "butterfly_center": "band midpoint rounded to nearest 5; half ties upward",
+  "band_butterfly_width": "smallest 5-point symmetric wing covering both band endpoints",
+  "condor_widths": [
+    5,
+    10,
+    20,
+    50
+  ],
+  "fee_per_contract": 1.5,
+  "pricing": [
+    "natural",
+    "mid"
+  ],
+  "size": "one group per day per independent parameter series",
+  "filter_comparison": "condor only: each side credit must exceed its two-contract opening fees",
+  "baseline": "10:00; natural; band-width long-call butterfly or 10-point iron condor",
+  "notes": "No choosing the best entry/width for each date after observing the close. Days/variants are not independent samples."
+}
