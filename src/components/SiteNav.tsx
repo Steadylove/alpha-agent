@@ -9,18 +9,16 @@ import {
   LayoutDashboard,
   ListChecks,
   Radar,
-  Repeat,
   Wallet,
 } from "lucide-react";
 
 /** 量化面板本身。 */
 const primaryNav = [
-  { href: "/", label: "总览", icon: LayoutDashboard },
+  { href: "/", label: "每日复盘", icon: LayoutDashboard },
   { href: "/desk", label: "信号台", icon: ListChecks },
   { href: "/fund", label: "资金账本", icon: Wallet },
   { href: "/opportunity", label: "机会", icon: Layers },
   { href: "/mpr", label: "市场雷达", icon: Radar },
-  { href: "/rotation", label: "轮动持仓", icon: Repeat },
   { href: "/lab", label: "调参实验室", icon: FlaskConical },
   { href: "/push", label: "推送", icon: Bell },
 ];
@@ -28,7 +26,7 @@ const primaryNav = [
 export function SiteNav() {
   const pathname = usePathname();
   const isActive = (href: string) =>
-    href === "/" ? pathname === "/" : pathname.startsWith(href);
+    href === "/" ? pathname === "/" || pathname === "/review" : pathname.startsWith(href);
 
   return (
     <nav className="hidden items-center gap-0.5 text-sm md:flex">

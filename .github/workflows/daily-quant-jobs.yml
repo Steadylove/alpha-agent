@@ -92,6 +92,28 @@ jobs:
           ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes "root@${HOST}" \
             "docker exec alpha-book wget -qO- --post-data='' --timeout=600 http://127.0.0.1:8081/live-books"
 
+      - name: Read frozen signals and computed accounts
+        run: |
+          mkdir -p .review-desk
+          rsync -a -e "ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes" \
+            --include=live-books.json --include=book-versions/ --include='book-versions/*.json' --include=signal-entries/ --include='signal-entries/*.json' --exclude='*' \
+            "root@${HOST}:/var/lib/alpha-agent/desk/" .review-desk/
+
+      - name: Build daily review and signal journal
+        run: npm run review:build
+        env:
+          LIVE_BOOKS_PATH: ${{ github.workspace }}/.review-desk/live-books.json
+          SIGNAL_JOURNAL_DIR: ${{ github.workspace }}/.review-desk
+
+      - name: Publish daily review snapshots
+        run: |
+          rsync -a -e "ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes" \
+            "$MARKET_DATA_DIR/snapshots/daily-review/" "root@${HOST}:/var/lib/alpha-agent/market/snapshots/daily-review/"
+          if [ -d "$MARKET_DATA_DIR/review-prices" ]; then
+            rsync -a -e "ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes" \
+              "$MARKET_DATA_DIR/review-prices/" "root@${HOST}:/var/lib/alpha-agent/market/review-prices/"
+          fi
+
       # Vercel 读 VPS 缓存出图。必须在 VPS 算完之后。
       - name: Push 4H/2H cash books
         run: |

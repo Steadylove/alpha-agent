@@ -87,6 +87,10 @@ fi
 log "算账本"
 docker exec alpha-book wget -qO- --post-data='' --timeout=600 http://127.0.0.1:8081/live-books >/dev/null
 
+log "生成每日复盘与信号跟踪"
+# 同机读取不可变信号档案和已算好的账本；不读取网页构建时的数据副本。
+soft daily-review env MARKET_DATA_BASE_URL= SIGNAL_JOURNAL_DIR="$ROOT/desk" LIVE_BOOKS_PATH="$ROOT/desk/live-books.json" npm run review:build
+
 log "推账本"
 curl -fsS -m 120 -X POST "$BOOK_PUSH_URL"
 

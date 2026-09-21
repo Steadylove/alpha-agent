@@ -113,6 +113,7 @@ async function fetchPage(
   to: string,
   pageToken: string | null,
   timeframe: AlpacaTimeframe,
+  adjustment: "all" | "raw" | "split" = "all",
 ): Promise<AlpacaBarsResponse> {
   const { key, secret } = alpacaCredentials();
   const url = new URL(`${DATA_URL}/${encodeURIComponent(alpacaDataSymbol(symbol))}/bars`);
@@ -120,7 +121,7 @@ async function fetchPage(
   url.searchParams.set("start", from);
   url.searchParams.set("end", to);
   url.searchParams.set("limit", "10000");
-  url.searchParams.set("adjustment", "all");
+  url.searchParams.set("adjustment", adjustment);
   url.searchParams.set("feed", feed);
   url.searchParams.set("sort", "asc");
   if (pageToken) url.searchParams.set("page_token", pageToken);
@@ -170,11 +171,12 @@ async function fetchAllPages(
   from: string,
   to: string,
   timeframe: AlpacaTimeframe,
+  adjustment: "all" | "raw" | "split" = "all",
 ): Promise<AlpacaBar[]> {
   const bars: AlpacaBar[] = [];
   let token: string | null = null;
   do {
-    const page = await fetchPage(symbol, feed, from, to, token, timeframe);
+    const page = await fetchPage(symbol, feed, from, to, token, timeframe, adjustment);
     bars.push(...(page.bars ?? []));
     token = page.next_page_token ?? null;
   } while (token);
@@ -199,9 +201,10 @@ async function fetchBars(
   feed: AlpacaFeed,
   from: string,
   timeframe: AlpacaTimeframe,
+  adjustment: "all" | "raw" | "split" = "all",
 ): Promise<AlpacaBar[]> {
   const to = endIso();
-  if (timeframe === "1Day") return fetchAllPages(symbol, feed, from, to, timeframe);
+  if (timeframe === "1Day") return fetchAllPages(symbol, feed, from, to, timeframe, adjustment);
   const parts = await Promise.all(
     yearChunks(from, to).map(([start, stop]) => fetchAllPages(symbol, feed, start, stop, timeframe)),
   );
@@ -285,6 +288,7 @@ function nyDate(iso: string): string {
 export async function fetchAlpacaDailyBars(
   symbol: string,
   from = "2013-01-01T00:00:00Z",
+  adjustment: "all" | "raw" | "split" = "all",
 ): Promise<DailyBar[]> {
   const feeds: AlpacaFeed[] = FORCED_FEED
     ? [FORCED_FEED]
@@ -294,7 +298,7 @@ export async function fetchAlpacaDailyBars(
   let lastError: unknown;
   for (const feed of feeds) {
     try {
-      const rows = await fetchBars(symbol, feed, from, "1Day");
+      const rows = await fetchBars(symbol, feed, from, "1Day", adjustment);
       if (feed === FEEDS[0]) resolvedFeed = feed;
       return rows
         .filter((row) => Number.isFinite(row.c))

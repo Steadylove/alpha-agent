@@ -29,6 +29,7 @@ import { alpacaDataSymbol, marketDataSymbol } from "@/lib/data-sources/marketSym
 import { MPR_SYMBOLS } from "@/lib/scoring/mpr";
 import { ROTATION_UNIVERSE } from "@/lib/scoring/rotationUniverse";
 import { SECTOR_UNIVERSE } from "@/lib/scoring/sectorUniverse";
+import { REVIEW_SECTORS } from "@/lib/review/market";
 import {
   aggregateTo1H,
   aggregateTo4H,
@@ -47,6 +48,7 @@ import {
 
 const KNOWN_GAP = new Set(["SKHY", "SPCX"]);
 const MACRO_YAHOO: { symbol: string; fetchSymbol?: string }[] = [
+  { symbol: "SPX", fetchSymbol: "^GSPC" },
   { symbol: "SPY" },
   { symbol: "RSP" },
   { symbol: "TLT" },
@@ -271,7 +273,7 @@ async function main() {
 
   const daily = await refreshDaily(
     // 排名基准只需要日线；新成分股不触发与交易池无关的多年分钟行情回补。
-    [...new Set([...wanted, ...benchmark.map(row => row.symbol)])].filter((t) => !MACRO_CBOE.includes(t as CboeVolIndex) && t !== "DXY"),
+    [...new Set([...wanted, ...benchmark.map(row => row.symbol), "QQQ", "IWM", ...REVIEW_SECTORS.map(s => s.symbol)])].filter((t) => !MACRO_CBOE.includes(t as CboeVolIndex) && t !== "DXY" && t !== "SPX"),
     until,
   );
   const macro = await refreshMacro(until);

@@ -1,0 +1,1011 @@
+.review {
+  --ink: #e8ece9;
+  --sub: #97a09e;
+  --line: #2b3434;
+  --mint: #9ed6bc;
+  color: var(--ink);
+  font-size: 14px;
+}
+.review :is(button, select, input, summary, a):focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 4px;
+}
+.review button,
+.review select,
+.review summary {
+  cursor: pointer;
+}
+.review button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.review small,
+.muted {
+  color: var(--sub);
+}
+.numeric,
+.score,
+.review td,
+.review strong {
+  font-variant-numeric: tabular-nums;
+}
+.review th,
+.review td {
+  border-color: var(--line);
+  padding: 12px 13px;
+  white-space: nowrap;
+}
+.review th {
+  font-size: 11px;
+  font-weight: 500;
+}
+.review td {
+  font-size: 12px;
+}
+.review td:first-child {
+  color: #dce3df;
+}
+.review td small {
+  font-size: 10px;
+}
+.up {
+  color: #89d6b0;
+}
+.down {
+  color: #f59a95;
+}
+.masthead {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 24px;
+  padding: 6px 0 25px;
+}
+.eyebrow {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.17em;
+  color: var(--mint);
+  margin: 0 0 15px;
+}
+.masthead h1 {
+  font-size: clamp(27px, 4vw, 38px);
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  line-height: 1.2;
+  margin: 0;
+}
+.masthead h1 span {
+  font-family: Georgia, "Times New Roman", serif;
+  font-style: italic;
+  font-weight: 400;
+  color: var(--sub);
+  margin-left: 16px;
+  font-size: 0.75em;
+}
+.datePicker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 8px;
+}
+.datePicker select {
+  background: transparent;
+  font:
+    12px ui-monospace,
+    monospace;
+  max-width: 135px;
+}
+.datePicker option,
+.filters option {
+  background: #181d1d;
+}
+.datePicker button {
+  background: transparent;
+  color: var(--sub);
+  border: 0;
+  padding: 3px;
+}
+.edition {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--sub);
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+.anchors {
+  display: flex;
+  overflow-x: auto;
+  gap: 24px;
+  padding: 24px 0;
+  font-size: 12px;
+  color: var(--sub);
+}
+.anchors a {
+  white-space: nowrap;
+  text-decoration: none;
+}
+.anchors a:hover {
+  color: var(--mint);
+}
+.marketHero,
+.section {
+  scroll-margin-top: 86px;
+}
+.marketHero {
+  border: 1px solid var(--line);
+  background: linear-gradient(125deg, #172522 0%, #141b1b 55%, #15191c 100%);
+}
+.heroLead {
+  padding: 32px 32px 26px;
+  display: flex;
+  justify-content: space-between;
+  gap: 30px;
+}
+.heroLead h2 {
+  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-size: clamp(30px, 5vw, 46px);
+  letter-spacing: -0.065em;
+  font-weight: 500;
+  margin: 0 0 14px;
+  display: flex;
+  align-items: center;
+  gap: 17px;
+}
+.statusDot {
+  background: currentColor;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 6px #91b9a611;
+}
+.heroLead p:not(.eyebrow) {
+  font-size: 13px;
+  color: #bcc8c4;
+  margin: 0;
+  line-height: 1.8;
+  max-width: 580px;
+}
+.observation {
+  border-left: 1px solid #3e4d48;
+  padding-left: 15px;
+  line-height: 1.9;
+  font-size: 10px;
+  color: #a9b9b2;
+  align-self: center;
+  white-space: nowrap;
+}
+.tickerStrip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin: 0 32px;
+  padding: 24px 0;
+  border-block: 1px solid #34433e;
+}
+.tickerStrip > div {
+  padding-left: 28px;
+  border-left: 1px solid #34433e;
+  display: grid;
+  gap: 8px;
+}
+.tickerStrip > div:first-child {
+  border: 0;
+  padding-left: 0;
+}
+.tickerStrip h3 {
+  font-size: 12px;
+  letter-spacing: 0.09em;
+  margin: 0;
+  font-weight: 600;
+}
+.tickerStrip strong {
+  font-family: ui-monospace, monospace;
+  font-size: clamp(19px, 3.4vw, 32px);
+  font-weight: 400;
+  letter-spacing: -0.07em;
+}
+.tickerStrip span {
+  color: var(--sub);
+  font-size: 12px;
+}
+.marketBottom {
+  display: grid;
+  grid-template-columns: 1.65fr 1fr;
+  padding: 22px 20px;
+  gap: 34px;
+}
+.marketBottom aside {
+  border-left: 1px solid var(--line);
+  padding: 15px 10px 10px 28px;
+}
+.marketBottom aside h3 {
+  font-size: 12px;
+  font-weight: 500;
+  margin: 0 0 22px;
+}
+.breadthNumber {
+  font:
+    48px ui-monospace,
+    monospace;
+  color: var(--mint);
+  letter-spacing: -0.09em;
+}
+.breadthNumber small {
+  font-size: 20px;
+  margin-left: 3px;
+}
+.marketBottom aside p {
+  color: var(--sub);
+  font-size: 11px;
+  margin: 12px 0;
+}
+.marketBottom aside small {
+  font-size: 10px;
+  line-height: 1.9;
+  display: block;
+}
+.breadthBar {
+  background: #663d3b;
+  height: 5px;
+  margin: 20px 0;
+}
+.breadthBar i {
+  display: block;
+  height: 100%;
+  background: #89d6b0;
+}
+.section {
+  margin-top: 52px;
+}
+.sectionHead,
+.sectionTitle {
+  display: flex;
+  gap: 14px;
+  align-items: baseline;
+}
+.sectionHead {
+  justify-content: space-between;
+  padding-bottom: 20px;
+}
+.index {
+  color: #70847b;
+  font:
+    11px ui-monospace,
+    monospace;
+}
+.section h2 {
+  font-size: 21px;
+  font-weight: 500;
+  letter-spacing: -0.025em;
+  margin: 0;
+}
+.sectionHead p {
+  font-size: 11px;
+  color: var(--sub);
+  margin: 7px 0 0;
+  line-height: 1.7;
+}
+.optionsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid var(--line);
+}
+.optionCard {
+  padding: 20px 15px 15px;
+  background: #151a1b;
+  border-right: 1px solid var(--line);
+  min-width: 0;
+}
+.optionCard:last-child {
+  border: 0;
+}
+.optionTitle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.optionTitle h3 {
+  font:
+    600 16px ui-monospace,
+    monospace;
+  margin: 0;
+}
+.tag {
+  color: var(--sub);
+  border: 1px solid var(--line);
+  padding: 3px 5px;
+  font-size: 9px;
+  white-space: nowrap;
+}
+.optionSpot {
+  font:
+    24px ui-monospace,
+    monospace;
+  margin: 23px 0 20px;
+  letter-spacing: -0.07em;
+}
+.optionSpot span {
+  display: block;
+  color: var(--sub);
+  font:
+    10px ui-monospace,
+    monospace;
+  margin-top: 7px;
+  letter-spacing: 0;
+}
+.optionCard th,
+.optionCard td {
+  padding: 9px 2px;
+  font-size: 10px;
+}
+.optionCard th:not(:first-child),
+.optionCard td:not(:first-child) {
+  text-align: right;
+}
+.optionChanges {
+  min-height: 70px;
+  padding: 14px 0 6px;
+  color: #baccc2;
+  font-size: 10px;
+  line-height: 1.8;
+}
+.optionChanges p {
+  margin: 0 0 4px;
+}
+.optionCard > small {
+  font-size: 9px;
+}
+.note {
+  font-size: 10px;
+  line-height: 1.9;
+  color: var(--sub);
+  margin: 13px 0 0;
+}
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 17px;
+  font-size: 10px;
+}
+.segment {
+  display: flex;
+  border: 1px solid var(--line);
+  padding: 3px;
+  border-radius: 4px;
+}
+.segment button {
+  background: transparent;
+  border: 0;
+  color: var(--sub);
+  padding: 5px 18px;
+  font:
+    11px ui-monospace,
+    monospace;
+  border-radius: 2px;
+}
+.segment button[aria-pressed="true"] {
+  background: #2c3a34;
+  color: #c7e9d7;
+}
+.strengthLeads {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 34px;
+  padding: 21px 25px;
+  background: #161c1c;
+  border-block: 1px solid var(--line);
+  margin-bottom: 12px;
+}
+.strengthLeads h3 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font:
+    11px ui-monospace,
+    monospace;
+  margin: 0 0 15px;
+}
+.strengthLeads > div > div {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  margin: 10px 0;
+}
+.strengthLeads small {
+  margin-left: 6px;
+  font-size: 10px;
+}
+.tableWrap {
+  width: 100%;
+  overflow-x: auto;
+}
+.rpsCell {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.rpsCell b {
+  min-width: 34px;
+  font-weight: 400;
+}
+.rpsCell > span {
+  width: 75px;
+  height: 3px;
+  background: #293530;
+}
+.rpsCell i {
+  height: 100%;
+  display: block;
+  background: #8daf9c;
+}
+.buyGrid,
+.accountsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+.buyPanel,
+.account {
+  padding: 23px 19px;
+  background: #161b1c;
+  border: 1px solid var(--line);
+  min-width: 0;
+}
+.buyPanel > header,
+.account > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.buyPanel h3,
+.account h3 {
+  font:
+    500 25px ui-monospace,
+    monospace;
+  margin: 0;
+}
+.buyPanel h3 span,
+.account h3 span {
+  display: block;
+  font:
+    10px ui-monospace,
+    monospace;
+  color: var(--sub);
+  margin-top: 6px;
+}
+.buyPanel header > div {
+  display: grid;
+  text-align: right;
+  gap: 2px;
+}
+.buyPanel header b {
+  font:
+    32px ui-monospace,
+    monospace;
+  color: var(--mint);
+}
+.buyPanel header span {
+  color: var(--sub);
+  font-size: 10px;
+}
+.buckets {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  padding: 18px 0;
+  margin-top: 20px;
+  border-block: 1px solid var(--line);
+}
+.buckets > div {
+  display: grid;
+  gap: 6px;
+  text-align: center;
+  border-left: 1px solid var(--line);
+}
+.buckets > div:first-child {
+  border: 0;
+}
+.buckets b {
+  font:
+    19px ui-monospace,
+    monospace;
+}
+.buckets span {
+  font-size: 9px;
+  color: var(--sub);
+}
+.factorTable {
+  margin-top: 10px;
+}
+.factorTable :is(th, td) {
+  padding: 10px 5px;
+  font-size: 10px;
+}
+.score {
+  color: #ddebd8;
+  font:
+    18px ui-monospace,
+    monospace;
+}
+.score small {
+  display: block;
+  font:
+    9px ui-monospace,
+    monospace;
+  margin-top: 4px;
+}
+.version {
+  display: block;
+  color: var(--sub);
+  font-size: 9px;
+}
+.signalDetail {
+  white-space: normal;
+  min-width: 80px;
+}
+.signalDetail summary {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.signalDetail summary small {
+  display: block;
+  font-weight: 400;
+  margin-top: 3px;
+}
+.signalDetail > div {
+  width: 265px;
+  max-width: 75vw;
+  padding-top: 6px;
+}
+.signalDetail p {
+  line-height: 1.75;
+  font-size: 10px;
+  color: var(--sub);
+  padding-bottom: 6px;
+}
+.signalDetail b {
+  color: #c8d4cd;
+}
+.empty {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 20px;
+  color: #8f9d98;
+  border: 1px dashed var(--line);
+  margin: 16px 0;
+  line-height: 1.9;
+  font-size: 12px;
+}
+.empty svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+.empty p {
+  margin: 0;
+  max-width: 540px;
+}
+.accountReturn {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-top: 28px;
+}
+.accountReturn strong {
+  font:
+    38px ui-monospace,
+    monospace;
+  letter-spacing: -0.07em;
+}
+.accountReturn > div {
+  display: grid;
+  gap: 5px;
+  font-size: 10px;
+  color: var(--sub);
+}
+.accountStats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin-top: 27px;
+  gap: 12px;
+}
+.accountStats > div {
+  display: grid;
+  gap: 10px;
+}
+.accountStats > div > span:first-child {
+  font-size: 10px;
+  color: var(--sub);
+}
+.accountStats b {
+  font-size: 15px;
+  font-weight: 400;
+}
+.sparkline {
+  width: 100%;
+  height: 100px;
+  margin: 14px 0 5px;
+  color: #92b8a2;
+}
+.attribution {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+  margin-top: 17px;
+}
+.attribution h4 {
+  font-size: 11px;
+  font-weight: 500;
+  margin: 0 0 13px;
+}
+.attribution p {
+  font-size: 11px;
+  display: flex;
+  justify-content: space-between;
+  margin: 9px 0;
+}
+.attribution small {
+  font-size: 10px;
+  line-height: 1.8;
+  display: block;
+  margin-top: 14px;
+}
+.account footer {
+  margin-top: 18px;
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--sub);
+  font-size: 9px;
+}
+.account footer a {
+  color: var(--mint);
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.journalHeadline {
+  display: flex;
+  justify-content: space-between;
+  gap: 30px;
+  padding: 22px 26px;
+  border-block: 1px solid var(--line);
+  background: #19221e;
+}
+.journalHeadline > div > span {
+  font-size: 11px;
+  color: var(--sub);
+}
+.journalHeadline strong {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  font:
+    31px ui-monospace,
+    monospace;
+  margin-top: 12px;
+  color: var(--mint);
+}
+.journalHeadline small {
+  font:
+    10px ui-sans-serif,
+    sans-serif;
+}
+.journalHeadline p {
+  font-size: 13px;
+  line-height: 2.1;
+}
+.journalHeadline p span {
+  color: var(--sub);
+  font-size: 10px;
+}
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 24px 0;
+}
+.filters label {
+  color: var(--sub);
+  font-size: 10px;
+  display: grid;
+  gap: 7px;
+  flex: 1 1 115px;
+}
+.filters select,
+.filters input {
+  background: #161b1c;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 8px;
+  color: var(--ink);
+  font-size: 11px;
+  width: 100%;
+  min-width: 0;
+}
+.pending {
+  color: #83908a;
+  font-size: 10px;
+}
+.pagination {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 15px;
+  font-size: 11px;
+  color: var(--sub);
+  padding: 17px 0;
+}
+.pagination > span:first-child {
+  margin-right: auto;
+}
+.pagination button {
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line);
+  padding: 4px 8px;
+}
+.study {
+  border-top: 1px solid var(--line);
+  margin-top: 16px;
+  padding-top: 23px;
+}
+.study h3 {
+  font-size: 14px;
+  font-weight: 500;
+  margin: 0 0 14px;
+}
+.study h3 span {
+  margin-left: 9px;
+  color: var(--sub);
+  font-size: 10px;
+}
+.research {
+  margin-top: 18px;
+}
+.research summary {
+  color: var(--mint);
+  font-size: 11px;
+  padding: 12px 0;
+}
+.research h4 {
+  font-size: 12px;
+  margin-top: 26px;
+}
+.tomorrow {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border-block: 1px solid #43514a;
+  background: #18201d;
+  padding: 26px 0;
+}
+.tomorrow > div {
+  padding: 0 23px;
+  border-left: 1px solid var(--line);
+}
+.tomorrow > div:first-child {
+  border: 0;
+}
+.tomorrow h3 {
+  font:
+    11px ui-monospace,
+    monospace;
+  color: var(--mint);
+  margin: 0 0 24px;
+}
+.tomorrow > div > p {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+  line-height: 1.8;
+  margin: 14px 0;
+}
+.tomorrow > div > p span {
+  text-align: right;
+  color: #aebeb5;
+}
+.watchGroup {
+  margin-bottom: 21px;
+}
+.watchGroup h4 {
+  color: var(--sub);
+  font-size: 10px;
+  font-weight: 400;
+  margin: 0 0 8px;
+}
+.watchGroup p {
+  font-size: 12px;
+  line-height: 1.8;
+  margin: 0;
+}
+.tomorrow small {
+  line-height: 1.8;
+  font-size: 10px;
+}
+.method {
+  margin-top: 38px;
+  border-block: 1px solid var(--line);
+  padding: 17px 0;
+}
+.method summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--sub);
+  font-size: 11px;
+}
+.method summary span {
+  margin-left: auto;
+  color: #d5b986;
+}
+.method > div {
+  padding: 10px 20px;
+  font-size: 11px;
+  line-height: 1.9;
+  color: var(--sub);
+}
+.method .warning {
+  color: #d5b986;
+}
+.notice {
+  padding: 15px 18px;
+  background: #2d281e;
+  border: 1px solid #514531;
+  color: #e1c89b;
+  font-size: 12px;
+  line-height: 1.9;
+  margin-bottom: 20px;
+}
+.footer {
+  display: flex;
+  justify-content: space-between;
+  color: #65766d;
+  font-size: 10px;
+  font-family: ui-monospace, monospace;
+  margin-top: 25px;
+  padding-bottom: 20px;
+}
+@media (max-width: 1050px) {
+  .optionsGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .optionCard:nth-child(2) {
+    border-right: 0;
+  }
+  .optionCard:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--line);
+  }
+  .optionCard th,
+  .optionCard td {
+    font-size: 12px;
+  }
+  .buyGrid {
+    grid-template-columns: 1fr;
+  }
+  .factorTable :is(th, td) {
+    font-size: 12px;
+    padding: 12px 8px;
+  }
+}
+@media (max-width: 720px) {
+  .masthead {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 20px;
+  }
+  .masthead h1 span {
+    margin-left: 10px;
+  }
+  .edition {
+    flex-direction: column;
+    gap: 6px;
+  }
+  .anchors {
+    gap: 18px;
+  }
+  .heroLead {
+    padding: 23px 20px;
+    gap: 12px;
+  }
+  .observation {
+    display: none;
+  }
+  .tickerStrip {
+    margin: 0 20px;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px 0;
+    padding: 20px 0;
+  }
+  .tickerStrip > div:nth-child(3) {
+    padding-left: 0;
+    border: 0;
+  }
+  .marketBottom {
+    grid-template-columns: 1fr;
+    padding: 16px 8px;
+    gap: 10px;
+  }
+  .marketBottom aside {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    margin: 0 12px;
+    padding: 20px 0 0;
+  }
+  .marketBottom aside h3 {
+    margin-bottom: 12px;
+  }
+  .breadthNumber {
+    font-size: 36px;
+  }
+  .optionsGrid,
+  .accountsGrid,
+  .strengthLeads,
+  .tomorrow {
+    grid-template-columns: 1fr;
+  }
+  .optionCard {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    padding: 22px;
+  }
+  .optionChanges {
+    min-height: 0;
+  }
+  .strengthLeads {
+    gap: 20px;
+  }
+  .strengthLeads > div + div {
+    border-top: 1px solid var(--line);
+    padding-top: 20px;
+  }
+  .section {
+    margin-top: 38px;
+  }
+  .section h2 {
+    font-size: 20px;
+  }
+  .accountReturn strong {
+    font-size: 33px;
+  }
+  .accountStats {
+    gap: 7px;
+  }
+  .journalHeadline {
+    flex-direction: column;
+    gap: 12px;
+    padding: 22px;
+  }
+  .journalHeadline p {
+    margin: 0;
+  }
+  .tomorrow > div {
+    border-left: 0;
+    margin-top: 22px;
+    padding-top: 22px;
+    border-top: 1px solid var(--line);
+  }
+  .tomorrow > div:first-child {
+    padding-top: 0;
+    margin-top: 0;
+  }
+  .method summary {
+    flex-wrap: wrap;
+  }
+  .method summary span {
+    margin-left: 0;
+  }
+  .footer {
+    flex-direction: column;
+    gap: 10px;
+  }
+}

@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "review:build": "npx --yes tsx scripts/build-daily-review.ts",
     "theta:setup": "bash scripts/theta.sh setup",
     "theta:auth": "bash scripts/theta.sh auth",
     "theta:serve": "bash scripts/theta.sh serve",

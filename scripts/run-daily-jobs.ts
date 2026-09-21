@@ -2,13 +2,12 @@ import "dotenv/config";
 
 import { runMacroPhaseJob } from "@/lib/jobs/macroPhase";
 import { runOpportunityJob } from "@/lib/jobs/opportunity";
-import { runRotationRadarJob } from "@/lib/jobs/rotationRadar";
 import { runFundScoreJob } from "@/lib/jobs/fundScore";
 
 /**
  * 按依赖顺序跑完每日量化任务链。
  *
- * `macro-phase` 写出 snapshots/mpr.json，`rotation-radar` 读它。
+ * `macro-phase` 写出 snapshots/mpr.json；每日复盘由收盘链在账本更新后生成。
  * 日线从 VPS CSV 读，结果写回 snapshots/。
  */
 
@@ -26,7 +25,6 @@ type Step = {
 
 const STEPS: Step[] = [
   { name: "macro-phase", run: runMacroPhaseJob },
-  { name: "rotation-radar", run: runRotationRadarJob },
   { name: "opportunity", run: runOpportunityJob, soft: true },
   { name: "fund-score", run: () => runFundScoreJob(), soft: true },
 ];

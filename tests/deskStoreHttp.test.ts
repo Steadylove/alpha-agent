@@ -28,6 +28,9 @@ it("入场快照按交易身份隔离、鉴权、不可覆盖，并发重试不�
   expect((await put(stored)).status).toBe(200);
   expect((await put({ ...stored, capturedAt: "later" })).status).toBe(409);
   expect(await (await fetch(url, { headers })).json()).toEqual(stored);
+  expect((await fetch(`${base}/signal-entry-index.json`)).status).toBe(401);
+  expect(await (await fetch(`${base}/signal-entry-index.json`, { headers })).json()).toEqual([id]);
+  expect((await fetch(`${base}/signal-entry-index.json`, { method: "PUT", headers, body: "[]" })).status).toBe(404);
 });
 beforeAll(async () => {
   dir = mkdtempSync(path.join(tmpdir(), "desk-http-"));

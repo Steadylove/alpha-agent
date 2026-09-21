@@ -97,6 +97,16 @@ createServer((req, res) => {
     } catch { deny(res, 500, "cannot read book history"); }
     return;
   }
+  if (req.method === "GET" && name === "signal-entry-index.json") {
+    if (!authorized(req)) { deny(res, 401, "unauthorized"); return; }
+    try {
+      const dir = `${DIR}/signal-entries`;
+      const ids = existsSync(dir) ? readdirSync(dir).filter(f => /^[a-f0-9]{64}\.json$/.test(f)).map(f => f.slice(0, -5)).sort() : [];
+      res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+      res.end(JSON.stringify(ids));
+    } catch { deny(res, 500, "cannot read signal index"); }
+    return;
+  }
   const version = VERSION.exec(name);
   if (req.method === "GET" && version) {
     const archived = `${DIR}/${name}`;

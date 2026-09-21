@@ -1,0 +1,1353 @@
+"use client";
+
+import { useMemo, useState, type ReactNode } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import {
+  ArrowDownRight,
+  ArrowRight,
+  ArrowUpRight,
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  CircleHelp,
+  ScanLine,
+} from "lucide-react";
+import type {
+  DailyReview as Review,
+  JournalSignal,
+  OptionsRow,
+  Outcome,
+  ReviewAccount,
+  SectorStrength,
+} from "@/lib/review/types";
+import { cohort, correlation, type Cohort } from "@/lib/review/journal";
+import styles from "./review.module.css";
+
+const number = (v: number | null | undefined, digits = 2) =>
+  v == null
+    ? "—"
+    : v.toLocaleString("en-US", {
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits,
+      });
+const signed = (v: number | null | undefined, suffix = "%", digits = 2) =>
+  v == null
+    ? "—"
+    : `${Number(v.toFixed(digits)) > 0 ? "+" : ""}${number(Number(v.toFixed(digits)), digits)}${suffix}`;
+const tone = (v: number | null | undefined) =>
+  v == null || v === 0 ? styles.muted : v > 0 ? styles.up : styles.down;
+const gex = (v: number | null | undefined) =>
+  v == null
+    ? "—"
+    : `${v < 0 ? "−" : "+"}$${number(Math.abs(v) / (Math.abs(v) >= 1e9 ? 1e9 : 1e6), 2)}${Math.abs(v) >= 1e9 ? "B" : "M"}`;
+const time = (stamp: number | string) =>
+  new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "America/New_York",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date(stamp));
+const FACTORS = [
+  { label: "CVD", name: "量价压力" },
+  { label: "RPS", name: "强度" },
+  { label: "Position", name: "位置" },
+  { label: "Volume", name: "成交分布" },
+  { label: "Sector", name: "板块共振" },
+];
+
+function Section({
+  id,
+  n,
+  title,
+  subtitle,
+  children,
+  action,
+}: {
+  id: string;
+  n: string;
+  title: string;
+  subtitle: string;
+  children: ReactNode;
+  action?: ReactNode;
+}) {
+  return (
+    <section id={id} className={styles.section}>
+      <header className={styles.sectionHead}>
+        <div className={styles.sectionTitle}>
+          <span className={styles.index}>{n}</span>
+          <div>
+            <h2>{title}</h2>
+            <p>{subtitle}</p>
+          </div>
+        </div>
+        {action}
+      </header>
+      {children}
+    </section>
+  );
+}
+function Empty({ children }: { children: ReactNode }) {
+  return (
+    <div className={styles.empty}>
+      <ScanLine size={20} aria-hidden />
+      <p>{children}</p>
+    </div>
+  );
+}
+function Change({
+  value,
+  suffix = "%",
+}: {
+  value: number | null | undefined;
+  suffix?: string;
+}) {
+  return (
+    <span className={`${styles.numeric} ${tone(value)}`}>
+      {signed(value, suffix)}
+    </span>
+  );
+}
+function DatePicker({
+  dates,
+  selected,
+}: {
+  dates: string[];
+  selected?: string;
+}) {
+  const router = useRouter(),
+    i = dates.indexOf(selected ?? dates[0]);
+  return (
+    <div className={styles.datePicker}>
+      <button
+        aria-label="前一份复盘"
+        disabled={i < 0 || i >= dates.length - 1}
+        onClick={() => router.push(`/?date=${dates[i + 1]}`)}
+      >
+        <ChevronLeft size={16} />
+      </button>
+      <CalendarDays size={15} aria-hidden />
+      <select
+        aria-label="复盘交易日（美东）"
+        value={selected ?? dates[0] ?? ""}
+        onChange={(e) => router.push(`/?date=${e.target.value}`)}
+      >
+        {!dates.length && <option value="">等待首份复盘</option>}
+        {dates.map((d) => (
+          <option key={d} value={d}>
+            {d}
+          </option>
+        ))}
+      </select>
+      <button
+        aria-label="后一份复盘"
+        disabled={i <= 0}
+        onClick={() => router.push(`/?date=${dates[i - 1]}`)}
+      >
+        <ChevronRight size={16} />
+      </button>
+    </div>
+  );
+}
+
+function OptionsCard({ row }: { row: OptionsRow }) {
+  const now = row.today,
+    past = row.previous;
+  return (
+    <article className={styles.optionCard}>
+      <div className={styles.optionTitle}>
+        <h3>{row.symbol}</h3>
+        <span className={styles.tag}>
+          {now ? `${row.dte ?? "DTE 未知"} · 延时` : "快照缺失"}
+        </span>
+      </div>
+      <div className={styles.optionSpot}>
+        {number(now?.spot)}
+        <span>Current</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>结构</th>
+            <th>今日</th>
+            <th>较前日</th>
+          </tr>
+        </thead>
+        <tbody>
+          {(
+            [
+              ["gamma_flip", "Gamma Flip"],
+              ["put_wall", "Put Wall"],
+              ["call_wall", "Call Wall"],
+            ] as const
+          ).map(([key, label]) => (
+            <tr key={key}>
+              <td>{label}</td>
+              <td>{number(now?.[key])}</td>
+              <td>
+                <Change
+                  value={
+                    now?.[key] != null && past?.[key] != null
+                      ? now[key]! - past[key]!
+                      : null
+                  }
+                  suffix=""
+                />
+              </td>
+            </tr>
+          ))}
+          <tr>
+            <td>Net GEX</td>
+            <td className={tone(now?.net_gex)}>{gex(now?.net_gex)}</td>
+            <td>{now && past ? gex(now.net_gex - past.net_gex) : "—"}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div className={styles.optionChanges}>
+        {row.changes.length ? (
+          row.changes.map((t) => <p key={t}>{t}</p>)
+        ) : (
+          <p>
+            {now
+              ? "缺少可比前日快照，暂不判断结构移动。"
+              : "无当日数据，未沿用旧价位。"}
+          </p>
+        )}
+      </div>
+      {now && <small>报价时间 {now.as_of?.replace("T", " ")} · ET</small>}
+    </article>
+  );
+}
+
+function Sectors({ rows }: { rows: SectorStrength[] }) {
+  const [horizon, setHorizon] = useState<"d1" | "d5" | "d20">("d5");
+  const sorted = [...rows].sort(
+    (a, b) => (b[horizon] ?? -Infinity) - (a[horizon] ?? -Infinity),
+  );
+  const gainers = sorted
+    .filter((s) => s[horizon] != null && s[horizon]! > 0)
+    .slice(0, 3);
+  const losers = [...sorted]
+    .reverse()
+    .filter((s) => s[horizon] != null && s[horizon]! < 0)
+    .slice(0, 3);
+  return (
+    <>
+      <div className={styles.toolbar}>
+        <div className={styles.segment} aria-label="强度变化周期">
+          {(["d1", "d5", "d20"] as const).map((h) => (
+            <button
+              key={h}
+              aria-pressed={horizon === h}
+              onClick={() => setHorizon(h)}
+            >
+              {h.slice(1)}D
+            </button>
+          ))}
+        </div>
+        <span className={styles.muted}>变化单位：RPS 百分位点</span>
+      </div>
+      <div className={styles.strengthLeads}>
+        {[
+          {
+            label: "Strength gainers",
+            list: gainers,
+            icon: ArrowUpRight,
+            cls: styles.up,
+          },
+          {
+            label: "Strength losers",
+            list: losers,
+            icon: ArrowDownRight,
+            cls: styles.down,
+          },
+        ].map((g) => (
+          <div key={g.label}>
+            <h3 className={g.cls}>
+              <g.icon size={16} />
+              {g.label}
+            </h3>
+            {g.list.length ? (
+              g.list.map((s) => (
+                <div key={s.symbol}>
+                  <span>
+                    {s.name} <small>{s.symbol}</small>
+                  </span>
+                  <Change value={s[horizon]} suffix=" pt" />
+                </div>
+              ))
+            ) : (
+              <p className={styles.muted}>暂无可核验的变化</p>
+            )}
+          </div>
+        ))}
+      </div>
+      <div className={styles.tableWrap}>
+        <table>
+          <thead>
+            <tr>
+              <th>板块 / 行业</th>
+              <th>今日 RPS</th>
+              <th>1D 变化</th>
+              <th>5D 变化</th>
+              <th>20D 变化</th>
+              <th>今日涨跌</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[...rows]
+              .sort((a, b) => (b.rps ?? -1) - (a.rps ?? -1))
+              .map((s) => (
+                <tr key={s.symbol}>
+                  <td>
+                    <b>{s.name}</b> <small>{s.symbol}</small>
+                  </td>
+                  <td>
+                    <div className={styles.rpsCell}>
+                      <b>{number(s.rps, 1)}</b>
+                      <span>
+                        {s.rps != null && <i style={{ width: `${s.rps}%` }} />}
+                      </span>
+                    </div>
+                  </td>
+                  <td>
+                    <Change value={s.d1} suffix="" />
+                  </td>
+                  <td>
+                    <Change value={s.d5} suffix="" />
+                  </td>
+                  <td>
+                    <Change value={s.d20} suffix="" />
+                  </td>
+                  <td>
+                    <Change value={s.change} />
+                  </td>
+                </tr>
+              ))}
+          </tbody>
+        </table>
+      </div>
+      <p className={styles.note}>
+        固定 14 只板块／行业 ETF，按过去 20 个交易日涨幅做截面排名。RPS
+        变化比较同一批标的；样本缺失不缩小分母。与买点评分中个股 RPS
+        的口径不同。
+      </p>
+    </>
+  );
+}
+
+function Score({ signal: s }: { signal: JournalSignal }) {
+  return (
+    <span className={styles.score}>
+      {number(s.quality.points, 1)}
+      {!s.quality.complete && <small> / {s.quality.available} · 未齐</small>}
+    </span>
+  );
+}
+function SignalDetail({ signal: s }: { signal: JournalSignal }) {
+  return (
+    <details className={styles.signalDetail}>
+      <summary>
+        {s.symbol} <small>{time(s.signalTime)} ET</small>
+      </summary>
+      <div>
+        <p>
+          {s.quality.version.toUpperCase()} · 触发价 ${number(s.price)} ·{" "}
+          {s.source === "live" ? "当时留档" : "延迟 / 重放记录"}
+        </p>
+        {s.quality.dimensions.map((d) => (
+          <p key={d.name}>
+            <b>
+              {d.name} {number(d.points, 1)} / {d.max}
+            </b>
+            <br />
+            {d.reason}
+          </p>
+        ))}
+        <p>
+          当时已知市场：
+          {s.context
+            ? `${s.context.regime}（${s.context.date} 收盘复盘）`
+            : "未留档"}{" "}
+          · 板块：{s.sector ?? "未留档"}
+        </p>
+      </div>
+    </details>
+  );
+}
+function BuyPoints({ signals }: { signals: JournalSignal[] }) {
+  return (
+    <div className={styles.buyGrid}>
+      {(["2h", "4h"] as const).map((tf) => {
+        const rows = signals.filter((s) => s.tf === tf && s.source === "live");
+        const complete = rows.filter((s) => s.quality.complete),
+          incomplete = rows.length - complete.length;
+        const buckets = [
+          complete.filter((s) => s.quality.points >= 80).length,
+          complete.filter(
+            (s) => s.quality.points >= 70 && s.quality.points < 80,
+          ).length,
+          complete.filter(
+            (s) => s.quality.points >= 60 && s.quality.points < 70,
+          ).length,
+          complete.filter((s) => s.quality.points < 60).length,
+        ];
+        const ranked = [...rows]
+          .sort(
+            (a, b) =>
+              Number(b.quality.complete) - Number(a.quality.complete) ||
+              b.quality.points - a.quality.points,
+          )
+          .slice(0, 10);
+        const legacyRisk = ranked.some(
+          (s) => s.quality.version !== "quality-v5",
+        );
+        return (
+          <article key={tf} className={styles.buyPanel}>
+            <header>
+              <h3>
+                {tf.toUpperCase()} <span>Buy points</span>
+              </h3>
+              <div>
+                <b>{rows.length}</b>
+                <span>条已留档信号</span>
+              </div>
+            </header>
+            <div className={styles.buckets}>
+              {["≥ 80", "70–79", "60–69", "< 60"].map((label, i) => (
+                <div key={label}>
+                  <b>{buckets[i]}</b>
+                  <span>{label} 分</span>
+                </div>
+              ))}
+            </div>
+            <p className={styles.note}>
+              未齐评分 {incomplete} 条 · 排名使用触发时分数，点股票查看原因。
+            </p>
+            {ranked.length ? (
+              <div className={styles.tableWrap}>
+                <table className={styles.factorTable}>
+                  <thead>
+                    <tr>
+                      <th>Top 10</th>
+                      <th>总分</th>
+                      {FACTORS.map((f) => (
+                        <th key={f.name}>
+                          {f.label === "Sector" && legacyRisk
+                            ? "Sector / 止损*"
+                            : f.label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ranked.map((s) => (
+                      <tr key={s.id}>
+                        <td>
+                          <SignalDetail signal={s} />
+                        </td>
+                        <td>
+                          <Score signal={s} />
+                          <small className={styles.version}>
+                            {s.quality.version.replace("quality-", "")}
+                          </small>
+                        </td>
+                        {FACTORS.map((f) => {
+                          const name =
+                            f.name === "量价压力" &&
+                            s.quality.version !== "quality-v5"
+                              ? "CVD背离"
+                              : f.name === "板块共振" &&
+                                  s.quality.version !== "quality-v5"
+                                ? "风险"
+                                : f.name;
+                          return (
+                            <td key={f.name} title={name}>
+                              {number(
+                                s.quality.dimensions.find(
+                                  (d) => d.name === name,
+                                )?.points,
+                                1,
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <Empty>
+                该日还没有收到并留档的 {tf.toUpperCase()}{" "}
+                买点。此数量不代表扫描器确认“零买点”。
+              </Empty>
+            )}
+            {legacyRisk && (
+              <p className={styles.note}>
+                * 旧版最后一项为止损评分；V5
+                为板块共振。展开股票可核对完整原始维度，旧版没有的因子保持空缺。
+              </p>
+            )}
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+function Sparkline({ points }: { points: ReviewAccount["curve"] }) {
+  if (points.length < 2) return null;
+  const values = points.map((p) => p.equity),
+    lo = Math.min(...values),
+    hi = Math.max(...values),
+    span = hi - lo || 1;
+  const line = values
+    .map(
+      (v, i) =>
+        `${(i / (values.length - 1)) * 420},${64 - ((v - lo) / span) * 52}`,
+    )
+    .join(" ");
+  return (
+    <svg
+      viewBox="0 0 420 76"
+      className={styles.sparkline}
+      role="img"
+      aria-label={`最近 ${points.length} 个交易日账本净值曲线`}
+    >
+      <path d="M0 68H420" stroke="currentColor" opacity=".12" />
+      <polyline
+        points={line}
+        stroke="currentColor"
+        fill="none"
+        strokeWidth="2"
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
+  );
+}
+function Account({
+  account: a,
+  benchmark,
+}: {
+  account: ReviewAccount;
+  benchmark: number | null;
+}) {
+  return (
+    <article className={styles.account}>
+      <header>
+        <h3>
+          {a.tf.toUpperCase()} <span>Strategy account</span>
+        </h3>
+        <span className={styles.tag}>现金模型账本</span>
+      </header>
+      <div className={styles.accountReturn}>
+        <strong className={tone(a.daily)}>{signed(a.daily)}</strong>
+        <div>
+          <span>今日</span>
+          <small>SPY {signed(benchmark)}</small>
+        </div>
+      </div>
+      <div className={styles.accountStats}>
+        <div>
+          <span>本月</span>
+          <Change value={a.monthly} />
+        </div>
+        <div>
+          <span>当前持仓</span>
+          <b>{number(a.holdings, 0)}</b>
+        </div>
+        <div>
+          <span>现金比例</span>
+          <b>{a.cashPct == null ? "—" : `${number(a.cashPct, 1)}%`}</b>
+        </div>
+        <div>
+          <span>最大单仓</span>
+          <b>{a.maxWeight == null ? "—" : `${number(a.maxWeight, 1)}%`}</b>
+        </div>
+      </div>
+      <Sparkline points={a.curve} />
+      <div className={styles.attribution}>
+        <h4>今日表现来自哪里</h4>
+        {a.daily != null && benchmark != null && (
+          <p>
+            较 SPY {a.daily >= benchmark ? "领先" : "落后"}{" "}
+            {number(Math.abs(a.daily - benchmark))} 个百分点。
+          </p>
+        )}
+        {a.attribution.slice(0, 3).map((c) => (
+          <p key={c.symbol}>
+            <b>{c.symbol}</b>
+            <Change value={c.contribution} suffix=" pp" />
+          </p>
+        ))}
+        {a.attribution.length > 3 && (
+          <p>
+            <span>其余全天持仓</span>
+            <Change
+              value={a.attribution
+                .slice(3)
+                .reduce((sum, c) => sum + c.contribution, 0)}
+              suffix=" pp"
+            />
+          </p>
+        )}
+        {a.residual != null && (
+          <p>
+            <span>交易及未归因部分</span>
+            <Change value={a.residual} suffix=" pp" />
+          </p>
+        )}
+        <small>{a.note}</small>
+      </div>
+      <footer>
+        行情截至 {a.asOf?.replace("T", " ") ?? "未生成"}{" "}
+        <Link href="/fund">
+          查看账本 <ArrowRight size={13} />
+        </Link>
+      </footer>
+    </article>
+  );
+}
+
+function Result({ outcome: o }: { outcome: Outcome }) {
+  return o.status === "ready" ? (
+    <Change value={o.value} />
+  ) : (
+    <span className={styles.pending}>
+      {o.status === "pending" ? "待成熟" : "缺行情"}
+    </span>
+  );
+}
+function CohortTable({ rows }: { rows: Cohort[] }) {
+  return (
+    <div className={styles.tableWrap}>
+      <table>
+        <thead>
+          <tr>
+            <th>样本组</th>
+            <th>已成熟 / 待成熟 / 缺数据</th>
+            <th>T+5 均值</th>
+            <th>T+5 上涨比例</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.label}>
+              <td>{r.label}</td>
+              <td>
+                {r.n} / {r.pending} / {r.missing}
+              </td>
+              <td>
+                <Change value={r.mean} />
+              </td>
+              <td>{r.winRate == null ? "—" : `${number(r.winRate, 1)}%`}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function SignalJournal({
+  signals,
+  previousDate,
+  date,
+}: {
+  signals: JournalSignal[];
+  previousDate: string | null;
+  date: string;
+}) {
+  const [tf, setTf] = useState("all"),
+    [version, setVersion] = useState(
+      [...new Set(signals.map((s) => s.quality.version))].sort().at(-1) ??
+        "quality-v5",
+    ),
+    [minScore, setMinScore] = useState("0");
+  const [symbol, setSymbol] = useState(""),
+    [source, setSource] = useState("live"),
+    [page, setPage] = useState(0),
+    [since, setSince] = useState("");
+  const versions = [
+    ...new Set(["quality-v5", ...signals.map((s) => s.quality.version)]),
+  ]
+    .sort()
+    .reverse();
+  const filtered = useMemo(
+    () =>
+      signals.filter(
+        (s) =>
+          (tf === "all" || s.tf === tf) &&
+          s.quality.version === version &&
+          s.source === source &&
+          (!since || s.date >= since) &&
+          s.symbol.includes(symbol.trim().toUpperCase()) &&
+          (Number(minScore) === 0 ||
+            (s.quality.complete && s.quality.points >= Number(minScore))),
+      ),
+    [signals, tf, version, source, symbol, minScore, since],
+  );
+  const study = filtered.filter((s) => s.quality.complete);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / 20)),
+    currentPage = Math.min(page, pageCount - 1);
+  const yesterday = signals.filter(
+    (s) => s.date === previousDate && s.source === "live",
+  );
+  const readyYesterday = yesterday.filter(
+    (s) => s.outcomes.t1.status === "ready",
+  );
+  const groups = [
+    cohort("全部完整评分", study),
+    cohort(
+      "≥ 80 分",
+      study.filter((s) => s.quality.points >= 80),
+    ),
+    cohort(
+      "≥ 90 分",
+      study.filter((s) => s.quality.points >= 90),
+    ),
+    ...["2h", "4h"].map((t) =>
+      cohort(
+        t.toUpperCase(),
+        study.filter((s) => s.tf === t),
+      ),
+    ),
+  ];
+  const regimes = [...new Set(study.map((s) => s.context?.regime ?? "未留档"))];
+  const sectors = [...new Set(study.map((s) => s.sector ?? "未留档"))];
+  const factors = [
+    ...new Set(
+      filtered.flatMap((s) => s.quality.dimensions.map((d) => d.name)),
+    ),
+  ];
+  return (
+    <>
+      <div className={styles.journalHeadline}>
+        <div>
+          <span>上一交易日信号 · {previousDate ?? "—"}</span>
+          <strong>
+            {readyYesterday.length
+              ? `${readyYesterday.filter((s) => s.outcomes.t1.value! > 0).length} / ${readyYesterday.length}`
+              : "—"}
+            <small>T+1 上涨 / 已有结果</small>
+          </strong>
+        </div>
+        <p>
+          记录每一次判断，也保留失败。
+          <br />
+          <span>截至 {date} 收盘 · 待成熟与缺行情不进入收益分母</span>
+        </p>
+      </div>
+      <div className={styles.filters}>
+        <label>
+          周期
+          <select
+            value={tf}
+            onChange={(e) => {
+              setTf(e.target.value);
+              setPage(0);
+            }}
+          >
+            <option value="all">2H + 4H</option>
+            <option value="2h">2H</option>
+            <option value="4h">4H</option>
+          </select>
+        </label>
+        <label>
+          评分版本
+          <select
+            value={version}
+            onChange={(e) => {
+              setVersion(e.target.value as JournalSignal["quality"]["version"]);
+              setPage(0);
+            }}
+          >
+            {versions.map((v) => (
+              <option key={v}>{v}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          最低评分
+          <select
+            value={minScore}
+            onChange={(e) => {
+              setMinScore(e.target.value);
+              setPage(0);
+            }}
+          >
+            {[0, 60, 70, 80, 90].map((n) => (
+              <option value={n} key={n}>
+                {n === 0 ? "全部" : `≥ ${n} 分`}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          来源
+          <select
+            value={source}
+            onChange={(e) => {
+              setSource(e.target.value);
+              setPage(0);
+            }}
+          >
+            <option value="live">实时留档</option>
+            <option value="replay">延迟 / 重放</option>
+          </select>
+        </label>
+        <label>
+          起始日
+          <input
+            type="date"
+            value={since}
+            max={date}
+            onChange={(e) => {
+              setSince(e.target.value);
+              setPage(0);
+            }}
+          />
+        </label>
+        <label>
+          股票
+          <input
+            placeholder="搜索代码"
+            aria-label="搜索股票代码"
+            value={symbol}
+            onChange={(e) => {
+              setSymbol(e.target.value);
+              setPage(0);
+            }}
+          />
+        </label>
+      </div>
+      {filtered.length ? (
+        <>
+          <div className={styles.tableWrap}>
+            <table>
+              <thead>
+                <tr>
+                  <th>日期 / 股票</th>
+                  <th>周期</th>
+                  <th>买点分数</th>
+                  <th>T+1</th>
+                  <th>T+3</th>
+                  <th>T+5</th>
+                  <th>MFE · 5D</th>
+                  <th>MAE · 5D</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered
+                  .slice(currentPage * 20, currentPage * 20 + 20)
+                  .map((s) => {
+                    const last = s.excursions.at(-1),
+                      complete =
+                        s.outcomes.t5.date != null &&
+                        s.outcomes.t5.date <= date &&
+                        s.excursions.length === 5;
+                    return (
+                      <tr key={s.id}>
+                        <td>
+                          <small>{s.date}</small>
+                          <SignalDetail signal={s} />
+                        </td>
+                        <td>{s.tf.toUpperCase()}</td>
+                        <td>
+                          <Score signal={s} />
+                        </td>
+                        <td>
+                          <Result outcome={s.outcomes.t1} />
+                        </td>
+                        <td>
+                          <Result outcome={s.outcomes.t3} />
+                        </td>
+                        <td>
+                          <Result outcome={s.outcomes.t5} />
+                        </td>
+                        <td>
+                          <Change value={last?.mfe} />
+                          {!complete && (
+                            <small className={styles.version}>观察中</small>
+                          )}
+                        </td>
+                        <td>
+                          <Change value={last?.mae} />
+                          {!complete && (
+                            <small className={styles.version}>观察中</small>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+          <div className={styles.pagination}>
+            <span>{filtered.length} 条记录</span>
+            <button
+              disabled={currentPage === 0}
+              onClick={() => setPage(currentPage - 1)}
+            >
+              上一页
+            </button>
+            <span>
+              {currentPage + 1} / {pageCount}
+            </span>
+            <button
+              disabled={currentPage + 1 >= pageCount}
+              onClick={() => setPage(currentPage + 1)}
+            >
+              下一页
+            </button>
+          </div>
+        </>
+      ) : (
+        <Empty>
+          当前筛选下没有留档信号。历史未保存的评分不会用今天的指标补写。
+        </Empty>
+      )}
+      <div className={styles.study}>
+        <h3>
+          系统事后验证 <span>同版本 · 同来源 · T+5</span>
+        </h3>
+        <CohortTable rows={groups} />
+        <details className={styles.research}>
+          <summary>展开：因子相关性、市场状态与板块表现</summary>
+          <div className={styles.tableWrap}>
+            <table>
+              <thead>
+                <tr>
+                  <th>因子</th>
+                  <th>有效样本</th>
+                  <th>与 T+5 收益的相关系数</th>
+                </tr>
+              </thead>
+              <tbody>
+                {factors.map((name) => {
+                  const c = correlation(study, name);
+                  return (
+                    <tr key={name}>
+                      <td>{name}</td>
+                      <td>{c.n}</td>
+                      <td>
+                        {c.r == null
+                          ? c.n < 20
+                            ? "至少需要 20 个成熟样本"
+                            : "分数或收益无差异，无法计算"
+                          : number(c.r, 3)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <h4>信号前已知的市场状态</h4>
+          <CohortTable
+            rows={regimes.map((r) =>
+              cohort(
+                r,
+                study.filter((s) => (s.context?.regime ?? "未留档") === r),
+              ),
+            )}
+          />
+          <h4>触发时留档的板块</h4>
+          <CohortTable
+            rows={sectors.map((r) =>
+              cohort(
+                r,
+                study.filter((s) => (s.sector ?? "未留档") === r),
+              ),
+            )}
+          />
+        </details>
+      </div>
+      <p className={styles.note}>
+        收益以信号触发价为基准，观察后续第 1 / 3 / 5 个交易日收盘。MFE / MAE
+        为后续五个交易日的最高 / 最低价格相对变化（含
+        0，不包含信号当日）。价格统一到触发时股数单位，不含现金分红、成本和滑点，因此不是成交策略收益。相关性仅用于研究，同一日及同股信号可能相关，不能当成独立样本或因果证据。
+      </p>
+    </>
+  );
+}
+
+function Tomorrow({ review: r }: { review: Review }) {
+  const persistent = (s: SectorStrength) =>
+    s.rps != null &&
+    s.d5 != null &&
+    s.rps >= 80 &&
+    s.rps - s.d5 >= 80 &&
+    s.d5 >= 0;
+  const groups = [
+    {
+      title: "持续强势",
+      rows: r.sectors.filter(persistent),
+    },
+    {
+      title: "正在改善",
+      rows: r.sectors.filter(
+        (s) => s.rps != null && s.d5 != null && s.d5 > 0 && !persistent(s),
+      ),
+    },
+    {
+      title: "正在走弱",
+      rows: r.sectors.filter((s) => s.d5 != null && s.d5 < 0),
+    },
+  ];
+  return (
+    <div className={styles.tomorrow}>
+      <div>
+        <h3>01 / 结构价位</h3>
+        {r.options
+          .filter((o) => o.today)
+          .map((o) => (
+            <p key={o.symbol}>
+              <b>{o.symbol}</b>
+              <span>
+                Flip {number(o.today?.gamma_flip)}
+                <br />
+                Put {number(o.today?.put_wall)} · Call{" "}
+                {number(o.today?.call_wall)}
+              </span>
+            </p>
+          ))}
+        {r.options.every((o) => !o.today) && (
+          <p className={styles.muted}>等待当日 Gamma 快照</p>
+        )}
+      </div>
+      <div>
+        <h3>02 / 板块跟踪</h3>
+        {groups.map((g) => (
+          <div key={g.title} className={styles.watchGroup}>
+            <h4>{g.title}</h4>
+            <p>
+              {g.rows
+                .slice(0, 3)
+                .map((s) => s.name)
+                .join(" / ") || "暂无符合条件的板块"}
+            </p>
+          </div>
+        ))}
+      </div>
+      <div>
+        <h3>03 / 信号观察名单</h3>
+        {["2h", "4h"].map((tf) => {
+          const rows = r.signals
+            .filter(
+              (s) => s.tf === tf && s.source === "live" && s.quality.complete,
+            )
+            .sort((a, b) => b.quality.points - a.quality.points);
+          return (
+            <div className={styles.watchGroup} key={tf}>
+              <h4>{tf.toUpperCase()} Watchlist</h4>
+              <p>
+                {[...new Set(rows.map((s) => s.symbol))]
+                  .slice(0, 5)
+                  .join(" / ") || "暂无完整评分信号"}
+              </p>
+            </div>
+          );
+        })}
+        <small>
+          从今日已触发信号中选出；次日重新观察，不等同于新的买入指令。
+        </small>
+      </div>
+    </div>
+  );
+}
+
+export function DailyReview({
+  review: r,
+  dates,
+  journal,
+  error,
+}: {
+  review: Review | null;
+  dates: string[];
+  journal: JournalSignal[];
+  error: string | null;
+}) {
+  return (
+    <div className={styles.review}>
+      <header className={styles.masthead}>
+        <div>
+          <p className={styles.eyebrow}>THE DAILY BRIEF / MARKET COMPASS</p>
+          <h1>
+            每日复盘<span>Market review</span>
+          </h1>
+        </div>
+        <DatePicker dates={dates} selected={r?.date} />
+      </header>
+      {error && (
+        <div role="status" className={styles.notice}>
+          {error}
+        </div>
+      )}
+      {!r ? (
+        <Empty>
+          市场状态、期权结构、板块强度、买点、账户和信号验证将在首份复盘生成后展示。
+        </Empty>
+      ) : (
+        <>
+          <div className={styles.edition}>
+            <span>
+              美东交易日 {r.date} · 对比 {r.previousDate ?? "—"}
+            </span>
+            <span>生成于 {time(r.builtAt)} ET</span>
+          </div>
+          <nav className={styles.anchors} aria-label="复盘章节">
+            {[
+              ["market", "市场状态"],
+              ["options", "Options map"],
+              ["sectors", "板块强度"],
+              ["signals", "买点"],
+              ["accounts", "账户"],
+              ["journal", "事后验证"],
+              ["tomorrow", "明日关注"],
+            ].map(([id, text]) => (
+              <a key={id} href={`#${id}`}>
+                {text}
+              </a>
+            ))}
+          </nav>
+          <section id="market" className={styles.marketHero}>
+            <div className={styles.heroLead}>
+              <div>
+                <p className={styles.eyebrow}>01 / MARKET STATE</p>
+                <h2
+                  className={
+                    r.market.regime === "Risk-Off"
+                      ? styles.down
+                      : r.market.regime === "Risk-On"
+                        ? styles.up
+                        : ""
+                  }
+                >
+                  {r.market.regime === "Unknown" ? "等待数据" : r.market.regime}
+                  <span className={styles.statusDot} />
+                </h2>
+                <p>{r.market.summary}</p>
+              </div>
+              <span className={styles.observation}>
+                收盘观察
+                <br />
+                不作方向预测
+              </span>
+            </div>
+            <div className={styles.tickerStrip}>
+              {r.market.metrics.slice(0, 4).map((m) => (
+                <div key={m.symbol}>
+                  <h3>{m.symbol}</h3>
+                  <strong className={tone(m.change)}>{signed(m.change)}</strong>
+                  <span>{number(m.today)}</span>
+                </div>
+              ))}
+            </div>
+            <div className={styles.marketBottom}>
+              <div className={styles.tableWrap}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>核心指标</th>
+                      <th>今日</th>
+                      <th>前一交易日</th>
+                      <th>变化</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {r.market.metrics.map((m) => (
+                      <tr key={m.symbol}>
+                        <td>{m.symbol}</td>
+                        <td>{number(m.today)}</td>
+                        <td>{number(m.yesterday)}</td>
+                        <td>
+                          <Change value={m.change} />
+                        </td>
+                      </tr>
+                    ))}
+                    <tr>
+                      <td>样本上涨比例</td>
+                      <td>
+                        {r.market.breadth.today == null
+                          ? "—"
+                          : `${number(r.market.breadth.today, 1)}%`}
+                      </td>
+                      <td>
+                        {r.market.breadth.yesterday == null
+                          ? "—"
+                          : `${number(r.market.breadth.yesterday, 1)}%`}
+                      </td>
+                      <td>
+                        <Change
+                          value={
+                            r.market.breadth.today != null &&
+                            r.market.breadth.yesterday != null
+                              ? r.market.breadth.today -
+                                r.market.breadth.yesterday
+                              : null
+                          }
+                          suffix=" pp"
+                        />
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>强势板块 / 行业</td>
+                      <td>{number(r.market.strongSectors.today, 0)}</td>
+                      <td>{number(r.market.strongSectors.yesterday, 0)}</td>
+                      <td>
+                        <Change
+                          value={
+                            r.market.strongSectors.today != null &&
+                            r.market.strongSectors.yesterday != null
+                              ? r.market.strongSectors.today -
+                                r.market.strongSectors.yesterday
+                              : null
+                          }
+                          suffix=""
+                        />
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <aside>
+                <h3>今天的市场体温</h3>
+                <div className={styles.breadthNumber}>
+                  {number(r.market.breadth.today, 1)}
+                  <small>%</small>
+                </div>
+                <p>
+                  上涨比例 · {r.market.breadth.valid} / {r.market.breadth.total}{" "}
+                  只有效样本
+                </p>
+                <div className={styles.breadthBar}>
+                  {r.market.breadth.today != null && (
+                    <i style={{ width: `${r.market.breadth.today}%` }} />
+                  )}
+                </div>
+                <small>
+                  {r.market.breadth.universe}，非全市场；名单截至{" "}
+                  {r.market.breadth.membershipAsOf ?? "未知"}。强势板块定义为
+                  20D 涨幅为正且跑赢 SPY。
+                </small>
+              </aside>
+            </div>
+          </section>
+          <Section
+            id="options"
+            n="02"
+            title="Options market map"
+            subtitle="看关键结构怎样移动，而不只看它在哪里。"
+          >
+            <div className={styles.optionsGrid}>
+              {r.options.map((o) => (
+                <OptionsCard key={o.symbol} row={o} />
+              ))}
+            </div>
+            <p className={styles.note}>
+              Cboe 延时期权链估算 · Net GEX 为标的变动 1% 对应的美元 Gamma
+              暴露。仅比较相同到期范围的相邻交易日；到期滚动、持仓量和隐波变化都可能移动价位，不代表真实做市商仓位已知。
+            </p>
+          </Section>
+          <Section
+            id="sectors"
+            n="03"
+            title="板块轮动与市场强度"
+            subtitle="谁在变强，谁在失去相对优势。"
+          >
+            <Sectors rows={r.sectors} />
+          </Section>
+          <Section
+            id="signals"
+            n="04"
+            title="买点复盘"
+            subtitle="保留系统在当时的判断。CVD / RPS / Position / Volume / Sector。"
+          >
+            <BuyPoints signals={r.signals} />
+            <p className={styles.note}>
+              当前 V5 权重：CVD 20、RPS 30、Position 25、Volume 10、Sector
+              15。CVD
+              是分钟量价压力估算，不是逐笔买卖单净流入。旧版本保留原维度和权重；不完整分数不折算成满分。
+            </p>
+          </Section>
+          <Section
+            id="accounts"
+            n="05"
+            title="Live strategy performance"
+            subtitle="两个持续记账的现金策略账户，连接信号与实际模型表现。"
+          >
+            <div className={styles.accountsGrid}>
+              {r.accounts.map((a) => (
+                <Account
+                  key={a.tf}
+                  account={a}
+                  benchmark={
+                    r.market.metrics.find((m) => m.symbol === "SPY")?.change ??
+                    null
+                  }
+                />
+              ))}
+            </div>
+            <p className={styles.note}>
+              这是系统模型账本，不是券商实盘。日收益对比前一交易日净值；月收益对比上月最后一个已记账交易日。缺少起点时显示“—”，不从当前持仓倒推历史。
+            </p>
+          </Section>
+          <Section
+            id="journal"
+            n="06"
+            title="Signal journal"
+            subtitle="系统过去说过什么，后来发生了什么。"
+          >
+            <SignalJournal
+              key={r.date}
+              signals={journal}
+              previousDate={r.previousDate}
+              date={r.date}
+            />
+          </Section>
+          <Section
+            id="tomorrow"
+            n="07"
+            title="Tomorrow map"
+            subtitle="下一交易日的观察清单，不预测涨跌。"
+          >
+            <Tomorrow review={r} />
+          </Section>
+          <details className={styles.method}>
+            <summary>
+              <CircleHelp size={16} />
+              数据与判定口径{" "}
+              {r.warnings.length > 0 && (
+                <span>{r.warnings.length} 项数据提示</span>
+              )}
+            </summary>
+            <div>
+              <p>
+                状态规则：SPY / QQQ / IWM 同涨、上涨比例 ≥60%、VIX 不涨 →
+                Risk-On；三者同跌、上涨比例 ≤40%、VIX 不跌 →
+                Risk-Off；指数方向分化 → Rotation；其余数据完整场景 →
+                Transition。数据不足不判定。阈值是描述规则，不是已校准的盈利概率。
+              </p>
+              <p>
+                收益统计分版本、分实时与重放来源；不完整评分不进入分数组。市场状态分组使用信号之前已发布的复盘，缺失时不补写当日收盘状态。历史成分表若未留档，广度仅代表标注日期的名单。
+              </p>
+              {r.warnings.map((w, i) => (
+                <p key={i} className={styles.warning}>
+                  {w}
+                </p>
+              ))}
+            </div>
+          </details>
+          <footer className={styles.footer}>
+            <span>MARKET COMPASS / DAILY REVIEW</span>
+            <span>记录事实，检验判断。</span>
+          </footer>
+        </>
+      )}
+    </div>
+  );
+}
