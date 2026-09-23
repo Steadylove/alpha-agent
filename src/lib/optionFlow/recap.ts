@@ -1,4 +1,10 @@
-import { fmtLevel, netGexLabel, type GexSnapshot, type GexSnapshotItem } from "@/lib/discord/gexCopy";
+import { optionsStructure, GAMMA_LABEL } from "@/lib/options/structure";
+import {
+  fmtLevel,
+  netGexLabel,
+  type GexSnapshot,
+  type GexSnapshotItem,
+} from "@/lib/discord/gexCopy";
 import { formatPremium } from "./cardImage";
 import {
   biasLabel,
@@ -47,18 +53,26 @@ function premiumOf(leg: OptionFlowLeg): number {
   return leg.premiumUsd ?? 0;
 }
 
-function bucketUsd(legs: readonly OptionFlowLeg[], right: "call" | "put", side: "buyer" | "seller"): number {
+function bucketUsd(
+  legs: readonly OptionFlowLeg[],
+  right: "call" | "put",
+  side: "buyer" | "seller",
+): number {
   return legs
     .filter((leg) => leg.right === right && flowSide("", leg.note) === side)
     .reduce((sum, leg) => sum + premiumOf(leg), 0);
 }
 
 function gexLine(row: GexSnapshotItem): string {
-  const tone = row.net_gex > 0 ? "净 GEX 偏正" : row.net_gex < 0 ? "净 GEX 偏负" : "净 GEX 近零";
-  return `${row.symbol} 现价 ${fmtLevel(row.spot)} · Flip ${fmtLevel(row.gamma_flip)} · Put 墙 ${fmtLevel(row.put_wall)} · Call 墙 ${fmtLevel(row.call_wall)} · ${tone} ${netGexLabel(row.net_gex)}`;
+  const s = optionsStructure(row),
+    v = s.values;
+  return `${row.symbol} 现价 ${fmtLevel(v.spot)} · Flip ${fmtLevel(v.gamma_flip)} · Put 墙 ${fmtLevel(v.put_wall)} · Call 墙 ${fmtLevel(v.call_wall)} · ${GAMMA_LABEL[s.gamma]} ${netGexLabel(v.net_gex)}`;
 }
 
-export function buildDailyRecap(digest: FlowDigestView, snapshot?: GexSnapshot): FlowRecapView {
+export function buildDailyRecap(
+  digest: FlowDigestView,
+  snapshot?: GexSnapshot,
+): FlowRecapView {
   const legs = digest.legs;
   return {
     day: digest.day,
@@ -99,7 +113,9 @@ export function formatDailyRecap(view: FlowRecapView): string {
   if (view.top.length) {
     lines.push("", "**金额最大**");
     view.top.forEach((leg, i) => {
-      lines.push(`${i + 1}. ${leg.ticker} ${leg.side} ${leg.strike} ${leg.expiry} ${leg.premium} · ${leg.lean === "bear" ? "看跌" : "看涨"}`);
+      lines.push(
+        `${i + 1}. ${leg.ticker} ${leg.side} ${leg.strike} ${leg.expiry} ${leg.premium} · ${leg.lean === "bear" ? "看跌" : "看涨"}`,
+      );
     });
     if (view.more > 0) lines.push(`其余 ${view.more} 笔见上图，不另编。`);
   }
@@ -109,8 +125,11 @@ export function formatDailyRecap(view: FlowRecapView): string {
   }
   if (view.notes.length) {
     lines.push("", "**备注（原文）**");
-    for (const note of view.notes) lines.push(note.ticker ? `${note.ticker} · ${note.text}` : note.text);
+    for (const note of view.notes)
+      lines.push(note.ticker ? `${note.ticker} · ${note.text}` : note.text);
   }
   const text = lines.join("\n");
-  return text.length <= DISCORD_SAFE ? text : `${text.slice(0, DISCORD_SAFE - 1)}…`;
+  return text.length <= DISCORD_SAFE
+    ? text
+    : `${text.slice(0, DISCORD_SAFE - 1)}…`;
 }

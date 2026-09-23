@@ -16,13 +16,14 @@ import {
 import type {
   DailyReview as Review,
   JournalSignal,
-  OptionsRow,
   Outcome,
   ReviewAccount,
   SectorStrength,
 } from "@/lib/review/types";
 import { cohort, correlation, type Cohort } from "@/lib/review/journal";
 import styles from "./review.module.css";
+import { OptionsMarketMap } from "./OptionsMarketMap";
+import { OptionsSignalStudy, FrozenSignalOptions } from "./OptionsSignalStudy";
 import { MarketStatePanel, contextLabel } from "./MarketStatePanel";
 
 const number = (v: number | null | undefined, digits = 2) =>
@@ -38,10 +39,6 @@ const signed = (v: number | null | undefined, suffix = "%", digits = 2) =>
     : `${Number(v.toFixed(digits)) > 0 ? "+" : ""}${number(Number(v.toFixed(digits)), digits)}${suffix}`;
 const tone = (v: number | null | undefined) =>
   v == null || v === 0 ? styles.muted : v > 0 ? styles.up : styles.down;
-const gex = (v: number | null | undefined) =>
-  v == null
-    ? "—"
-    : `${v < 0 ? "−" : "+"}$${number(Math.abs(v) / (Math.abs(v) >= 1e9 ? 1e9 : 1e6), 2)}${Math.abs(v) >= 1e9 ? "B" : "M"}`;
 const time = (stamp: number | string) =>
   new Intl.DateTimeFormat("zh-CN", {
     timeZone: "America/New_York",
@@ -150,75 +147,6 @@ function DatePicker({
         <ChevronRight size={16} />
       </button>
     </div>
-  );
-}
-
-function OptionsCard({ row }: { row: OptionsRow }) {
-  const now = row.today,
-    past = row.previous;
-  return (
-    <article className={styles.optionCard}>
-      <div className={styles.optionTitle}>
-        <h3>{row.symbol}</h3>
-        <span className={styles.tag}>
-          {now ? `${row.dte ?? "DTE 未知"} · 延时` : "快照缺失"}
-        </span>
-      </div>
-      <div className={styles.optionSpot}>
-        {number(now?.spot)}
-        <span>Current</span>
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th>结构</th>
-            <th>今日</th>
-            <th>较前日</th>
-          </tr>
-        </thead>
-        <tbody>
-          {(
-            [
-              ["gamma_flip", "Gamma Flip"],
-              ["put_wall", "Put Wall"],
-              ["call_wall", "Call Wall"],
-            ] as const
-          ).map(([key, label]) => (
-            <tr key={key}>
-              <td>{label}</td>
-              <td>{number(now?.[key])}</td>
-              <td>
-                <Change
-                  value={
-                    now?.[key] != null && past?.[key] != null
-                      ? now[key]! - past[key]!
-                      : null
-                  }
-                  suffix=""
-                />
-              </td>
-            </tr>
-          ))}
-          <tr>
-            <td>Net GEX</td>
-            <td className={tone(now?.net_gex)}>{gex(now?.net_gex)}</td>
-            <td>{now && past ? gex(now.net_gex - past.net_gex) : "—"}</td>
-          </tr>
-        </tbody>
-      </table>
-      <div className={styles.optionChanges}>
-        {row.changes.length ? (
-          row.changes.map((t) => <p key={t}>{t}</p>)
-        ) : (
-          <p>
-            {now
-              ? "缺少可比前日快照，暂不判断结构移动。"
-              : "无当日数据，未沿用旧价位。"}
-          </p>
-        )}
-      </div>
-      {now && <small>报价时间 {now.as_of?.replace("T", " ")} · ET</small>}
-    </article>
   );
 }
 
@@ -395,6 +323,7 @@ function SignalDetail({ signal: s }: { signal: JournalSignal }) {
             : "未留档"}{" "}
           · 板块：{s.sector ?? "未留档"}
         </p>
+        <FrozenSignalOptions signal={s} />
       </div>
     </details>
   );
@@ -988,6 +917,7 @@ function SignalJournal({
           />
         </details>
       </div>
+      <OptionsSignalStudy signals={filtered} date={date} />
       <p className={styles.note}>
         收益以信号触发价为基准，观察后续第 1 / 3 / 5 个交易日收盘。MFE / MAE
         为后续五个交易日的最高 / 最低价格相对变化（含
@@ -1149,15 +1079,7 @@ export function DailyReview({
             title="Options market map"
             subtitle="看关键结构怎样移动，而不只看它在哪里。"
           >
-            <div className={styles.optionsGrid}>
-              {r.options.map((o) => (
-                <OptionsCard key={o.symbol} row={o} />
-              ))}
-            </div>
-            <p className={styles.note}>
-              Cboe 延时期权链估算 · Net GEX 为标的变动 1% 对应的美元 Gamma
-              暴露。仅比较相同到期范围的相邻交易日；到期滚动、持仓量和隐波变化都可能移动价位，不代表真实做市商仓位已知。
-            </p>
+            <OptionsMarketMap rows={r.options} />
           </Section>
           <Section
             id="sectors"

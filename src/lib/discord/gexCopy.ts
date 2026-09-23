@@ -1,23 +1,14 @@
 import { STRATEGY_TITLE } from "./brand";
-import { formatEtStamp } from "./cardTime";
+import { formatEtStamp, formatEtFromUtc } from "./cardTime";
 
-export type GexSnapshotItem = {
-  symbol: string;
-  spot: number;
-  as_of?: string;
-  net_gex: number;
-  status: string;
-  gamma_flip: number | null;
-  call_wall: number | null;
-  put_wall: number | null;
-};
-
-export type GexSnapshot = {
-  fetched_at?: string;
-  dte?: string;
-  tnx?: { last?: number | null } | null;
-  items: GexSnapshotItem[];
-};
+import {
+  optionsStructure,
+  structureSentence,
+  GAMMA_LABEL,
+  type GexSnapshot,
+  type GexSnapshotItem,
+} from "@/lib/options/structure";
+export type { GexSnapshot, GexSnapshotItem } from "@/lib/options/structure";
 
 export type GexRowView = {
   symbol: string;
@@ -40,10 +31,10 @@ export type GexCardView = {
   rows: GexRowView[];
 };
 
-const FLIP_NEAR = 0.002;
-
 export function gexCaption(test: boolean): string {
-  return test ? `📊 **${STRATEGY_TITLE} · GEX**（测试）` : `📊 **${STRATEGY_TITLE} · GEX**`;
+  return test
+    ? `📊 **${STRATEGY_TITLE} · GEX**（测试）`
+    : `📊 **${STRATEGY_TITLE} · GEX**`;
 }
 
 export function fmtLevel(value: number | null | undefined): string {
@@ -53,7 +44,8 @@ export function fmtLevel(value: number | null | undefined): string {
   return trimNum(value.toFixed(2));
 }
 
-export function netGexLabel(value: number): string {
+export function netGexLabel(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "—";
   const sign = value >= 0 ? "+" : "-";
   const abs = Math.abs(value);
   if (abs >= 1e9) return `${sign}$${(abs / 1e9).toFixed(1)}B`;
@@ -62,66 +54,68 @@ export function netGexLabel(value: number): string {
   return `${sign}$${abs.toFixed(0)}`;
 }
 
-export function netGexTone(value: number): "pos" | "neg" | "flat" {
-  if (value > 0) return "pos";
-  if (value < 0) return "neg";
+export function netGexTone(
+  value: number | null | undefined,
+): "pos" | "neg" | "flat" {
+  if (value != null && value > 0) return "pos";
+  if (value != null && value < 0) return "neg";
   return "flat";
 }
 
 export function fmtAsOf(value: string | undefined): string {
   if (!value) return "—";
-  return formatEtStamp(value);
+  return /(Z|[+-]\d{2}:?\d{2})$/.test(value)
+    ? formatEtFromUtc(value)
+    : formatEtStamp(value);
 }
 
 export function gexImpact(row: GexSnapshotItem): string {
-  const flip = row.gamma_flip;
-  const spot = row.spot;
-  if (flip != null && Math.abs(spot - flip) / spot <= FLIP_NEAR) {
-    return `现价贴近 Flip ${fmtLevel(flip)}，波动区间变薄`;
-  }
-  if (row.net_gex > 0 && (flip == null || spot > flip)) {
-    return `现价在 Flip 上方；近端 Call ${fmtLevel(row.call_wall)}，正 GEX 偏均值回归`;
-  }
-  if (row.net_gex < 0) {
-    return `现价在负 GEX；近端 Put ${fmtLevel(row.put_wall)}`;
-  }
-  return `近端墙 ${fmtLevel(row.put_wall)} / ${fmtLevel(row.call_wall)}`;
+  return structureSentence(row);
 }
 
-export function gexClosingNote(items: readonly GexSnapshotItem[], tnxLast: number | null | undefined): string {
-  const weak = items.filter((row) => row.net_gex < 0).map((row) => row.symbol);
-  const strong = items.filter((row) => row.net_gex > 0).map((row) => row.symbol);
-  let note: string;
-  if (strong.length > 0 && weak.length > 0) {
-    note = `${strong.join("、")} 在 Flip 上方偏稳；${weak.join("、")} 近月净 GEX 为负，波动更易放大。`;
-  } else if (weak.length > 0) {
-    note = `${weak.join("、")} 近月净 GEX 为负，短线波动放大风险偏高。`;
-  } else {
-    note = "近月净 GEX 偏正，短线更偏向均值回归。";
-  }
-  if (tnxLast != null && Number.isFinite(tnxLast)) {
-    note = `10Y ${tnxLast.toFixed(2)}%。${note}`;
-  }
-  return note;
+export function gexClosingNote(
+  items: readonly GexSnapshotItem[],
+  tnxLast: number | null | undefined,
+): string {
+  const groups = ["positive", "negative", "zero", "unknown"] as const;
+  const parts = groups.flatMap((gamma) => {
+    const symbols = items
+      .filter((row) => optionsStructure(row).gamma === gamma)
+      .map((row) => row.symbol);
+    return symbols.length
+      ? [`${symbols.join("、")} ${GAMMA_LABEL[gamma]}`]
+      : [];
+  });
+  const note = parts.length
+    ? `${parts.join("；")}。符号与 Flip 位置分别判断。`
+    : "缺少可描述的 GEX 截面。";
+  return tnxLast != null && Number.isFinite(tnxLast)
+    ? `10Y ${tnxLast.toFixed(2)}%。${note}`
+    : note;
 }
 
 export function gexCardFromSnapshot(snapshot: GexSnapshot): GexCardView {
   const items = snapshot.items ?? [];
-  const asOf = items.find((row) => row.symbol === "SPX")?.as_of ?? items.find((row) => row.as_of)?.as_of;
+  const asOf =
+    items.find((row) => row.symbol === "SPX")?.as_of ??
+    items.find((row) => row.as_of)?.as_of;
   return {
     asOf: fmtAsOf(asOf),
     dte: snapshot.dte ?? "0-45d",
-    tnx: snapshot.tnx?.last != null && Number.isFinite(snapshot.tnx.last) ? snapshot.tnx.last.toFixed(2) : null,
+    tnx:
+      snapshot.tnx?.last != null && Number.isFinite(snapshot.tnx.last)
+        ? snapshot.tnx.last.toFixed(2)
+        : null,
     note: gexClosingNote(items, snapshot.tnx?.last),
     rows: items.map((row) => ({
       symbol: row.symbol,
-      spot: fmtLevel(row.spot),
-      status: row.status,
-      netGex: netGexLabel(row.net_gex),
-      netGexTone: netGexTone(row.net_gex),
-      flip: fmtLevel(row.gamma_flip),
-      callWall: fmtLevel(row.call_wall),
-      putWall: fmtLevel(row.put_wall),
+      spot: fmtLevel(optionsStructure(row).values.spot),
+      status: GAMMA_LABEL[optionsStructure(row).gamma],
+      netGex: netGexLabel(optionsStructure(row).values.net_gex),
+      netGexTone: netGexTone(optionsStructure(row).values.net_gex),
+      flip: fmtLevel(optionsStructure(row).values.gamma_flip),
+      callWall: fmtLevel(optionsStructure(row).values.call_wall),
+      putWall: fmtLevel(optionsStructure(row).values.put_wall),
       impact: gexImpact(row),
     })),
   };

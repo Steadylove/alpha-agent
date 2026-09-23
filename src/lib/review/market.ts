@@ -1,3 +1,4 @@
+import { enrichOptionsRow } from "./options";
 import {
   marketEngine,
   legacyRegime,
@@ -244,7 +245,7 @@ export function optionsMap(
     const row = current?.items?.find(
       (i) => i.symbol === symbol && quoteDay(i.as_of) === date,
     );
-    const valid = row && positive(row.spot) && finite(row.net_gex) ? row : null;
+    const valid = row ?? null;
     const past = previous?.find((r) => r.symbol === symbol);
     const comparable = !!(
       valid &&
@@ -253,30 +254,22 @@ export function optionsMap(
       current?.dte &&
       current.dte === past.dte
     );
-    const changes: string[] = [];
-    if (comparable) {
-      for (const [key, label] of [
-        ["gamma_flip", "Flip"],
-        ["put_wall", "Put Wall"],
-        ["call_wall", "Call Wall"],
-      ] as const) {
-        const a = past!.today![key],
-          b = valid![key];
-        if (finite(a) && finite(b) && a !== b)
-          changes.push(`${label} ${a.toFixed(2)} → ${b.toFixed(2)}`);
-      }
-      const a = past!.today!.net_gex,
-        b = valid!.net_gex;
-      if (a * b < 0) changes.push(`Net GEX ${a > 0 ? "由正转负" : "由负转正"}`);
-      if (!changes.length) changes.push("关键价位未变；Net GEX 数值变化见表");
-    }
-    return {
+    return enrichOptionsRow({
       symbol,
       today: valid,
       previous: comparable ? past!.today : null,
       dte: current?.dte ?? null,
       comparable,
-      changes,
-    };
+      meta: current
+        ? {
+            source: current.source,
+            method: current.method,
+            method_version: current.method_version,
+            fetched_at: current.fetched_at,
+          }
+        : undefined,
+      previousMeta: past?.meta,
+      changes: [],
+    });
   });
 }

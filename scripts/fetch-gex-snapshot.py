@@ -59,13 +59,13 @@ def parse_snapshot_date(value: object) -> date | None:
 
 
 def option_gex(gamma: float, oi: float, spot: float) -> float:
-    if gamma <= 0 or oi <= 0 or spot <= 0:
+    if not all(math.isfinite(v) and v > 0 for v in (gamma, oi, spot)):
         return 0.0
     return gamma * oi * MULTIPLIER * spot * spot * 0.01
 
 
 def bs_gamma(spot: float, strike: float, time_years: float, iv: float, dividend: float) -> float:
-    if spot <= 0 or strike <= 0 or time_years <= 0 or iv <= 0.005:
+    if not all(math.isfinite(v) and v > 0 for v in (spot, strike, time_years, iv)) or iv <= 0.005:
         return 0.0
     vol_term = iv * math.sqrt(time_years)
     if vol_term <= 0:
@@ -105,6 +105,8 @@ def zero_gamma_level(
         levels.append(round(price, 4))
         price += step
     values = [net_gex_at(contracts, level, dividend) for level in levels]
+    if not any(math.isfinite(value) and value != 0 for value in values):
+        return None  # An empty/zero model curve has no identifiable crossing.
     crosses: list[float] = []
     for left, right, gex_left, gex_right in zip(levels, levels[1:], values, values[1:]):
         if gex_left == 0:
@@ -124,21 +126,21 @@ def pick_walls(rows: list[dict], spot: float) -> tuple[float | None, float | Non
     def in_band(row: dict, low: float, high: float) -> bool:
         return low <= row["strike"] <= high
 
-    call_pool = [row for row in rows if in_band(row, spot, spot * (1 + WALL_BAND))]
-    put_pool = [row for row in rows if in_band(row, spot * (1 - WALL_BAND), spot)]
+    calls = [row for row in rows if math.isfinite(row["call_gex"]) and row["call_gex"] > 0]
+    puts = [row for row in rows if math.isfinite(row["put_gex"]) and row["put_gex"] > 0]
+    call_pool = [row for row in calls if in_band(row, spot, spot * (1 + WALL_BAND))]
+    put_pool = [row for row in puts if in_band(row, spot * (1 - WALL_BAND), spot)]
     if not call_pool:
-        call_pool = [row for row in rows if row["strike"] >= spot]
+        call_pool = [row for row in calls if row["strike"] >= spot]
     if not put_pool:
-        put_pool = [row for row in rows if row["strike"] <= spot]
-    if not call_pool or not put_pool:
-        return None, None
-    call = max(call_pool, key=lambda row: row["call_gex"])
-    put = max(put_pool, key=lambda row: row["put_gex"])
-    if call["strike"] == put["strike"]:
+        put_pool = [row for row in puts if row["strike"] <= spot]
+    call = max(call_pool, key=lambda row: row["call_gex"]) if call_pool else None
+    put = max(put_pool, key=lambda row: row["put_gex"]) if put_pool else None
+    if call and put and call["strike"] == put["strike"]:
         next_calls = [row for row in call_pool if row["strike"] != call["strike"]]
         if next_calls:
             call = max(next_calls, key=lambda row: row["call_gex"])
-    return call["strike"], put["strike"]
+    return call["strike"] if call else None, put["strike"] if put else None
 
 
 def net_status(gex_at_spot: float, spot: float, flip: float | None) -> str:
@@ -174,7 +176,7 @@ def collect_contracts(payload: dict, snapshot: date | None, dividend: float) -> 
         oi = float(row.get("open_interest") or 0)
         iv = float(row.get("iv") or 0)
         exchange_gamma = float(row.get("gamma") or 0)
-        if oi <= 0:
+        if not math.isfinite(oi) or oi <= 0:
             continue
         contracts.append((strike, kind, oi, iv, time_years, exchange_gamma))
         gex = option_gex(exchange_gamma, oi, spot)
@@ -202,19 +204,23 @@ def summarize(label: str, payload: dict, dividend: float) -> dict:
     spot = float(data.get("close") or data["current_price"])
     as_of = data.get("last_trade_time") or payload.get("timestamp")
     snapshot = parse_snapshot_date(as_of)
+    if snapshot is None or not math.isfinite(spot) or spot <= 0:
+        raise ValueError("invalid quote date or spot")
     contracts, rows, used, skipped_far = collect_contracts(payload, snapshot, dividend)
     gex_spot = net_gex_at(contracts, spot, dividend, use_exchange_gamma=True)
     flip = zero_gamma_level(contracts, spot, dividend)
     gex_flip = None if flip is None else net_gex_at(contracts, flip, dividend)
     call_wall, put_wall = pick_walls(rows, spot)
     abs_gex = sum(abs(item["net_gex"]) for item in rows) or 1.0
-    return {
+    result = {
         "symbol": label,
         "spot": spot,
         "as_of": as_of,
         "dte": f"0-{NEAR_DTE_MAX}d",
         "net_gex": gex_spot,
         "balance": gex_spot / abs_gex,
+        "gross_gex": sum(item["call_gex"] + item["put_gex"] for item in rows),
+        "flip_search": {"low": spot * 0.94, "high": spot * 1.04, "found": flip is not None},
         "status": net_status(gex_spot, spot, flip),
         "gamma_flip": flip,
         "gex_at_flip": gex_flip,
@@ -224,6 +230,8 @@ def summarize(label: str, payload: dict, dividend: float) -> dict:
         "contracts_skipped_far": skipped_far,
         "iv30": data.get("iv30"),
     }
+    result["quality"] = validate_row(result)
+    return result
 
 
 def review_row(row: dict) -> list[str]:
@@ -232,10 +240,6 @@ def review_row(row: dict) -> list[str]:
     flip = row["gamma_flip"]
     gex = row["net_gex"]
     if flip is not None:
-        if gex > 0 and flip > spot * 1.002:
-            problems.append(f"{row['symbol']} 现价 GEX 为正，但 Flip {flip:.1f} 在现价上方")
-        if gex < 0 and flip < spot * 0.998:
-            problems.append(f"{row['symbol']} 现价 GEX 为负，但 Flip {flip:.1f} 在现价下方")
         flip_gex = row.get("gex_at_flip")
         if flip_gex is not None and abs(flip_gex) > abs(gex) * 0.15 and abs(flip_gex) > 1e8:
             problems.append(f"{row['symbol']} Flip 处 GEX 仍很大 ({flip_gex:.3e})")
@@ -250,18 +254,27 @@ def review_row(row: dict) -> list[str]:
     return problems
 
 
+def validate_row(row: dict) -> dict:
+    fields = ("spot", "gamma_flip", "put_wall", "call_wall", "net_gex")
+    invalid = [key for key in fields if row.get(key) is not None and
+               (not isinstance(row[key], (int, float)) or not math.isfinite(row[key]) or
+                (key != "net_gex" and row[key] <= 0))]
+    warnings = []
+    if row.get("contracts_used") == 0:
+        invalid.extend(fields[1:])
+        warnings.append("无有效期权合约")
+    residual = row.get("gex_at_flip")
+    if residual is not None and abs(residual) > max(abs(row.get("net_gex") or 0) * 0.15, 1e8):
+        invalid.append("gamma_flip")
+        warnings.append("Flip 过零残差偏大")
+    # A positive spot GEX with a flip above spot is possible: independent calculations,
+    # multiple crossings and opposite crossing directions. It is not a validation failure.
+    return {"invalid_fields": sorted(set(invalid)), "warnings": warnings}
+
+
 def impact(row: dict) -> str:
-    flip = row["gamma_flip"]
-    call_wall = row["call_wall"]
-    put_wall = row["put_wall"]
-    spot = row["spot"]
-    if flip is not None and abs(spot - flip) / spot <= 0.002:
-        return f"现价贴近 Flip {fmt_level(flip)}，波动易放大"
-    if row["net_gex"] > 0 and (flip is None or spot > flip):
-        return f"现价在 Flip 上方；上行看 {fmt_level(call_wall)}，正 GEX 偏均值回归"
-    if row["net_gex"] < 0:
-        return f"现价在负 GEX；{fmt_level(put_wall)} 为关键节点，失守波动易放大"
-    return f"先看 {fmt_level(put_wall)} / {fmt_level(call_wall)}"
+    # Markdown is a raw data report; all web/DC derived labels use the shared TS rules.
+    return f"Flip {fmt_level(row['gamma_flip'])} · Put {fmt_level(row['put_wall'])} · Call {fmt_level(row['call_wall'])}"
 
 
 def fmt_level(value: float | None) -> str:
@@ -334,17 +347,7 @@ def render_markdown(rows: list[dict], tnx: dict | None, fetched_at: str, problem
 
 
 def closing_note(rows: list[dict], tnx: dict | None) -> str:
-    weak = [row["symbol"] for row in rows if row["net_gex"] < 0]
-    strong = [row["symbol"] for row in rows if row["net_gex"] > 0]
-    if strong and weak:
-        note = f"{'、'.join(strong)} 在 Flip 上方偏稳；{'、'.join(weak)} 近月净 GEX 为负，波动更易放大。"
-    elif weak:
-        note = f"{'、'.join(weak)} 近月净 GEX 为负，短线波动放大风险偏高。"
-    else:
-        note = "近月净 GEX 偏正，短线更偏向均值回归。"
-    if tnx and tnx.get("last") is not None:
-        note = f"10Y {tnx['last']:.2f}%。" + note
-    return note
+    return "Call 正、Put 负的 Gamma 暴露估算；Flip 位置与现价 GEX 符号分别判断，不据此预测涨跌。"
 
 
 def self_test() -> None:
@@ -365,6 +368,17 @@ def self_test() -> None:
     assert pick_walls(walls, 7719) == (7800, 7700)
     assert net_status(1.2e10, 7719, 7702) == "偏正"
     assert net_status(-1e9, 719, None) == "偏负"
+    test_row = {"symbol": "TEST", "spot": 100, "net_gex": 10, "gamma_flip": 105,
+                "put_wall": 90, "call_wall": 110, "contracts_used": 2, "gex_at_flip": 0}
+    assert validate_row(test_row)["invalid_fields"] == []
+    assert not any("现价上方" in item for item in review_row(test_row))
+    assert "net_gex" in validate_row({**test_row, "contracts_used": 0})["invalid_fields"]
+    assert "gamma_flip" in validate_row({**test_row, "gex_at_flip": 1e10})["invalid_fields"]
+    assert option_gex(float("nan"), 100, 100) == 0
+    assert zero_gamma_level([], 100, 0) is None
+    assert zero_gamma_level([(100, "C", 10, 0, 1, .1)], 100, 0) is None
+    assert pick_walls([{"strike": 105, "call_gex": 1, "put_gex": 0}], 100) == (105, None)
+    assert pick_walls([{"strike": 95, "call_gex": 0, "put_gex": 1}], 100) == (None, 95)
     print("self-test ok")
 
 
@@ -372,7 +386,6 @@ def main() -> None:
     if "--self-test" in sys.argv:
         self_test()
         return
-    fetched_at = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M %Z")
     rows = []
     for label, cboe_symbol, dividend in SYMBOLS:
         payload = fetch_json(CBOE.format(symbol=cboe_symbol))
@@ -382,6 +395,8 @@ def main() -> None:
 
     problems = [item for row in rows for item in review_row(row)]
     tnx = fetch_tnx()
+    # Machine-readable availability time, after every fetch has completed.
+    fetched_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     markdown = render_markdown(rows, tnx, fetched_at, problems)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M")
@@ -392,21 +407,23 @@ def main() -> None:
         "source": "cboe-delayed",
         "dte": f"0-{NEAR_DTE_MAX}d",
         "method": "gex(S) zero-gamma + near-spot walls",
+        "method_version": "cboe-gex-v2",
         "tnx": tnx,
         "items": rows,
         "review": problems,
     }
     md_path.write_text(markdown, encoding="utf-8")
     (OUT_DIR / f"gex-{stamp}.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    if all(row["contracts_used"] == 0 for row in rows):
+        raise SystemExit("No valid option chains; latest snapshot was not replaced")
     latest_md.write_text(markdown, encoding="utf-8")
     (OUT_DIR / "latest.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     print(markdown)
     if problems:
-        print("REVIEW FAILED:")
+        print("REVIEW WARNINGS (field validity is recorded in each row):")
         for item in problems:
             print(f"  - {item}")
-        raise SystemExit(1)
-    print("REVIEW PASSED")
+    print("REVIEW COMPLETE")
     print(f"wrote {latest_md}")
 
 

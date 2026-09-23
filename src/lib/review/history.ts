@@ -52,20 +52,10 @@ export function historicalGex(
   }
   if (!candidate) return null;
   const snapshot: GexSnapshot = {
-    fetched_at: candidate.fetched_at,
-    dte: candidate.dte,
+    ...candidate,
     items: candidate.items
       .filter((i) => quoteDay(i.as_of) === date)
-      .map((i) => ({
-        symbol: i.symbol,
-        spot: i.spot,
-        as_of: i.as_of,
-        net_gex: i.net_gex,
-        status: i.status,
-        gamma_flip: i.gamma_flip,
-        put_wall: i.put_wall,
-        call_wall: i.call_wall,
-      })),
+      .map((i) => ({ ...i })),
   };
   writeSnapshot(`gex-history/${date}`, snapshot);
   return snapshot;

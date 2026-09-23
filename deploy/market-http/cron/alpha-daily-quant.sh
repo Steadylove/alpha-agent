@@ -37,6 +37,36 @@ soft() {
   fi
 }
 
+# Only retry idempotent data steps. Message delivery is deliberately outside this loop.
+retry() {
+  local name=$1 attempt
+  shift
+  for attempt in 1 2 3; do
+    if "$@"; then
+      log "ok ${name}（第 ${attempt} 次）"
+      return 0
+    fi
+    log "失败 ${name}（${attempt}/3）"
+    if [ "$attempt" -lt 3 ]; then sleep "${REVIEW_RETRY_SLEEP:-45}"; fi
+  done
+  return 1
+}
+
+fetch_gex() {
+  python3 scripts/fetch-gex-snapshot.py || return 1
+  env -u VERCEL MARKET_DATA_BASE_URL= npm run review:check -- --stage=gex --file=.cache/gex/latest.json || return 1
+  cp .cache/gex/latest.json "$MARKET/snapshots/gex.json"
+}
+
+check_review() {
+  env -u VERCEL MARKET_DATA_BASE_URL= SIGNAL_JOURNAL_DIR="$ROOT/desk" npm run review:check
+}
+
+build_review() {
+  env -u VERCEL MARKET_DATA_BASE_URL= SIGNAL_JOURNAL_DIR="$ROOT/desk" LIVE_BOOKS_PATH="$ROOT/desk/live-books.json" npm run review:build || return 1
+  check_review
+}
+
 log "开始  北京=$(date '+%F %T %Z')  美东=$(TZ=America/New_York date '+%F %T %Z')  UTC=$(date -u '+%F %T %Z')"
 
 if [ -f "$ENV_FILE" ]; then
@@ -79,22 +109,36 @@ if [ "$refresh_ok" -ne 1 ]; then
 fi
 
 soft jobs:daily npm run jobs:daily
-soft gex python3 scripts/fetch-gex-snapshot.py
-if [ -f .cache/gex/latest.json ]; then
-  cp .cache/gex/latest.json "$MARKET/snapshots/gex.json"
-fi
+failed=0
+gex_ok=0
+review_ok=0
+if retry gex fetch_gex; then gex_ok=1; else failed=1; fi
 
 log "算账本"
 docker exec alpha-book wget -qO- --post-data='' --timeout=600 http://127.0.0.1:8081/live-books >/dev/null
 
 log "生成每日复盘与信号跟踪"
 # 同机读取不可变信号档案和已算好的账本；不读取网页构建时的数据副本。
-soft daily-review env MARKET_DATA_BASE_URL= SIGNAL_JOURNAL_DIR="$ROOT/desk" LIVE_BOOKS_PATH="$ROOT/desk/live-books.json" npm run review:build
+if retry daily-review build_review; then review_ok=1; else failed=1; fi
+# 主任务已经持有同一把锁，直接运行独立 worker，不再进入补采锁脚本。
+if [ -f "$ROOT/market-http/review-macro.mjs" ]; then
+  soft daily-review-macro env -u VERCEL MARKET_DATA_BASE_URL= node "$ROOT/market-http/review-macro.mjs"
+  # Refresh the health report after supplementary macro observations change.
+  if [ "$review_ok" -eq 1 ] && ! check_review; then failed=1; fi
+fi
 
 log "推账本"
 curl -fsS -m 120 -X POST "$BOOK_PUSH_URL"
 
-soft gex-card npx --yes tsx scripts/push-gex-card.ts
+if [ "$gex_ok" -eq 1 ]; then
+  soft gex-card npx --yes tsx scripts/push-gex-card.ts
+else
+  log "跳过 GEX 推送：本次采集或完整性校验失败"
+fi
 soft screener env SCREENER_SKIP_AI=true npm run screener:push
 
+if [ "$failed" -ne 0 ]; then
+  log "结束：数据步骤重试后仍不完整，详情见 health-gex / health-review 与任务日志"
+  exit 1
+fi
 log "结束"

@@ -1,3 +1,5 @@
+import { publishOptionsContext } from "./optionsContextStore";
+import { enrichOptionsRow } from "./options";
 import { macroEnvironment, type MacroArchive } from "./macro";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -198,7 +200,8 @@ export async function buildDailyReview(
   );
   const needing = relevant.filter(
     (e) =>
-      journal.get(e.id)?.outcomes.t5.status !== "ready" ||
+      !journal.has(e.id) ||
+      Object.values(journal.get(e.id)!.outcomes).some((r) => r.status !== "ready") ||
       journal.get(e.id)?.excursions.at(-1)?.mae == null,
   );
   const bySymbol = new Map<string, EntrySnapshot[]>();
@@ -251,7 +254,11 @@ export async function buildDailyReview(
       const saved = existing?.options.find(
         (r) => r.symbol === row.symbol && r.today,
       );
-      if (saved) Object.assign(row, saved);
+      if (saved)
+        Object.assign(
+          row,
+          enrichOptionsRow(saved, saved.structure?.basis ?? "reconstructed"),
+        );
     }
   if (options.some((r) => !r.today))
     warnings.push("部分 Gamma 数据缺少当日快照，未使用其他交易日的价位代替。");
@@ -359,7 +366,7 @@ export async function buildDailyReview(
     dates,
     updatedAt: result.builtAt,
   } satisfies ReviewIndex);
-  if (date === dates[0] && date === spyDates.at(-1))
+  if (date === dates[0] && date === spyDates.at(-1)) {
     writeSnapshot("daily-review/context", {
       date,
       builtAt: result.builtAt,
@@ -367,5 +374,7 @@ export async function buildDailyReview(
       engine: result.market.engine,
       macro: result.market.macro,
     });
+    publishOptionsContext(date, options, sessions);
+  }
   return result;
 }

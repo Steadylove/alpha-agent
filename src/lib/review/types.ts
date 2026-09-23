@@ -59,6 +59,11 @@ export type OptionsRow = {
   dte: string | null;
   comparable: boolean;
   changes: string[];
+  meta?: import("@/lib/options/structure").OptionsMeta;
+  previousMeta?: import("@/lib/options/structure").OptionsMeta;
+  structure?: import("@/lib/options/structure").OptionsStructure;
+  shifts?: import("./options").StructureShift[];
+  comparison?: import("./options").OptionsComparison;
 };
 export type Outcome = {
   date: string | null;
@@ -76,6 +81,7 @@ export type JournalSignal = {
   quality: EntryQuality;
   sector: string | null;
   context: MarketContext | null;
+  optionsContext?: import("@/lib/options/signalContext").SignalOptionsContext;
   source: "live" | "replay";
   outcomes: { t1: Outcome; t3: Outcome; t5: Outcome };
   excursions: { date: string; mfe: number | null; mae: number | null }[];

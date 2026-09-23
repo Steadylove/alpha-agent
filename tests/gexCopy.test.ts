@@ -1,4 +1,12 @@
-import { gexCaption, gexCardFromSnapshot, gexImpact, gexPushBody, fmtLevel, netGexLabel } from "@/lib/discord/gexCopy";
+import {
+  gexCaption,
+  gexCardFromSnapshot,
+  gexImpact,
+  gexPushBody,
+  gexClosingNote,
+  fmtLevel,
+  netGexLabel,
+} from "@/lib/discord/gexCopy";
 import { describe, expect, it } from "vitest";
 
 const snapshot = {
@@ -50,18 +58,43 @@ describe("gex format", () => {
 });
 
 describe("gex copy", () => {
-  it("QQQ 贴近 Flip 写区间变薄，SPX 写近端 Call", () => {
-    expect(gexImpact(snapshot.items[0])).toContain("近端 Call 7800");
+  it("只描述位置与 GEX 符号，不预言波动或价格吸引", () => {
+    expect(gexImpact(snapshot.items[0])).toContain("Flip 上方");
     expect(gexImpact(snapshot.items[0])).not.toMatch(/上行看|失守/);
-    expect(gexImpact(snapshot.items[2])).toBe("现价贴近 Flip 720，波动区间变薄");
+    expect(gexImpact(snapshot.items[2])).toBe(
+      "贴近 Flip · 接近 Call Wall · GEX 为负",
+    );
+  });
+
+  it("正 GEX 不推断 Flip 上下；缺数据不默认偏正", () => {
+    const input = { ...snapshot.items[0], gamma_flip: 8000 };
+    expect(gexImpact(input)).toContain("Flip 下方");
+    expect(gexImpact({ ...input, gamma_flip: null })).toContain("Flip 未知");
+    expect(gexClosingNote([], null)).toBe("缺少可描述的 GEX 截面。");
+    const view = gexCardFromSnapshot({
+      items: [{ ...input, contracts_used: 0 }],
+    });
+    expect(view.rows[0]).toMatchObject({
+      status: "GEX 未知",
+      netGex: "—",
+      flip: "—",
+    });
+    expect(JSON.stringify(view)).not.toMatch(
+      /均值回归|偏稳|磁铁|必涨|波动区间变薄/,
+    );
   });
 
   it("卡片带 10Y，不写 4H/2H", () => {
     const view = gexCardFromSnapshot(snapshot);
     expect(view.asOf).toBe("2026-09-04 16:14 美东时间");
     expect(view.tnx).toBe("4.78");
-    expect(view.note).toContain("SPX 在 Flip 上方偏稳");
-    expect(view.rows[0]).toMatchObject({ symbol: "SPX", spot: "7719", netGex: "+$12.2B", flip: "7702" });
+    expect(view.note).toContain("SPX GEX 为正");
+    expect(view.rows[0]).toMatchObject({
+      symbol: "SPX",
+      spot: "7719",
+      netGex: "+$12.2B",
+      flip: "7702",
+    });
     expect(gexCaption(false)).toContain("TREND-ADAPTIVE");
     expect(gexCaption(true)).toContain("（测试）");
     expect(JSON.stringify(view)).not.toMatch(/4H|2H|4 小时/);

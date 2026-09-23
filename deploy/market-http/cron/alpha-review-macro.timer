@@ -1,0 +1,11 @@
+[Unit]
+Description=北京时间每天 12:30 补采一次宏观缺项
+
+[Timer]
+OnCalendar=*-*-* 12:30:00 Asia/Shanghai
+Persistent=true
+AccuracySec=1min
+Unit=alpha-review-macro.service
+
+[Install]
+WantedBy=timers.target

@@ -290,76 +290,12 @@
   margin: 7px 0 0;
   line-height: 1.7;
 }
-.optionsGrid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  border: 1px solid var(--line);
-}
-.optionCard {
-  padding: 20px 15px 15px;
-  background: #151a1b;
-  border-right: 1px solid var(--line);
-  min-width: 0;
-}
-.optionCard:last-child {
-  border: 0;
-}
-.optionTitle {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-}
-.optionTitle h3 {
-  font:
-    600 16px ui-monospace,
-    monospace;
-  margin: 0;
-}
 .tag {
   color: var(--sub);
   border: 1px solid var(--line);
   padding: 3px 5px;
   font-size: 9px;
   white-space: nowrap;
-}
-.optionSpot {
-  font:
-    24px ui-monospace,
-    monospace;
-  margin: 23px 0 20px;
-  letter-spacing: -0.07em;
-}
-.optionSpot span {
-  display: block;
-  color: var(--sub);
-  font:
-    10px ui-monospace,
-    monospace;
-  margin-top: 7px;
-  letter-spacing: 0;
-}
-.optionCard th,
-.optionCard td {
-  padding: 9px 2px;
-  font-size: 10px;
-}
-.optionCard th:not(:first-child),
-.optionCard td:not(:first-child) {
-  text-align: right;
-}
-.optionChanges {
-  min-height: 70px;
-  padding: 14px 0 6px;
-  color: #baccc2;
-  font-size: 10px;
-  line-height: 1.8;
-}
-.optionChanges p {
-  margin: 0 0 4px;
-}
-.optionCard > small {
-  font-size: 9px;
 }
 .note {
   font-size: 10px;
@@ -876,19 +812,6 @@
   padding-bottom: 20px;
 }
 @media (max-width: 1050px) {
-  .optionsGrid {
-    grid-template-columns: 1fr 1fr;
-  }
-  .optionCard:nth-child(2) {
-    border-right: 0;
-  }
-  .optionCard:nth-child(-n + 2) {
-    border-bottom: 1px solid var(--line);
-  }
-  .optionCard th,
-  .optionCard td {
-    font-size: 12px;
-  }
   .buyGrid {
     grid-template-columns: 1fr;
   }
@@ -947,19 +870,10 @@
   .breadthNumber {
     font-size: 36px;
   }
-  .optionsGrid,
   .accountsGrid,
   .strengthLeads,
   .tomorrow {
     grid-template-columns: 1fr;
-  }
-  .optionCard {
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-    padding: 22px;
-  }
-  .optionChanges {
-    min-height: 0;
   }
   .strengthLeads {
     gap: 20px;

@@ -45,26 +45,33 @@ const snapshot = {
 };
 
 describe("market state copy", () => {
-  it("SPX 正结构写分界和磁铁，不写买卖", () => {
+  it("SPX 结构来自独立的位置关系，不写多空预测", () => {
     const view = marketStateFromSnapshot(snapshot);
     expect(view?.title).toBe("SPX 关键位与资金结构");
-    expect(view?.headline).toContain("7702 是多空分界");
-    expect(view?.headline).toContain("7800 是最大磁铁档");
-    expect(view?.close).toContain("QQQ 贴 Flip");
-    expect(view?.close).toContain("SPY 近月净 GEX 为负");
+    expect(view?.headline).toContain("Flip 上方");
+    expect(view?.headline).toContain("双墙之间");
+    expect(view?.close).toContain("QQQ 贴近 Flip");
+    expect(view?.close).toContain("SPY Flip 下方、GEX 为负");
     expect(view?.close).not.toContain("已贴边或翻到负侧");
     expect(view?.close).toContain("截面描述，不是操作计划");
-    expect(view?.levels.map((row) => row.level)).toEqual(["7800", "7719", "7702", "7700"]);
-    expect(JSON.stringify(view)).not.toMatch(/买|卖|追|加仓|做多|做空|建议|上行看|失守/);
+    expect(view?.levels.map((row) => row.level)).toEqual([
+      "7800",
+      "7719",
+      "7702",
+      "7700",
+    ]);
+    expect(JSON.stringify(view)).not.toMatch(
+      /买|卖|追|加仓|做多|做空|建议|上行看|失守|磁铁|多空分界|均值回归/,
+    );
   });
 
-  it("同伴按实际状态分组", () => {
+  it("同伴逐项描述 Flip 位置与 GEX 符号", () => {
     const close = marketClose(snapshot.items[0], [
       { ...snapshot.items[1], net_gex: 1e9, status: "偏正" },
       snapshot.items[2],
     ]);
-    expect(close).toContain("SPY 仍在正侧");
-    expect(close).toContain("QQQ 贴 Flip");
+    expect(close).toContain("SPY Flip 下方、GEX 为正");
+    expect(close).toContain("QQQ 贴近 Flip");
     expect(close).not.toContain("已贴边或翻到负侧");
   });
 
@@ -78,11 +85,18 @@ describe("market state copy", () => {
       call_wall: 7800,
       put_wall: 7500,
     });
-    expect(levels.map((row) => row.level)).toEqual(["7800", "7700", "7600", "7500"]);
-    expect(levels.find((row) => row.role.startsWith("Call"))?.meaning).not.toContain("正结构");
+    expect(levels.map((row) => row.level)).toEqual([
+      "7800",
+      "7700",
+      "7600",
+      "7500",
+    ]);
+    expect(
+      levels.find((row) => row.role.startsWith("Call"))?.meaning,
+    ).not.toContain("正结构");
   });
 
-  it("贴 Flip 写成结构变薄", () => {
+  it("贴 Flip 不推断正负切换或波动结果", () => {
     expect(
       marketHeadline({
         symbol: "QQQ",
@@ -93,7 +107,7 @@ describe("market state copy", () => {
         call_wall: 720,
         put_wall: 700,
       }),
-    ).toBe("现价贴近 Flip 720，正负结构变薄。");
+    ).toBe("贴近 Flip · 接近 Call Wall · GEX 为负。");
   });
 
   it("推送体带结构图文件名", () => {
@@ -104,13 +118,17 @@ describe("market state copy", () => {
 
   it("GEX 图底栏带结构总结", () => {
     const view = gexCardWithSummary(snapshot);
-    expect(view.headline).toContain("7702 是多空分界");
+    expect(view.headline).toContain("Flip 上方");
     expect(view.note).toContain("截面描述，不是操作计划");
   });
 
   it("合成图带表和关键位", () => {
     const view = gexBriefFromSnapshot(snapshot);
-    expect(view.gex.rows.map((row) => row.symbol)).toEqual(["SPX", "SPY", "QQQ"]);
+    expect(view.gex.rows.map((row) => row.symbol)).toEqual([
+      "SPX",
+      "SPY",
+      "QQQ",
+    ]);
     expect(view.state.title).toBe("SPX 关键位与资金结构");
     expect(view.state.levels).toHaveLength(4);
     expect(gexBriefPushBody(snapshot).filename).toBe("gex.png");

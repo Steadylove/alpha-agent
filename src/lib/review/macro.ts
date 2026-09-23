@@ -6,7 +6,7 @@ export const MACRO_SERIES = [
     symbol: "DGS10",
     unit: "%",
     threshold: 3,
-    note: "美联储 H.15 / FRED；日频，可能延后一交易日发布",
+    note: "财政部官方日频收益率；FRED 备用，实际来源见来源字段",
   },
   {
     id: "DGS2",
@@ -15,7 +15,7 @@ export const MACRO_SERIES = [
     symbol: "DGS2",
     unit: "%",
     threshold: 3,
-    note: "美联储 H.15 / FRED；政策利率预期背景",
+    note: "财政部官方日频收益率 / FRED 备用；政策利率预期背景",
   },
   {
     id: "DFII10",
@@ -64,9 +64,12 @@ export const MACRO_SERIES = [
   },
 ] as const;
 export type MacroId = (typeof MACRO_SERIES)[number]["id"];
-export type MacroObservation = {
+export type MacroValue = {
   observationDate: string;
   value: number;
+  source?: string;
+};
+export type MacroObservation = MacroValue & {
   availableAt: string;
   fetchedAt: string;
 };
@@ -102,7 +105,7 @@ export type MacroEnvironment = {
 /** 保留修订的首次可见时间；同值刷新只更新 fetchedAt，不伪造历史发布时刻。 */
 export function mergeObservations(
   old: MacroObservation[],
-  incoming: { observationDate: string; value: number }[],
+  incoming: MacroValue[],
   fetchedAt: string,
 ): MacroObservation[] {
   const out = [...old];
@@ -118,7 +121,8 @@ export function mergeObservations(
         i = j;
         break;
       }
-    if (i >= 0 && out[i].value === row.value) out[i] = { ...out[i], fetchedAt };
+    if (i >= 0 && out[i].value === row.value && out[i].source === row.source)
+      out[i] = { ...out[i], fetchedAt };
     else out.push({ ...row, availableAt: fetchedAt, fetchedAt });
   }
   return out.sort(
@@ -167,7 +171,11 @@ export function macroEnvironment(
             .toISOString()
             .slice(0, 10)
         : sessions[sessions.indexOf(last.observationDate) - 1]);
-    const comparable = !!last && !!prev && prev.observationDate === prior;
+    const comparable =
+      !!last &&
+      !!prev &&
+      prev.observationDate === prior &&
+      last.source === prev.source;
     const status = !last
       ? "missing"
       : last.observationDate === date
@@ -187,9 +195,10 @@ export function macroEnvironment(
       id: def.id,
       label: def.label,
       source:
-        def.provider === "fred"
+        last?.source ??
+        (def.provider === "fred"
           ? `FRED / ${def.symbol}`
-          : `Yahoo / ${def.symbol}`,
+          : `Yahoo / ${def.symbol}`),
       note: def.note,
       unit: def.unit,
       value: last?.value ?? null,
@@ -221,7 +230,7 @@ export function macroEnvironment(
       const xs = visible(r.id),
         a = xs.find((x) => x.observationDate === effectiveDate),
         b = xs.find((x) => x.observationDate === previous);
-      if (!a || !b) return null;
+      if (!a || !b || a.source !== b.source) return null;
       const value =
         r.changeUnit === "bp"
           ? (a.value - b.value) * 100

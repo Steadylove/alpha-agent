@@ -101,6 +101,7 @@ export function evaluateEntry(
         ? (entry.candidate?.sector.row?.name ?? null)
         : null,
     context: entry.marketContext ?? null,
+    ...(entry.optionsContext ? { optionsContext: structuredClone(entry.optionsContext) } : {}),
     source,
     outcomes: { t1: outcome(1), t3: outcome(3), t5: outcome(5) },
     excursions,

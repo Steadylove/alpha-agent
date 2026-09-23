@@ -1,0 +1,14 @@
+[Unit]
+Description=Alpha Agent 每日宏观缺项补采
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/var/lib/alpha-agent/bin/alpha-review-macro.sh
+WorkingDirectory=/var/lib/alpha-agent
+Nice=10
+TimeoutStartSec=300
+StandardOutput=append:/var/lib/alpha-agent/logs/review-macro.log
+StandardError=append:/var/lib/alpha-agent/logs/review-macro.log

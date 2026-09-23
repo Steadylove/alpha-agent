@@ -2,9 +2,15 @@ import {
   MACRO_SERIES,
   mergeObservations,
   type MacroArchive,
+  type MacroValue,
 } from "@/lib/review/macro";
 import { readSnapshot, writeSnapshot } from "@/lib/vps/snapshot";
 import { fetchYahooDailyBars } from "./yahoo";
+import {
+  fetchAlpacaBtc,
+  fetchTreasuryRates,
+  freshestMacroValues,
+} from "./reviewMacroProviders";
 
 export function parseFredCsv(
   text: string,
@@ -32,21 +38,43 @@ export async function refreshReviewMacro(until: string): Promise<MacroArchive> {
   const fetchedAt = new Date().toISOString();
   const series = { ...old?.series },
     errors: string[] = [];
+  let treasury: ReturnType<typeof fetchTreasuryRates> | undefined;
   const results = await Promise.allSettled(
     MACRO_SERIES.map(async (def) => {
-      let values: { observationDate: string; value: number }[];
+      let values: MacroValue[];
       if (def.provider === "fred") {
-        const start = `${Number(until.slice(0, 4)) - 2}${until.slice(4)}`;
-        const response = await fetch(
-          `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${def.symbol}&cosd=${start}&coed=${until}`,
-          { signal: AbortSignal.timeout(20000), cache: "no-store" },
+        values = await freshestMacroValues(
+          async () => {
+            treasury ??= fetchTreasuryRates(until);
+            return (await treasury)[def.id];
+          },
+          async () => {
+            const start = `${Number(until.slice(0, 4)) - 2}${until.slice(4)}`;
+            const response = await fetch(
+              `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${def.symbol}&cosd=${start}&coed=${until}`,
+              { signal: AbortSignal.timeout(20000), cache: "no-store" },
+            );
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return parseFredCsv(await response.text(), def.symbol);
+          },
+          until,
         );
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        values = parseFredCsv(await response.text(), def.symbol);
       } else {
-        values = (
-          await fetchYahooDailyBars(def.symbol, { years: 2, timeoutMs: 20000 })
-        ).map((r) => ({ observationDate: r.date, value: r.close }));
+        const yahoo = async () =>
+          (
+            await fetchYahooDailyBars(def.symbol, {
+              years: 2,
+              timeoutMs: 20000,
+            })
+          ).map((r) => ({ observationDate: r.date, value: r.close }));
+        values =
+          def.id === "BTC"
+            ? await freshestMacroValues(
+                () => fetchAlpacaBtc(until),
+                yahoo,
+                until,
+              )
+            : await yahoo();
       }
       values = values.filter(
         (r) =>

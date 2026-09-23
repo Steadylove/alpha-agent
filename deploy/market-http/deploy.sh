@@ -49,6 +49,9 @@ wait_http() {
 if [ -f "$SRC/cron/install-daily-quant.sh" ]; then
   bash "$SRC/cron/install-daily-quant.sh"
 fi
+if [ -f "$SRC/cron/install-review-macro.sh" ]; then
+  bash "$SRC/cron/install-review-macro.sh"
+fi
 
 cd "$DEST"
 docker compose up -d --force-recreate

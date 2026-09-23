@@ -63,10 +63,14 @@ export async function assessedAlertView(p: AlertPayload, label: string, rps?: nu
     if (p.event === "buy") {
       const capturedAt = new Date().toISOString();
       const { marketContextBefore } = await import("@/lib/review/store");
-      const marketContext = await marketContextBefore(p.entrySignalTime!, rpsEvidence?.asOf);
+      const { optionsContextBefore } = await import("@/lib/review/optionsContextStore");
+      const [marketContext, optionsContext] = await Promise.all([
+        marketContextBefore(p.entrySignalTime!, rpsEvidence?.asOf),
+        optionsContextBefore(p.entrySignalTime!, capturedAt, rpsEvidence?.asOf),
+      ]);
       const saved = await saveFirst<EntrySnapshot>(`signal-entries/${id}.json`, {
         version: 1, id, capturedAt, payload: p, quality: view.quality!, rps, rpsEvidence,
-        candidate: view.candidate, marketContext,
+        candidate: view.candidate, marketContext, optionsContext,
       });
       return { ...buildAlertView(saved.payload, label, saved.rps),
         rpsEvidence: saved.rpsEvidence, quality: saved.quality.version === "quality-v1" ? undefined : saved.quality,

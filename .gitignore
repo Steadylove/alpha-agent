@@ -51,4 +51,5 @@ data/
 deploy/market-http/compute.mjs
 deploy/market-http/telegram.mjs
 deploy/market-http/option-flow.mjs
+deploy/market-http/review-macro.mjs
 **/telegram.config.mjs

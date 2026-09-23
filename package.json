@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "review:check": "npx --yes tsx scripts/check-daily-review.ts",
+    "review:macro:retry": "npx --yes tsx scripts/supplement-review-macro.ts",
+    "review:macro:bundle": "npx --yes esbuild scripts/supplement-review-macro.ts --bundle --platform=node --format=esm --outfile=deploy/market-http/review-macro.mjs --alias:@=./src",
     "review:macro": "npx --yes tsx scripts/refresh-review-macro.ts",
     "review:build": "npx --yes tsx scripts/build-daily-review.ts",
     "theta:setup": "bash scripts/theta.sh setup",
