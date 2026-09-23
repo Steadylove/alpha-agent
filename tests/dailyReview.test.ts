@@ -154,7 +154,9 @@ describe("市场与期权结构复盘", () => {
     expect(sectorStrength(bars, dates, dates[45])).toEqual(original);
     bars.delete("SMH");
     expect(
-      sectorStrength(bars, dates, dates[45]).every((s) => s.rps === null),
+      sectorStrength(bars, dates, dates[45])
+        .filter((s) => s.group === "industry")
+        .every((s) => s.rps === null),
     ).toBe(true);
   });
   it("缺少足够市场广度时不自动判 Risk-On", () => {

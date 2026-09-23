@@ -1,3 +1,4 @@
+import { macroEnvironment, type MacroArchive } from "./macro";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { marketDataRoot } from "@/lib/backtest/marketStore";
@@ -289,20 +290,49 @@ export async function buildDailyReview(
         ) ?? history?.get(date)?.find((a) => a.tf === accounts[i].tf);
       if (saved) accounts[i] = saved;
     }
+  const builtAt = new Date().toISOString();
+  const market = marketReview(
+    bars,
+    sessions,
+    date,
+    members,
+    rps?.sector?.membershipAsOf ?? null,
+    sectors,
+    previousSectors,
+  );
+  const reconstructed =
+    date < settled ||
+    date !== spyDates.at(-1) ||
+    existing?.market.engine?.basis === "reconstructed" ||
+    (!!existing && existing.market.engine?.version !== market.engine?.version);
+  if (market.engine)
+    market.engine.basis = reconstructed ? "reconstructed" : "daily";
+  const macroArchive = await safe("宏观观测", () =>
+    readSnapshot<MacroArchive>("macro-observations"),
+  );
+  market.macro = macroEnvironment(
+    macroArchive,
+    date,
+    sessions,
+    builtAt,
+    reconstructed,
+  );
+  if (market.macro.regime === "Unknown")
+    warnings.push("宏观环境关键数据不足或过期；内部市场状态仍独立计算。");
   const result: DailyReview = {
     version: 1,
     date,
     previousDate,
-    builtAt: new Date().toISOString(),
-    market: marketReview(
-      bars,
-      sessions,
-      date,
-      members,
-      rps?.sector?.membershipAsOf ?? null,
-      sectors,
-      previousSectors,
-    ),
+    builtAt,
+    market,
+    ...(existing
+      ? {
+          publishedMarket: existing.publishedMarket ?? {
+            builtAt: existing.builtAt,
+            market: existing.market,
+          },
+        }
+      : {}),
     sectors,
     options,
     accounts,
@@ -329,11 +359,13 @@ export async function buildDailyReview(
     dates,
     updatedAt: result.builtAt,
   } satisfies ReviewIndex);
-  if (date === dates[0])
+  if (date === dates[0] && date === spyDates.at(-1))
     writeSnapshot("daily-review/context", {
       date,
       builtAt: result.builtAt,
       regime: result.market.regime,
+      engine: result.market.engine,
+      macro: result.market.macro,
     });
   return result;
 }

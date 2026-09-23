@@ -21,7 +21,7 @@ type YahooChartResponse = {
 
 export async function fetchYahooDailyBars(
   symbol: string,
-  options: { years?: number } = {},
+  options: { years?: number; timeoutMs?: number } = {},
 ): Promise<DailyBar[]> {
   const period2 = Math.floor(Date.now() / 1000);
   // 默认拉 8 年 ≈ 2000 交易日：EMA676 至少能递推 ~1300 步稳态收敛（3 年 750 根仅 74 步递推，
@@ -29,7 +29,7 @@ export async function fetchYahooDailyBars(
   // MPR 历史校准需要更长窗口，通过 years 显式放宽。
   const period1 = period2 - (options.years ?? 8) * 365 * 24 * 60 * 60;
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(marketDataSymbol(symbol))}?period1=${period1}&period2=${period2}&interval=1d`;
-  const response = await fetch(url, { next: { revalidate: 60 * 60 } });
+  const response = await fetch(url, { next: { revalidate: 60 * 60 }, signal: AbortSignal.timeout(options.timeoutMs ?? 20000) });
 
   if (!response.ok) {
     throw new Error(`Yahoo request failed for ${symbol}: ${response.status}`);

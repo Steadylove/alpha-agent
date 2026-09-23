@@ -1,3 +1,9 @@
+import {
+  marketEngine,
+  legacyRegime,
+  engineSummary,
+  type MarketFrame,
+} from "./engine";
 import { SECTOR_UNIVERSE } from "@/lib/scoring/sectorUniverse";
 import type { DailyBarRow } from "@/lib/vps/loadDailyBars";
 import type { GexSnapshot } from "@/lib/discord/gexCopy";
@@ -58,7 +64,7 @@ export function metric(
   };
 }
 
-/** 固定 14 ETF 截面、20 个交易日收益排名；缺任何一只就不缩小样本重排。 */
+/** 板块 11 ETF 与细分行业 3 ETF 分组排名；组内缺项不缩小分母。 */
 export function sectorStrength(
   bars: Bars,
   sessions: string[],
@@ -73,15 +79,18 @@ export function sectorStrength(
       return a != null && b != null ? pct(a, b) : null;
     });
   const ranks = (rs: (number | null)[]) =>
-    rs.some((r) => r == null)
-      ? rs.map(() => null)
-      : rs.map(
-          (r) =>
-            (100 *
-              (rs.filter((v) => v! < r!).length +
-                (rs.filter((v) => v === r).length - 1) / 2)) /
-            (rs.length - 1),
-        );
+    rs.map((r, i) => {
+      const peers = rs.filter(
+        (_, j) => REVIEW_SECTORS[j].group === REVIEW_SECTORS[i].group,
+      );
+      if (r == null || peers.some((v) => v == null)) return null;
+      return (
+        (100 *
+          (peers.filter((v) => v! < r).length +
+            (peers.filter((v) => v === r).length - 1) / 2)) /
+        (peers.length - 1)
+      );
+    });
   const returns = returnsAt(0),
     now = ranks(returns),
     p1 = ranks(returnsAt(1)),
@@ -127,9 +136,11 @@ export function marketReview(
   };
   const today = breadthAt(date, previous ?? undefined),
     yesterday = breadthAt(previous ?? undefined, sessions[at - 2]);
+  sectors = sectors.filter((s) => s.group === "sector");
+  previousSectors = previousSectors.filter((s) => s.group === "sector");
   const strong = (rows: SectorStrength[]) =>
     metric20("SPY") != null &&
-    rows.length > 0 &&
+    rows.length === 11 &&
     rows.every((s) => s.return20 != null)
       ? rows.filter((s) => s.return20! > 0 && s.return20! > metric20("SPY")!)
           .length
@@ -141,46 +152,56 @@ export function marketReview(
   }
   const spy20 = metric20("SPY", 1);
   const strongYesterday =
-    spy20 != null && previousSectors.every((s) => s.return20 != null)
+    spy20 != null &&
+    previousSectors.length === 11 &&
+    previousSectors.every((s) => s.return20 != null)
       ? previousSectors.filter((s) => s.return20! > 0 && s.return20! > spy20)
           .length
       : null;
-  const stocks = metrics.filter((x) =>
-    ["SPY", "QQQ", "IWM"].includes(x.symbol),
-  );
-  const vix = metrics.find((x) => x.symbol === "VIX")!.change;
-  let regime: ReviewMarket["regime"] = "Unknown",
-    summary = "指数、波动率或广度数据不足，暂不判定市场状态。";
-  if (
-    stocks.every((s) => s.change != null) &&
-    vix != null &&
-    today.value != null
-  ) {
-    const up = stocks.filter((s) => s.change! > 0).length;
-    if (up === 3 && today.value >= 60 && vix <= 0) {
-      regime = "Risk-On";
-      summary =
-        "主要股票 ETF 同涨，超过六成样本上涨，VIX 未上升。风险偏好扩散。";
-    } else if (
-      up === 0 &&
-      stocks.every((s) => s.change! < 0) &&
-      today.value <= 40 &&
-      vix >= 0
-    ) {
-      regime = "Risk-Off";
-      summary =
-        "主要股票 ETF 同跌，上涨样本不足四成，VIX 未下降。风险偏好收缩。";
-    } else if (up > 0 && up < 3) {
-      regime = "Rotation";
-      summary = "大盘、科技与小盘表现分化，资金正在不同风格间轮动。";
-    } else {
-      regime = "Transition";
-      summary = "指数、市场广度与波动率未形成一致方向，市场处于过渡状态。";
-    }
-  }
+  const countUp = (offset: number, period = 1) => {
+    const xs = REVIEW_SECTORS.filter((s) => s.group === "sector").map((s) => {
+      const a = closeOn(bars, s.symbol, sessions[at - offset]);
+      const b = closeOn(bars, s.symbol, sessions[at - offset - period]);
+      return a != null && b != null ? pct(a, b) : null;
+    });
+    return xs.every(finite) ? xs.filter((x) => x! > 0.2).length : null;
+  };
+  const frames: MarketFrame[] = [0, 1, 2]
+    .filter((o) => at - o >= 0)
+    .map((o) => {
+      const day = sessions[at - o],
+        prior = sessions[at - o - 1];
+      const ms = REVIEW_INDICES.map((s) => metric(bars, s, day, prior ?? null));
+      const defensive = ["XLP", "XLU", "XLV"].map(
+        (s) => metric(bars, s, day, prior ?? null).change,
+      );
+      const spy = ms.find((m) => m.symbol === "SPY")!.change;
+      return {
+        date: day,
+        metrics: ms,
+        breadth: breadthAt(day, prior).value,
+        priorBreadth: breadthAt(prior, sessions[at - o - 2]).value,
+        sectorUp: countUp(o),
+        sectorPrevious: countUp(o + 1),
+        sector5dUp: countUp(o, 5),
+        defensiveSpread:
+          defensive.every(finite) && spy != null
+            ? defensive.reduce((a, b) => a + b!, 0)! / 3 - spy
+            : null,
+      };
+    });
+  const engine = marketEngine(frames);
+  engine.coverage = {
+    valid: today.valid,
+    total: members.length,
+    membershipAsOf,
+  };
+  const regime = legacyRegime(engine.state),
+    summary = engineSummary(engine);
   return {
     regime,
     summary,
+    engine,
     metrics,
     breadth: {
       today: today.value,
@@ -193,7 +214,7 @@ export function marketReview(
     strongSectors: {
       today: strong(sectors),
       yesterday: strongYesterday,
-      total: REVIEW_SECTORS.length,
+      total: 11,
     },
   };
 }

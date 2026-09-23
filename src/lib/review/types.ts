@@ -6,6 +6,7 @@ export type Regime =
   | "Risk-Off"
   | "Rotation"
   | "Transition"
+  | "Neutral"
   | "Unknown";
 export type ReviewTf = "2h" | "4h";
 export type Metric = {
@@ -25,7 +26,15 @@ export type SectorStrength = {
   return20: number | null;
   change: number | null;
 };
+export type MarketContext = {
+  regime: Regime;
+  date: string;
+  engine?: import("./engine").MarketEngine;
+  macro?: import("./macro").MacroEnvironment;
+};
 export type ReviewMarket = {
+  engine?: import("./engine").MarketEngine;
+  macro?: import("./macro").MacroEnvironment;
   regime: Regime;
   summary: string;
   metrics: Metric[];
@@ -66,7 +75,7 @@ export type JournalSignal = {
   price: number;
   quality: EntryQuality;
   sector: string | null;
-  context: { regime: Regime; date: string } | null;
+  context: MarketContext | null;
   source: "live" | "replay";
   outcomes: { t1: Outcome; t3: Outcome; t5: Outcome };
   excursions: { date: string; mfe: number | null; mae: number | null }[];
@@ -101,6 +110,7 @@ export type DailyReview = {
   previousDate: string | null;
   builtAt: string;
   market: ReviewMarket;
+  publishedMarket?: { builtAt: string; market: ReviewMarket };
   options: OptionsRow[];
   sectors: SectorStrength[];
   signals: JournalSignal[];

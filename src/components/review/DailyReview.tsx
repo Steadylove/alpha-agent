@@ -23,6 +23,7 @@ import type {
 } from "@/lib/review/types";
 import { cohort, correlation, type Cohort } from "@/lib/review/journal";
 import styles from "./review.module.css";
+import { MarketStatePanel, contextLabel } from "./MarketStatePanel";
 
 const number = (v: number | null | undefined, digits = 2) =>
   v == null
@@ -221,7 +222,15 @@ function OptionsCard({ row }: { row: OptionsRow }) {
   );
 }
 
-function Sectors({ rows }: { rows: SectorStrength[] }) {
+function Sectors({
+  rows: allRows,
+  grouped,
+}: {
+  rows: SectorStrength[];
+  grouped: boolean;
+}) {
+  const [group, setGroup] = useState<"sector" | "industry">("sector");
+  const rows = grouped ? allRows.filter((r) => r.group === group) : allRows;
   const [horizon, setHorizon] = useState<"d1" | "d5" | "d20">("d5");
   const sorted = [...rows].sort(
     (a, b) => (b[horizon] ?? -Infinity) - (a[horizon] ?? -Infinity),
@@ -247,7 +256,19 @@ function Sectors({ rows }: { rows: SectorStrength[] }) {
             </button>
           ))}
         </div>
-        <span className={styles.muted}>变化单位：RPS 百分位点</span>
+        {grouped && (
+          <div className={styles.segment} aria-label="强度排名分组">
+            {(["sector", "industry"] as const).map((g) => (
+              <button
+                key={g}
+                aria-pressed={group === g}
+                onClick={() => setGroup(g)}
+              >
+                {g === "sector" ? "11 大板块" : "3 细分行业"}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       <div className={styles.strengthLeads}>
         {[
@@ -330,7 +351,8 @@ function Sectors({ rows }: { rows: SectorStrength[] }) {
         </table>
       </div>
       <p className={styles.note}>
-        固定 14 只板块／行业 ETF，按过去 20 个交易日涨幅做截面排名。RPS
+        11 个大板块与 3 个细分行业分别按过去 20
+        个交易日涨幅排名，组内缺项不缩小分母。RPS
         变化比较同一批标的；样本缺失不缩小分母。与买点评分中个股 RPS
         的口径不同。
       </p>
@@ -369,7 +391,7 @@ function SignalDetail({ signal: s }: { signal: JournalSignal }) {
         <p>
           当时已知市场：
           {s.context
-            ? `${s.context.regime}（${s.context.date} 收盘复盘）`
+            ? `${contextLabel(s.context)}（${s.context.date} 收盘复盘）`
             : "未留档"}{" "}
           · 板块：{s.sector ?? "未留档"}
         </p>
@@ -716,7 +738,7 @@ function SignalJournal({
       ),
     ),
   ];
-  const regimes = [...new Set(study.map((s) => s.context?.regime ?? "未留档"))];
+  const regimes = [...new Set(study.map((s) => contextLabel(s.context)))];
   const sectors = [...new Set(study.map((s) => s.sector ?? "未留档"))];
   const factors = [
     ...new Set(
@@ -951,7 +973,7 @@ function SignalJournal({
             rows={regimes.map((r) =>
               cohort(
                 r,
-                study.filter((s) => (s.context?.regime ?? "未留档") === r),
+                study.filter((s) => contextLabel(s.context) === r),
               ),
             )}
           />
@@ -985,17 +1007,23 @@ function Tomorrow({ review: r }: { review: Review }) {
   const groups = [
     {
       title: "持续强势",
-      rows: r.sectors.filter(persistent),
+      rows: r.sectors
+        .filter((s) => !r.market.engine || s.group === "sector")
+        .filter(persistent),
     },
     {
       title: "正在改善",
-      rows: r.sectors.filter(
-        (s) => s.rps != null && s.d5 != null && s.d5 > 0 && !persistent(s),
-      ),
+      rows: r.sectors
+        .filter((s) => !r.market.engine || s.group === "sector")
+        .filter(
+          (s) => s.rps != null && s.d5 != null && s.d5 > 0 && !persistent(s),
+        ),
     },
     {
       title: "正在走弱",
-      rows: r.sectors.filter((s) => s.d5 != null && s.d5 < 0),
+      rows: r.sectors
+        .filter((s) => !r.market.engine || s.group === "sector")
+        .filter((s) => s.d5 != null && s.d5 < 0),
     },
   ];
   return (
@@ -1114,129 +1142,7 @@ export function DailyReview({
               </a>
             ))}
           </nav>
-          <section id="market" className={styles.marketHero}>
-            <div className={styles.heroLead}>
-              <div>
-                <p className={styles.eyebrow}>01 / MARKET STATE</p>
-                <h2
-                  className={
-                    r.market.regime === "Risk-Off"
-                      ? styles.down
-                      : r.market.regime === "Risk-On"
-                        ? styles.up
-                        : ""
-                  }
-                >
-                  {r.market.regime === "Unknown" ? "等待数据" : r.market.regime}
-                  <span className={styles.statusDot} />
-                </h2>
-                <p>{r.market.summary}</p>
-              </div>
-              <span className={styles.observation}>
-                收盘观察
-                <br />
-                不作方向预测
-              </span>
-            </div>
-            <div className={styles.tickerStrip}>
-              {r.market.metrics.slice(0, 4).map((m) => (
-                <div key={m.symbol}>
-                  <h3>{m.symbol}</h3>
-                  <strong className={tone(m.change)}>{signed(m.change)}</strong>
-                  <span>{number(m.today)}</span>
-                </div>
-              ))}
-            </div>
-            <div className={styles.marketBottom}>
-              <div className={styles.tableWrap}>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>核心指标</th>
-                      <th>今日</th>
-                      <th>前一交易日</th>
-                      <th>变化</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {r.market.metrics.map((m) => (
-                      <tr key={m.symbol}>
-                        <td>{m.symbol}</td>
-                        <td>{number(m.today)}</td>
-                        <td>{number(m.yesterday)}</td>
-                        <td>
-                          <Change value={m.change} />
-                        </td>
-                      </tr>
-                    ))}
-                    <tr>
-                      <td>样本上涨比例</td>
-                      <td>
-                        {r.market.breadth.today == null
-                          ? "—"
-                          : `${number(r.market.breadth.today, 1)}%`}
-                      </td>
-                      <td>
-                        {r.market.breadth.yesterday == null
-                          ? "—"
-                          : `${number(r.market.breadth.yesterday, 1)}%`}
-                      </td>
-                      <td>
-                        <Change
-                          value={
-                            r.market.breadth.today != null &&
-                            r.market.breadth.yesterday != null
-                              ? r.market.breadth.today -
-                                r.market.breadth.yesterday
-                              : null
-                          }
-                          suffix=" pp"
-                        />
-                      </td>
-                    </tr>
-                    <tr>
-                      <td>强势板块 / 行业</td>
-                      <td>{number(r.market.strongSectors.today, 0)}</td>
-                      <td>{number(r.market.strongSectors.yesterday, 0)}</td>
-                      <td>
-                        <Change
-                          value={
-                            r.market.strongSectors.today != null &&
-                            r.market.strongSectors.yesterday != null
-                              ? r.market.strongSectors.today -
-                                r.market.strongSectors.yesterday
-                              : null
-                          }
-                          suffix=""
-                        />
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <aside>
-                <h3>今天的市场体温</h3>
-                <div className={styles.breadthNumber}>
-                  {number(r.market.breadth.today, 1)}
-                  <small>%</small>
-                </div>
-                <p>
-                  上涨比例 · {r.market.breadth.valid} / {r.market.breadth.total}{" "}
-                  只有效样本
-                </p>
-                <div className={styles.breadthBar}>
-                  {r.market.breadth.today != null && (
-                    <i style={{ width: `${r.market.breadth.today}%` }} />
-                  )}
-                </div>
-                <small>
-                  {r.market.breadth.universe}，非全市场；名单截至{" "}
-                  {r.market.breadth.membershipAsOf ?? "未知"}。强势板块定义为
-                  20D 涨幅为正且跑赢 SPY。
-                </small>
-              </aside>
-            </div>
-          </section>
+          <MarketStatePanel review={r} />
           <Section
             id="options"
             n="02"
@@ -1259,7 +1165,7 @@ export function DailyReview({
             title="板块轮动与市场强度"
             subtitle="谁在变强，谁在失去相对优势。"
           >
-            <Sectors rows={r.sectors} />
+            <Sectors rows={r.sectors} grouped={!!r.market.engine} />
           </Section>
           <Section
             id="signals"

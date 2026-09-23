@@ -2,7 +2,12 @@ import { readFileSync, existsSync } from "node:fs";
 import { snapshotFile, readSnapshot } from "@/lib/vps/snapshot";
 import { marketBaseUrl } from "@/lib/backtest/marketStore";
 import { fetchMarketText } from "@/lib/backtest/marketRemote";
-import type { DailyReview, JournalArchive, ReviewIndex } from "./types";
+import type {
+  DailyReview,
+  JournalArchive,
+  ReviewIndex,
+  MarketContext,
+} from "./types";
 import { journalAsOf } from "./journal";
 
 export const validReviewDate = (s: string): boolean =>
@@ -86,11 +91,10 @@ export async function marketContextBefore(
   | undefined
 > {
   try {
-    const context = await readSnapshot<{
-      date: string;
-      builtAt: string;
-      regime: DailyReview["market"]["regime"];
-    }>("daily-review/context", AbortSignal.timeout(1200));
+    const context = await readSnapshot<MarketContext & { builtAt: string }>(
+      "daily-review/context",
+      AbortSignal.timeout(1200),
+    );
     if (
       context &&
       validReviewDate(context.date) &&
@@ -98,7 +102,12 @@ export async function marketContextBefore(
       Date.parse(context.builtAt) <= stamp &&
       context.regime !== "Unknown"
     ) {
-      return { regime: context.regime, date: context.date };
+      return {
+        regime: context.regime,
+        date: context.date,
+        ...(context.engine ? { engine: context.engine } : {}),
+        ...(context.macro ? { macro: context.macro } : {}),
+      };
     }
   } catch {
     /* 不为市场上下文阻断告警；缺失保留为缺失。 */

@@ -1,3 +1,4 @@
+import { refreshReviewMacro } from "@/lib/data-sources/reviewMacro";
 import "dotenv/config";
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -212,11 +213,12 @@ async function refreshMacro(until: string) {
       const existing = readCsvPanel(CSV_PANEL_DIR, target.symbol);
       const incoming = await fetchYahooDailyBars(target.fetchSymbol ?? target.symbol, { years: 2 });
       const merged = mergeNewBars(existing ? toBars(existing) : [], incoming, until);
-      if ((merged.at(-1)?.date ?? "") < until) throw new Error(`日线未更新到 ${until}`);
       if (!existing || merged.length !== existing.dates.length) {
         writeBars(CSV_PANEL_DIR, target.symbol, merged);
         updated += 1;
       }
+      // 即使供应商少最后一日，也保存已完成的新观测；随后报告缺日，不填充旧值。
+      if ((merged.at(-1)?.date ?? "") < until) throw new Error(`日线未更新到 ${until}`);
     } catch (error) {
       failed.push(`${target.symbol}: ${error instanceof Error ? error.message : error}`);
     }
@@ -226,11 +228,12 @@ async function refreshMacro(until: string) {
       const existing = readCsvPanel(CSV_PANEL_DIR, symbol);
       const incoming = await fetchCboeVolIndexHistory(symbol);
       const merged = mergeNewBars(existing ? toBars(existing) : [], incoming, until);
-      if ((merged.at(-1)?.date ?? "") < until) throw new Error(`日线未更新到 ${until}`);
       if (!existing || merged.length !== existing.dates.length) {
         writeBars(CSV_PANEL_DIR, symbol, merged);
         updated += 1;
       }
+      // 即使供应商少最后一日，也保存已完成的新观测；随后报告缺日，不填充旧值。
+      if ((merged.at(-1)?.date ?? "") < until) throw new Error(`日线未更新到 ${until}`);
     } catch (error) {
       failed.push(`${symbol}: ${error instanceof Error ? error.message : error}`);
     }
@@ -277,6 +280,13 @@ async function main() {
     until,
   );
   const macro = await refreshMacro(until);
+  // 独立宏观归档；缺源在页面标缺失，不使股票复盘消失。
+  if (!AUDIT_ONLY) {
+    try {
+      const context = await refreshReviewMacro(until);
+      if (context.errors.length) console.warn("Macro radar:", context.errors.join(" | "));
+    } catch (error) { console.warn("Macro radar refresh failed:", error instanceof Error ? error.message : "unknown"); }
+  }
   const tfWanted = wanted.filter((t) => !MACRO_CBOE.includes(t as CboeVolIndex) && t !== "DXY");
   const four = await refreshTf("4h", CSV_4H_DIR, tfWanted, until, (raw) => toOhlcv(aggregateTo4H(raw)));
   const one = await refreshTf("1h", CSV_1H_DIR, tfWanted, until, (raw) => toOhlcv(aggregateTo1H(raw)));

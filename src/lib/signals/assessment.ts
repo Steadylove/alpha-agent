@@ -32,7 +32,7 @@ export type EntrySnapshot = {
   rpsEvidence?: RpsEvidence;
   fund?: FundScore;
   /** 信号前已发布的最近一份市场复盘；不使用当日收盘后的市场状态。 */
-  marketContext?: { regime: import("@/lib/review/types").Regime; date: string };
+  marketContext?: import("@/lib/review/types").MarketContext;
 };
 export type AssessmentPanel = { heading: string; headline: string; lines: string[]; note: string };
 
