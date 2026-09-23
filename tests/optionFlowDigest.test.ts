@@ -61,7 +61,7 @@ describe("option flow digest", () => {
     expect(spyWalls({ items: [snapshot.items[0]] })).toBeNull();
   });
 
-  it("只汇总当日 flow，买 Call 明显更多就标偏看涨", () => {
+  it("不明确的买卖方向不推断，汇总复述不算新交易", () => {
     const view = buildDailyFlowDigest(
       [
         post({
@@ -97,12 +97,12 @@ describe("option flow digest", () => {
     );
     expect(view.day).toBe("2026-09-11");
     expect(view.title).toBe("期权流 · 9月11日");
-    expect(view.bias).toBe("bull");
-    expect(biasLabel(view)).toBe("当日大额偏看涨");
-    expect(view.bullUsd).toBe(5_000_000);
-    expect(view.bearUsd).toBe(2_300_000);
+    expect(view.bias).toBe("none");
+    expect(biasLabel(view)).toBe("暂无可分类方向金额");
+    expect(view.bullUsd).toBe(0);
+    expect(view.bearUsd).toBe(0);
     expect(view.putUsd).toBe(2_300_000);
-    expect(view.legs.map((leg) => leg.ticker)).toEqual(["ORCL", "LYFT", "HOOD"]);
+    expect(view.legs.map((leg) => leg.ticker)).toEqual(["ORCL", "LYFT"]);
     expect(view.notes).toEqual([]);
   });
 
@@ -217,12 +217,12 @@ describe("option flow digest", () => {
       snapshot,
     );
     expect(view.legs.find((leg) => leg.ticker === "PWR")?.note).toBe("seller");
-    expect(view.bullUsd).toBe(28_100_000);
+    expect(view.bullUsd).toBe(23_900_000);
     expect(view.bearUsd).toBe(1_600_000);
     expect(view.bias).toBe("bull");
   });
 
-  it("到期日统一成 MM/DD/YY，同合约不同写法只留一笔", () => {
+  it("研究日结保留来源到期提示，不用汇总的不同到期日覆盖原始记录", () => {
     expect(normalizeExpiry("Dec '28", "2026-09-11")).toBe("12/15/28");
     expect(normalizeExpiry("01/21/28", "2026-09-11")).toBe("01/21/28");
     expect(normalizeExpiry("Mar '27", "2026-09-11")).toBe("03/19/27");
@@ -251,7 +251,7 @@ describe("option flow digest", () => {
       snapshot,
     );
     expect(view.legs).toEqual([
-      expect.objectContaining({ ticker: "AVGO", strike: 650, expiry: "12/15/28", premiumUsd: 14_000_000 }),
+      expect.objectContaining({ ticker: "AVGO", strike: 650, expiry: "December", premiumUsd: 14_000_000 }),
     ]);
   });
 

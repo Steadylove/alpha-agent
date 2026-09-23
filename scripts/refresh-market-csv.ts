@@ -31,6 +31,8 @@ import { MPR_SYMBOLS } from "@/lib/scoring/mpr";
 import { ROTATION_UNIVERSE } from "@/lib/scoring/rotationUniverse";
 import { SECTOR_UNIVERSE } from "@/lib/scoring/sectorUniverse";
 import { REVIEW_SECTORS } from "@/lib/review/market";
+import { readOptionFlow } from "@/lib/optionFlow/store";
+import { flowResearchSymbols } from "@/lib/optionFlow/research/universe";
 import {
   aggregateTo1H,
   aggregateTo4H,
@@ -274,9 +276,10 @@ async function main() {
     );
   }
 
+  const flowSymbols = await readOptionFlow().then(store => flowResearchSymbols(store.posts, until)).catch(() => [] as string[]);
   const daily = await refreshDaily(
     // 排名基准只需要日线；新成分股不触发与交易池无关的多年分钟行情回补。
-    [...new Set([...wanted, ...benchmark.map(row => row.symbol), "QQQ", "IWM", ...REVIEW_SECTORS.map(s => s.symbol)])].filter((t) => !MACRO_CBOE.includes(t as CboeVolIndex) && t !== "DXY" && t !== "SPX"),
+    [...new Set([...wanted, ...flowSymbols, ...benchmark.map(row => row.symbol), "QQQ", "IWM", ...REVIEW_SECTORS.map(s => s.symbol)])].filter((t) => !MACRO_CBOE.includes(t as CboeVolIndex) && t !== "DXY" && t !== "SPX"),
     until,
   );
   const macro = await refreshMacro(until);

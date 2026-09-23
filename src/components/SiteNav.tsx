@@ -1,14 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Bell,
   FlaskConical,
   Layers,
   LayoutDashboard,
   ListChecks,
-  Radar,
+  ScanLine,
   Wallet,
 } from "lucide-react";
 
@@ -18,22 +18,30 @@ const primaryNav = [
   { href: "/desk", label: "信号台", icon: ListChecks },
   { href: "/fund", label: "资金账本", icon: Wallet },
   { href: "/opportunity", label: "机会", icon: Layers },
-  { href: "/mpr", label: "市场雷达", icon: Radar },
+  { href: "/flow", label: "期权流研究", icon: ScanLine },
   { href: "/lab", label: "调参实验室", icon: FlaskConical },
   { href: "/push", label: "推送", icon: Bell },
 ];
 
 export function SiteNav() {
   const pathname = usePathname();
+  const router = useRouter();
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" || pathname === "/review" : pathname.startsWith(href);
 
   return (
+    <>
+    <select aria-label="页面导航" value={primaryNav.find(item => isActive(item.href))?.href ?? "/"}
+      onChange={event => router.push(event.target.value)}
+      className="max-w-28 rounded border border-white/10 bg-[var(--surface-base)] px-2 py-1.5 text-xs text-zinc-300 md:hidden">
+      {primaryNav.map(item => <option key={item.href} value={item.href}>{item.label}</option>)}
+    </select>
     <nav className="hidden items-center gap-0.5 text-sm md:flex">
       {primaryNav.map((item) => (
         <NavLink key={item.href} {...item} active={isActive(item.href)} />
       ))}
     </nav>
+    </>
   );
 }
 
@@ -45,7 +53,7 @@ function NavLink({
 }: {
   href: string;
   label: string;
-  icon: typeof Radar;
+  icon: typeof ScanLine;
   active: boolean;
 }) {
   return (

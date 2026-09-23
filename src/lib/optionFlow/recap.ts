@@ -25,7 +25,7 @@ export type RecapTopLeg = {
   strike: string;
   expiry: string;
   premium: string;
-  lean: FlowLean;
+  lean: FlowLean | "unknown";
 };
 
 export type RecapGexRow = {
@@ -90,7 +90,7 @@ export function buildDailyRecap(
       strike: leg.strike != null ? `$${leg.strike}` : "—",
       expiry: leg.expiry ?? "—",
       premium: formatPremium(leg.premiumUsd),
-      lean: flowLean(leg.right, flowSide("", leg.note)) ?? "bull",
+      lean: flowLean(leg.right, flowSide("", leg.note)) ?? "unknown",
     })),
     more: Math.max(0, legs.length - TOP_N),
     notes: digest.notes,
@@ -114,7 +114,7 @@ export function formatDailyRecap(view: FlowRecapView): string {
     lines.push("", "**金额最大**");
     view.top.forEach((leg, i) => {
       lines.push(
-        `${i + 1}. ${leg.ticker} ${leg.side} ${leg.strike} ${leg.expiry} ${leg.premium} · ${leg.lean === "bear" ? "看跌" : "看涨"}`,
+        `${i + 1}. ${leg.ticker} ${leg.side} ${leg.strike} ${leg.expiry} ${leg.premium} · ${leg.lean === "bear" ? "看跌" : leg.lean === "bull" ? "看涨" : "方向未明"}`,
       );
     });
     if (view.more > 0) lines.push(`其余 ${view.more} 笔见上图，不另编。`);

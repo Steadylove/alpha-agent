@@ -14,6 +14,7 @@ jobs:
     timeout-minutes: 90
     env:
       MARKET_DATA_DIR: ${{ github.workspace }}/.market
+      OPTION_FLOW_PATH: ${{ github.workspace }}/.review-desk/option-flow.json
       HOST: 108.174.50.53
       ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
       ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
@@ -56,12 +57,22 @@ jobs:
             "root@${HOST}:/var/lib/alpha-agent/market/" \
             "$MARKET_DATA_DIR/"
 
+      - name: Read options flow records
+        run: |
+          mkdir -p .review-desk
+          rsync -a -e "ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes" \
+            "root@${HOST}:/var/lib/alpha-agent/desk/option-flow.json" "$OPTION_FLOW_PATH"
+
       - name: Refresh CSV to last session
         run: npm run market:refresh
 
       - name: Compute snapshots onto VPS files
         continue-on-error: true
         run: npm run jobs:daily
+
+      - name: Build options flow research
+        continue-on-error: true
+        run: npm run flow:research -- --daily
 
       - name: Fetch GEX snapshot
         continue-on-error: true

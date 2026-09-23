@@ -13,6 +13,8 @@ import { writeJsonAtomic } from "@/lib/files/atomicJson";
 import { buildSectorSnapshot } from "@/lib/signals/sectorFactor";
 import { SECTOR_UNIVERSE } from "@/lib/scoring/sectorUniverse";
 import { VERIFIED_SECTOR_CLASSIFICATIONS } from "@/lib/signals/sectorClassification";
+import { readOptionFlow } from "@/lib/optionFlow/store";
+import { flowResearchSymbols } from "@/lib/optionFlow/research/universe";
 
 /** 信号排名只需已收盘日的动量分，不必准备整池盘中交易指标。 */
 export function signalRpsFromPanels(panels: readonly PanelBars[], benchmark: readonly string[], day: string, calendar: RpsCalendar, now = new Date()) {
@@ -62,7 +64,8 @@ export async function buildAndStoreSignalRps(now = new Date()) {
   const [calendar, constituents] = await Promise.all([fetchRpsCalendar(now), fetchSp500Universe()]);
   const day = latestRpsSession(calendar, now);
   const benchmark = constituents.map(row => row.symbol);
-  const wanted = [...new Set([...tickersForPool("sf-broad"), ...benchmark, "SPY", ...SECTOR_UNIVERSE.map(s => s.symbol)])];
+  const flowSymbols = await readOptionFlow().then(store => flowResearchSymbols(store.posts, day)).catch(() => [] as string[]);
+  const wanted = [...new Set([...tickersForPool("sf-broad"), ...flowSymbols, ...benchmark, "SPY", ...SECTOR_UNIVERSE.map(s => s.symbol)])];
   const panels = readCsvPanels(csvDir("1d"), wanted);
   const result = signalRpsFromPanels(panels, benchmark, day, calendar, now);
   result.snapshot.sector = buildSectorSnapshot(panels, constituents, day, { generatedAt: now.toISOString(),

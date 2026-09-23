@@ -13,6 +13,7 @@ BOOK_PUSH_URL=${BOOK_PUSH_URL:-https://alpha-agent-eight.vercel.app/api/jobs/pus
 export TZ=Asia/Shanghai
 export MARKET_DATA_DIR=$MARKET
 export SIGNAL_POOL_PATH=${SIGNAL_POOL_PATH:-$ROOT/desk/signal-pool.json}
+export OPTION_FLOW_PATH=${OPTION_FLOW_PATH:-$ROOT/desk/option-flow.json}
 export PUSH_ROUTES_PATH=${PUSH_ROUTES_PATH:-$ROOT/desk/push-routes.json}
 export ALPACA_FEED=${ALPACA_FEED:-sip}
 
@@ -108,6 +109,8 @@ if [ "$refresh_ok" -ne 1 ]; then
   exit 1
 fi
 
+# Independent research archive; never coupled to GEX or message delivery.
+soft flow-research env -u VERCEL MARKET_DATA_BASE_URL= OPTION_FLOW_PATH="$ROOT/desk/option-flow.json" npm run flow:research -- --daily
 soft jobs:daily npm run jobs:daily
 failed=0
 gex_ok=0

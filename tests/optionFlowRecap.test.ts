@@ -55,8 +55,9 @@ describe("option flow recap", () => {
     );
     const recap = buildDailyRecap(digest, snapshot);
     expect(recap.sellPutUsd).toBe(23_900_000);
-    expect(recap.buyCallUsd).toBe(4_200_000);
-    expect(recap.bullUsd).toBe(28_100_000);
+    expect(recap.buyCallUsd).toBe(0);
+    expect(recap.top.find(l => l.ticker === "META")?.lean).toBe("unknown");
+    expect(recap.bullUsd).toBe(23_900_000);
     expect(recap.bearUsd).toBe(0);
     const text = formatDailyRecap(recap);
     expect(text).toContain("偏看涨");

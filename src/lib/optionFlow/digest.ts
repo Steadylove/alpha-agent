@@ -2,7 +2,10 @@ import { lastSettledSession } from "@/lib/backtest/mergeBars";
 import { fmtLevel, type GexSnapshot } from "@/lib/discord/gexCopy";
 
 import { isCompleteLeg, isOptionSessionPosted } from "./config";
-import { expirySpecificity, normalizeExpiry } from "./expiry";
+import { normalizeFlowEvents } from "./research/events";
+import { flowSide, flowLean } from "./direction";
+export { flowSide, flowLean, sideLabel } from "./direction";
+export type { FlowSide, FlowLean } from "./direction";
 import type { OptionFlowKind, OptionFlowLeg, OptionFlowPost } from "./types";
 
 const NOTE_MAX = 3;
@@ -10,8 +13,6 @@ const BIAS_RATIO = 1.2;
 const FLOW_KINDS = new Set<OptionFlowKind>(["flow", "noteworthy"]);
 
 export type FlowDigestBias = "bull" | "bear" | "mixed" | "none";
-export type FlowSide = "buyer" | "seller";
-export type FlowLean = "bull" | "bear";
 
 export type FlowDigestNote = {
   ticker: string;
@@ -98,31 +99,11 @@ export function digestTitle(day: string): string {
   return `期权流 · ${month}月${date}日`;
 }
 
-export function flowSide(text: string, note?: string): FlowSide {
-  if (note === "buyer" || note === "seller") return note;
-  if (/\bsellers?\b/i.test(text) && !/\bbuyers?\b/i.test(text)) return "seller";
-  if (/\bbuyers?\b/i.test(text) && !/\bsellers?\b/i.test(text)) return "buyer";
-  return "buyer";
-}
-
-export function flowLean(right?: OptionFlowLeg["right"], side?: FlowSide): FlowLean | undefined {
-  if (!right || !side) return undefined;
-  if (right === "call") return side === "seller" ? "bear" : "bull";
-  return side === "seller" ? "bull" : "bear";
-}
-
-export function sideLabel(leg: Pick<OptionFlowLeg, "right" | "note">): string {
-  const side = leg.note === "seller" ? "卖" : "买";
-  if (leg.right === "put") return `${side} PUT`;
-  if (leg.right === "call") return `${side} CALL`;
-  return side;
-}
-
 export function biasLabel(view: Pick<FlowDigestView, "bias">): string {
   if (view.bias === "bull") return "当日大额偏看涨";
   if (view.bias === "bear") return "当日大额偏看跌";
   if (view.bias === "mixed") return "看涨 / 看跌资金接近";
-  return "当日无金额可加总";
+  return "暂无可分类方向金额";
 }
 
 export function flowDigestCaption(test: boolean): string {
@@ -131,55 +112,6 @@ export function flowDigestCaption(test: boolean): string {
 
 function isDigestLeg(leg: OptionFlowLeg): boolean {
   return Boolean(leg.right && isCompleteLeg(leg));
-}
-
-function contractKey(leg: OptionFlowLeg): string {
-  return `${leg.ticker}|${leg.right ?? ""}|${leg.strike ?? ""}`;
-}
-
-function nearPremium(a?: number, b?: number): boolean {
-  if (a == null || b == null) return false;
-  const hi = Math.max(a, b);
-  const lo = Math.min(a, b);
-  return hi > 0 && lo / hi >= 0.85;
-}
-
-function preferLeg(keep: OptionFlowLeg, incoming: OptionFlowLeg, day: string): OptionFlowLeg {
-  const keepSpec = expirySpecificity(keep.expiry);
-  const nextSpec = expirySpecificity(incoming.expiry);
-  const richer = nextSpec > keepSpec ? incoming : keep;
-  return {
-    ...richer,
-    expiry: normalizeExpiry(richer.expiry, day) ?? richer.expiry,
-    premiumUsd: Math.max(keep.premiumUsd ?? 0, incoming.premiumUsd ?? 0) || richer.premiumUsd,
-    note: keep.note === "seller" || incoming.note === "seller" ? "seller" : incoming.note ?? keep.note,
-  };
-}
-
-function mergeLegs(legs: readonly OptionFlowLeg[], day: string): OptionFlowLeg[] {
-  const grouped = new Map<string, OptionFlowLeg[]>();
-  for (const leg of legs) {
-    const key = contractKey(leg);
-    grouped.set(key, [...(grouped.get(key) ?? []), { ...leg }]);
-  }
-  const collapsed: OptionFlowLeg[] = [];
-  for (const group of grouped.values()) {
-    const kept: OptionFlowLeg[] = [];
-    for (const leg of group.sort((a, b) => expirySpecificity(b.expiry) - expirySpecificity(a.expiry))) {
-      const twin = kept.find((row) => nearPremium(row.premiumUsd, leg.premiumUsd));
-      if (twin) Object.assign(twin, preferLeg(twin, leg, day));
-      else kept.push({ ...leg });
-    }
-    collapsed.push(...kept);
-  }
-  const exact = new Map<string, OptionFlowLeg>();
-  for (const leg of collapsed) {
-    const dated = { ...leg, expiry: normalizeExpiry(leg.expiry, day) ?? leg.expiry };
-    const key = `${contractKey(dated)}|${dated.expiry ?? ""}`;
-    const prev = exact.get(key);
-    exact.set(key, prev ? preferLeg(prev, dated, day) : dated);
-  }
-  return [...exact.values()];
 }
 
 function isFlowGod(post: OptionFlowPost): boolean {
@@ -242,11 +174,10 @@ export function buildDailyFlowDigest(
   day = sessionDayFromSnapshot(snapshot),
 ): FlowDigestView {
   const session = uniqueSessionPosts(posts, day);
-  const rawLegs = session.flatMap((post) => post.legs.filter(isDigestLeg).map((leg) => ({
-    ...leg,
-    note: flowSide(`${post.thesis}\n${post.rawText}`, leg.note),
-  })));
-  const merged = mergeLegs(rawLegs, day).sort((a, b) => (b.premiumUsd ?? 0) - (a.premiumUsd ?? 0) || a.ticker.localeCompare(b.ticker));
+  const merged: OptionFlowLeg[] = normalizeFlowEvents(posts, [day]).events.map(e => ({
+    ticker: e.ticker, right: e.right, strike: e.strike ?? undefined, expiry: e.expiry ?? undefined,
+    premiumUsd: e.premium ?? undefined, note: e.side,
+  })).filter(isDigestLeg).sort((a, b) => (b.premiumUsd ?? 0) - (a.premiumUsd ?? 0));
   const legs = merged;
   const callUsd = merged.filter((leg) => leg.right === "call").reduce((sum, leg) => sum + (leg.premiumUsd ?? 0), 0);
   const putUsd = merged.filter((leg) => leg.right === "put").reduce((sum, leg) => sum + (leg.premiumUsd ?? 0), 0);
