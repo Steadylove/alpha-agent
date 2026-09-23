@@ -15,6 +15,7 @@ import {
 } from "@/lib/review/market";
 import type { GexSnapshot } from "@/lib/options/structure";
 import type { DailyReview, JournalSignal } from "@/lib/review/types";
+import { buildTomorrowMap } from "@/lib/review/tomorrow";
 
 const date = "2026-09-22",
   next = "2026-09-23";
@@ -94,6 +95,15 @@ function healthy(): Parameters<typeof reviewHealth>[0] {
       note: "",
     })),
   };
+  review.followup = {
+    version: "signal-followup-v1",
+    date,
+    observedAt: review.builtAt,
+    basis: "daily",
+    rows: [],
+    warnings: [],
+  };
+  review.tomorrow = buildTomorrowMap(review, null, next, "published");
   return {
     date,
     next,

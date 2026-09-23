@@ -8,6 +8,7 @@ import { macroEnvironment, MACRO_SERIES, type MacroEnvironment } from "./macro";
 import { reviewSessions } from "./market";
 import { validReviewDate } from "./store";
 import type { DailyReview, MarketContext, ReviewIndex } from "./types";
+import { supplementTomorrowMacro } from "./tomorrow";
 
 const WARNING = "宏观环境关键数据不足或过期；内部市场状态仍独立计算。";
 const incomplete = (m?: MacroEnvironment) =>
@@ -97,7 +98,7 @@ export async function supplementMacroReviews() {
     if (old && content(old) === content(macro)) continue;
     const warnings = review.warnings.filter((w) => w !== WARNING);
     if (macro.regime === "Unknown") warnings.push(WARNING);
-    writeSnapshot(`daily-review/${review.date}`, {
+    const updated: DailyReview = {
       ...review,
       builtAt,
       market: { ...review.market, macro },
@@ -106,7 +107,10 @@ export async function supplementMacroReviews() {
         builtAt: review.builtAt,
         market: review.market,
       },
-    } satisfies DailyReview);
+    };
+    if (review.tomorrow)
+      updated.tomorrow = supplementTomorrowMacro(updated, review.tomorrow);
+    writeSnapshot(`daily-review/${review.date}`, updated);
     result.updated.push(review.date);
     if (review.date === index.latest) {
       const context = await readSnapshot<MarketContext & { builtAt: string }>(

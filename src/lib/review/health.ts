@@ -13,6 +13,8 @@ import {
 } from "@/lib/options/structure";
 import { REVIEW_INDICES, REVIEW_SECTORS, quoteDay } from "./market";
 import type { DailyReview, JournalArchive, ReviewIndex } from "./types";
+import { TOMORROW_VERSION } from "./tomorrow";
+import { FOLLOWUP_VERSION } from "./followup";
 
 export type HealthIssues = { errors: string[]; warnings: string[] };
 
@@ -103,6 +105,19 @@ export function reviewHealth(input: {
     errors.push(`复盘索引未更新至 ${date}`);
   if (review?.date !== date) errors.push(`缺少 ${date} 复盘`);
   else {
+    if (
+      review.tomorrow?.version !== TOMORROW_VERSION ||
+      review.tomorrow.date !== date ||
+      review.tomorrow.targetDate !== next
+    )
+      errors.push("下一交易日观察清单未完整更新");
+    if (
+      review.followup?.version !== FOLLOWUP_VERSION ||
+      review.followup.date !== date
+    )
+      errors.push("信号每日跟踪未完整更新");
+    for (const warning of review.followup?.warnings ?? [])
+      warnings.push(warning);
     for (const symbol of REVIEW_INDICES) {
       const row = review.market.metrics.find((r) => r.symbol === symbol);
       if (!row || ![row.today, row.yesterday, row.change].every(finiteOption))

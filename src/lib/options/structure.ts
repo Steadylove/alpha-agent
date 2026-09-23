@@ -2,6 +2,7 @@
 export const OPTIONS_STRUCTURE_VERSION = "options-structure-v1" as const;
 export const DEFAULT_NEAR_PCT = 0.2;
 export type GexSnapshotItem = {
+  dte?: string;
   symbol: string;
   spot: number;
   as_of?: string;

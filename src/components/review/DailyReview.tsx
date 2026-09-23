@@ -23,6 +23,7 @@ import type {
 import { cohort, correlation, type Cohort } from "@/lib/review/journal";
 import styles from "./review.module.css";
 import { OptionsMarketMap } from "./OptionsMarketMap";
+import { TomorrowMap } from "./TomorrowMap";
 import { OptionsSignalStudy, FrozenSignalOptions } from "./OptionsSignalStudy";
 import { MarketStatePanel, contextLabel } from "./MarketStatePanel";
 
@@ -927,97 +928,6 @@ function SignalJournal({
   );
 }
 
-function Tomorrow({ review: r }: { review: Review }) {
-  const persistent = (s: SectorStrength) =>
-    s.rps != null &&
-    s.d5 != null &&
-    s.rps >= 80 &&
-    s.rps - s.d5 >= 80 &&
-    s.d5 >= 0;
-  const groups = [
-    {
-      title: "持续强势",
-      rows: r.sectors
-        .filter((s) => !r.market.engine || s.group === "sector")
-        .filter(persistent),
-    },
-    {
-      title: "正在改善",
-      rows: r.sectors
-        .filter((s) => !r.market.engine || s.group === "sector")
-        .filter(
-          (s) => s.rps != null && s.d5 != null && s.d5 > 0 && !persistent(s),
-        ),
-    },
-    {
-      title: "正在走弱",
-      rows: r.sectors
-        .filter((s) => !r.market.engine || s.group === "sector")
-        .filter((s) => s.d5 != null && s.d5 < 0),
-    },
-  ];
-  return (
-    <div className={styles.tomorrow}>
-      <div>
-        <h3>01 / 结构价位</h3>
-        {r.options
-          .filter((o) => o.today)
-          .map((o) => (
-            <p key={o.symbol}>
-              <b>{o.symbol}</b>
-              <span>
-                Flip {number(o.today?.gamma_flip)}
-                <br />
-                Put {number(o.today?.put_wall)} · Call{" "}
-                {number(o.today?.call_wall)}
-              </span>
-            </p>
-          ))}
-        {r.options.every((o) => !o.today) && (
-          <p className={styles.muted}>等待当日 Gamma 快照</p>
-        )}
-      </div>
-      <div>
-        <h3>02 / 板块跟踪</h3>
-        {groups.map((g) => (
-          <div key={g.title} className={styles.watchGroup}>
-            <h4>{g.title}</h4>
-            <p>
-              {g.rows
-                .slice(0, 3)
-                .map((s) => s.name)
-                .join(" / ") || "暂无符合条件的板块"}
-            </p>
-          </div>
-        ))}
-      </div>
-      <div>
-        <h3>03 / 信号观察名单</h3>
-        {["2h", "4h"].map((tf) => {
-          const rows = r.signals
-            .filter(
-              (s) => s.tf === tf && s.source === "live" && s.quality.complete,
-            )
-            .sort((a, b) => b.quality.points - a.quality.points);
-          return (
-            <div className={styles.watchGroup} key={tf}>
-              <h4>{tf.toUpperCase()} Watchlist</h4>
-              <p>
-                {[...new Set(rows.map((s) => s.symbol))]
-                  .slice(0, 5)
-                  .join(" / ") || "暂无完整评分信号"}
-              </p>
-            </div>
-          );
-        })}
-        <small>
-          从今日已触发信号中选出；次日重新观察，不等同于新的买入指令。
-        </small>
-      </div>
-    </div>
-  );
-}
-
 export function DailyReview({
   review: r,
   dates,
@@ -1141,9 +1051,9 @@ export function DailyReview({
             id="tomorrow"
             n="07"
             title="Tomorrow map"
-            subtitle="下一交易日的观察清单，不预测涨跌。"
+            subtitle="从今日变化中，提取下一交易日值得继续观察的事。"
           >
-            <Tomorrow review={r} />
+            <TomorrowMap review={r} />
           </Section>
           <details className={styles.method}>
             <summary>

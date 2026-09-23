@@ -717,57 +717,6 @@
   font-size: 12px;
   margin-top: 26px;
 }
-.tomorrow {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  border-block: 1px solid #43514a;
-  background: #18201d;
-  padding: 26px 0;
-}
-.tomorrow > div {
-  padding: 0 23px;
-  border-left: 1px solid var(--line);
-}
-.tomorrow > div:first-child {
-  border: 0;
-}
-.tomorrow h3 {
-  font:
-    11px ui-monospace,
-    monospace;
-  color: var(--mint);
-  margin: 0 0 24px;
-}
-.tomorrow > div > p {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: 11px;
-  line-height: 1.8;
-  margin: 14px 0;
-}
-.tomorrow > div > p span {
-  text-align: right;
-  color: #aebeb5;
-}
-.watchGroup {
-  margin-bottom: 21px;
-}
-.watchGroup h4 {
-  color: var(--sub);
-  font-size: 10px;
-  font-weight: 400;
-  margin: 0 0 8px;
-}
-.watchGroup p {
-  font-size: 12px;
-  line-height: 1.8;
-  margin: 0;
-}
-.tomorrow small {
-  line-height: 1.8;
-  font-size: 10px;
-}
 .method {
   margin-top: 38px;
   border-block: 1px solid var(--line);
@@ -871,8 +820,7 @@
     font-size: 36px;
   }
   .accountsGrid,
-  .strengthLeads,
-  .tomorrow {
+  .strengthLeads {
     grid-template-columns: 1fr;
   }
   .strengthLeads {
@@ -901,16 +849,6 @@
   }
   .journalHeadline p {
     margin: 0;
-  }
-  .tomorrow > div {
-    border-left: 0;
-    margin-top: 22px;
-    padding-top: 22px;
-    border-top: 1px solid var(--line);
-  }
-  .tomorrow > div:first-child {
-    padding-top: 0;
-    margin-top: 0;
   }
   .method summary {
     flex-wrap: wrap;

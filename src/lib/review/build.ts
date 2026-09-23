@@ -1,5 +1,9 @@
 import { publishOptionsContext } from "./optionsContextStore";
 import { enrichOptionsRow } from "./options";
+import { buildFollowup } from "./followup";
+import { readFollowupExits } from "./followupStore";
+import { buildTomorrowMap } from "./tomorrow";
+import { quoteTimestamp } from "@/lib/options/signalContext";
 import { macroEnvironment, type MacroArchive } from "./macro";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -201,7 +205,9 @@ export async function buildDailyReview(
   const needing = relevant.filter(
     (e) =>
       !journal.has(e.id) ||
-      Object.values(journal.get(e.id)!.outcomes).some((r) => r.status !== "ready") ||
+      Object.values(journal.get(e.id)!.outcomes).some(
+        (r) => r.status !== "ready",
+      ) ||
       journal.get(e.id)?.excursions.at(-1)?.mae == null,
   );
   const bySymbol = new Map<string, EntrySnapshot[]>();
@@ -349,6 +355,31 @@ export async function buildDailyReview(
     ),
     warnings,
   };
+  const nextSession = sessions[sessions.indexOf(date) + 1] ?? null;
+  const forwardPublished =
+    date === spyDates.at(-1) &&
+    nextSession != null &&
+    Date.parse(builtAt) < (quoteTimestamp(`${nextSession}T09:30:00`) ?? NaN);
+  const exitRecords = await readFollowupExits(relevant.map((e) => e.id));
+  result.followup = buildFollowup({
+    review: result,
+    signals: journalAsOf(allSignals, date),
+    rps,
+    exits: exitRecords.exits,
+    previous: previous?.followup,
+    existing: existing?.followup,
+    sessions,
+    basis: forwardPublished ? "daily" : "reconstructed",
+    exitReadFailed: exitRecords.failed,
+  });
+  result.tomorrow = buildTomorrowMap(
+    result,
+    previous,
+    nextSession,
+    forwardPublished ? "published" : "reconstructed",
+    existing?.tomorrow,
+  );
+  writeSnapshot(`daily-review/followups/${date}`, result.followup);
   writeSnapshot(`daily-review/${date}`, result);
   // 不允许重跑早期日期使最新 journal 的成熟结果回退。
   if (!oldJournal || oldJournal.asOf <= date)

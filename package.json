@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "review:tomorrow:init": "npx --yes tsx scripts/backfill-review-tomorrow.ts",
     "review:check": "npx --yes tsx scripts/check-daily-review.ts",
     "review:macro:retry": "npx --yes tsx scripts/supplement-review-macro.ts",
     "review:macro:bundle": "npx --yes esbuild scripts/supplement-review-macro.ts --bundle --platform=node --format=esm --outfile=deploy/market-http/review-macro.mjs --alias:@=./src",

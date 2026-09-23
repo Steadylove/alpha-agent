@@ -121,6 +121,8 @@ export type DailyReview = {
   sectors: SectorStrength[];
   signals: JournalSignal[];
   accounts: ReviewAccount[];
+  followup?: import("./followup").FollowupSnapshot;
+  tomorrow?: import("./tomorrow").TomorrowMap;
   warnings: string[];
 };
 export type JournalArchive = {

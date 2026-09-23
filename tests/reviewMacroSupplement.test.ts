@@ -1,5 +1,6 @@
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import { supplementMacroReviews } from "@/lib/review/supplementMacro";
+import type { TomorrowMap, WatchEvent } from "@/lib/review/tomorrow";
 import {
   macroEnvironment,
   MACRO_SERIES,
@@ -72,6 +73,7 @@ function review(date = "2026-09-22") {
     previousDate: "2026-09-21",
     builtAt: "2026-09-23T01:00:00.000Z",
     market: {
+      metrics: [],
       regime: "Neutral",
       engine: { version: "market-state-v2", state: "Neutral" },
       macro: macroEnvironment(archive("2026-09-21"), date, dates, now, true),
@@ -109,6 +111,60 @@ beforeEach(() => {
   deps.fetch.mockResolvedValue(archive());
 });
 afterEach(() => vi.useRealTimers());
+
+it("宏观补采修订观察清单，但每日信号与其他候选保持原样", async () => {
+  const r = review();
+  const event: WatchEvent = {
+    id: "signals:new:DELL",
+    domain: "signals",
+    group: "portfolio",
+    symbols: ["DELL"],
+    source: "signals",
+    title: "DELL 新触发",
+    evidence: "81 分",
+    focus: "观察",
+    priority: 65,
+  };
+  const tomorrow: TomorrowMap = {
+    version: "tomorrow-v1",
+    date: r.date,
+    targetDate: "2026-09-23",
+    basis: "published",
+    publishedAt: r.builtAt,
+    updatedAt: r.builtAt,
+    revision: 1,
+    events: [event],
+    candidates: [event],
+    candidateCount: 1,
+    notes: [],
+    history: [],
+    observations: [],
+  };
+  const followup = {
+    version: "signal-followup-v1",
+    date: r.date,
+    observedAt: r.builtAt,
+    basis: "daily",
+    rows: [],
+    warnings: [],
+  };
+  deps.store.set(`daily-review/${r.date}`, { ...r, tomorrow, followup });
+  const updated = archive();
+  updated.series.DGS10!.at(-1)!.value = 4.2;
+  deps.fetch.mockResolvedValue(updated);
+  await supplementMacroReviews();
+  const after = deps.store.get(`daily-review/${r.date}`) as {
+    tomorrow: TomorrowMap;
+    followup: unknown;
+  };
+  expect(after.tomorrow.events.some((e) => e.domain === "macro")).toBe(true);
+  expect(after.tomorrow.events.find((e) => e.domain === "signals")).toEqual(
+    event,
+  );
+  expect(after.followup).toEqual(followup);
+  expect(after.tomorrow.history[0].events).toEqual([event]);
+  expect(after.tomorrow.publishedAt).toBe(r.builtAt);
+});
 
 it("补到观测后只更新宏观，保留首次发布、评分、账户和期权结构", async () => {
   const before = structuredClone(

@@ -1,0 +1,220 @@
+.root {
+  color: var(--review-text, #d8dce2);
+}
+.dateline {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 0 20px;
+  color: #9aa7b1;
+  font:
+    11px/1.6 var(--font-geist-mono),
+    monospace;
+  letter-spacing: 0.09em;
+}
+.changes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+  border-top: 1px solid #ffffff14;
+  padding-top: 23px;
+}
+.group {
+  min-width: 0;
+}
+.group h3 {
+  margin: 0 0 14px;
+  color: #93bdb0;
+  font:
+    11px/1.5 var(--font-geist-mono),
+    monospace;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.event {
+  padding: 14px 0;
+  border-bottom: 1px solid #ffffff0d;
+}
+.event summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 14px;
+}
+.event summary::-webkit-details-marker {
+  display: none;
+}
+.more {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: #82958f;
+}
+.event p,
+.observation p {
+  color: #9ca7ae;
+  font-size: 12px;
+  line-height: 1.8;
+  margin: 10px 0;
+}
+.event a {
+  font-size: 11px;
+  color: #9bcbba;
+  text-decoration: none;
+}
+.event summary:focus-visible,
+.details summary:focus-visible,
+.event a:focus-visible {
+  outline: 2px solid #a0cdbb;
+  outline-offset: 5px;
+}
+.focus {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.7fr) 2fr;
+  gap: 32px;
+  margin: 28px 0 24px;
+  padding: 28px;
+  background: #94bba008;
+  border-top: 1px solid #acc8b840;
+  border-bottom: 1px solid #acc8b820;
+}
+.focusTitle span {
+  color: #8db7a5;
+  font:
+    10px/1.5 var(--font-geist-mono),
+    monospace;
+  letter-spacing: 0.1em;
+}
+.focusTitle h3 {
+  font-size: 21px;
+  font-weight: 500;
+  margin: 13px 0 10px;
+  line-height: 1.6;
+}
+.focusTitle p {
+  font-size: 11px;
+  color: #87968d;
+}
+.focus ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.focus li {
+  display: flex;
+  gap: 18px;
+  padding: 15px 0;
+  border-bottom: 1px solid #ffffff0b;
+}
+.focus li:first-child {
+  padding-top: 0;
+}
+.focus li:last-child {
+  border: 0;
+  padding-bottom: 0;
+}
+.ordinal {
+  flex-shrink: 0;
+  font:
+    23px/1.3 Georgia,
+    serif;
+  color: #b7cdbc;
+  font-style: italic;
+}
+.focus b {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.7;
+}
+.focus li p {
+  color: #9ba99f;
+  font-size: 12px;
+  line-height: 1.8;
+  margin: 5px 0 0;
+}
+.empty {
+  font-size: 12px;
+  line-height: 1.8;
+  color: #808b94;
+  padding: 12px 0;
+}
+.details {
+  border-bottom: 1px solid #ffffff0c;
+  padding: 13px 0;
+}
+.details summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: #9aa7ad;
+}
+.details > p {
+  font-size: 11px;
+  line-height: 1.85;
+  color: #86969b;
+}
+.scroll {
+  overflow-x: auto;
+  margin: 15px 0;
+}
+.scroll table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 610px;
+  font-size: 11px;
+  text-align: left;
+}
+.scroll th {
+  color: #95b7a7;
+  font-weight: 400;
+}
+.rowMeta {
+  display: block;
+  font-size: 10px;
+  color: #82958f;
+  margin-top: 4px;
+}
+.scroll th,
+.scroll td {
+  padding: 11px 10px;
+  border-bottom: 1px solid #ffffff0c;
+  white-space: nowrap;
+}
+.observation {
+  padding: 10px 0;
+}
+.observation b {
+  font-size: 12px;
+  font-weight: 500;
+}
+.footnote {
+  margin: 18px 0 0;
+  font-size: 11px;
+  line-height: 1.8;
+  color: #7e8c91;
+}
+@media (max-width: 700px) {
+  .dateline {
+    flex-direction: column;
+    gap: 3px;
+  }
+  .changes {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+  .focus {
+    grid-template-columns: 1fr;
+    padding: 20px 15px;
+    gap: 20px;
+  }
+  .focusTitle h3 {
+    font-size: 20px;
+  }
+  .event summary {
+    align-items: flex-start;
+  }
+  .focus li {
+    gap: 12px;
+  }
+}

@@ -9,6 +9,7 @@ import type {
   MarketContext,
 } from "./types";
 import { journalAsOf } from "./journal";
+import { buildTomorrowMap } from "./tomorrow";
 
 export const validReviewDate = (s: string): boolean =>
   /^\d{4}-\d{2}-\d{2}$/.test(s) &&
@@ -58,6 +59,18 @@ export async function getReviewData(requested?: string) {
     const review = await read<DailyReview>(date);
     if (review?.version !== 1 || review.date !== date)
       throw new Error("invalid review");
+    if (!review.tomorrow) {
+      // Legacy presentation only. Never label a newly derived historical map as pre-published.
+      const prior = review.previousDate
+        ? await read<DailyReview>(review.previousDate).catch(() => null)
+        : null;
+      review.tomorrow = buildTomorrowMap(
+        { ...review, builtAt: new Date().toISOString() },
+        prior,
+        null, // The next archived date is not necessarily the next exchange session.
+        "reconstructed",
+      );
+    }
     let journal: JournalArchive | null = null;
     let error: string | null = null;
     try {
