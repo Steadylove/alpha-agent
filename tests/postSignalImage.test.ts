@@ -24,7 +24,30 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllEnvs());
 
-const input = { kind: "option-flow" as const, filename: "signal.png", bytes: Buffer.from("image"), content: "signal", eventKey: "test-event" };
+const input = { kind: "option-flow" as const, filename: "signal.png", bytes: Buffer.from("image"), content: "signal", eventKey: "test-event", premiumUsd: 500_000 };
+
+it.each([499_999, undefined, NaN, Infinity])("金额 %s 未达门槛或未确认时，两个平台都不发送", async (premiumUsd) => {
+  await expect(postSignalImage("discord-hook", { ...input, premiumUsd })).resolves.toEqual({ skipped: true });
+  expect(mocks.discord).not.toHaveBeenCalled();
+  expect(mocks.telegram).not.toHaveBeenCalled();
+});
+
+it("每次读取网页门槛，并允许显式设为 0", async () => {
+  const settings = defaultPushRoutes();
+  settings.optionFlowMinPremiumUsd = 1_000_000;
+  mocks.routes.mockResolvedValue(settings);
+  expect(await postSignalImage("discord-hook", input)).toEqual({ skipped: true });
+  settings.optionFlowMinPremiumUsd = 0;
+  expect(await postSignalImage("discord-hook", { ...input, premiumUsd: undefined })).toEqual({ skipped: false });
+  expect(mocks.telegram).toHaveBeenCalledTimes(1);
+});
+
+it("配置读取失败时不能降低门槛继续发送", async () => {
+  mocks.routes.mockRejectedValue(new Error("settings unavailable"));
+  await expect(postSignalImage("discord-hook", input)).rejects.toThrow("settings unavailable");
+  expect(mocks.discord).not.toHaveBeenCalled();
+  expect(mocks.telegram).not.toHaveBeenCalled();
+});
 
 it("两个平台使用同一张图和说明", async () => {
   await postSignalImage("discord-hook", input);
@@ -64,4 +87,3 @@ it("填了 webhook 就按地址发", async () => {
   expect(mocks.discord).toHaveBeenCalledWith("https://discord.com/api/webhooks/1/custom", expect.objectContaining({ filename: "signal.png" }));
   expect(mocks.discord).not.toHaveBeenCalledWith("discord-hook", expect.anything());
 });
-

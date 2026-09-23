@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Button, Checkbox, MultiSelect, Switch, Text, TextInput } from "@mantine/core";
+import { Alert, Button, Checkbox, MultiSelect, NumberInput, Switch, Text, TextInput } from "@mantine/core";
 
 import { Card } from "@/components/Card";
 import {
   expandTelegramChats,
   PUSH_KIND_META,
   PUSH_KINDS,
+  validFlowMinPremium,
   type DiscordHookRow,
   type PushKind,
   type PushRoute,
@@ -19,9 +20,17 @@ type BoardRoutes = Record<PushKind, BoardRoute>;
 
 type Payload = {
   updatedAt: string;
+  optionFlowMinPremiumUsd: number;
   routes: BoardRoutes;
   telegram: { ok: boolean; username?: string; groups: TelegramGroup[] };
 };
+
+async function fetchPushBoard(): Promise<Payload> {
+  const res = await fetch("/api/push-routes", { cache: "no-store" });
+  const json = (await res.json()) as Payload & { error?: string };
+  if (!res.ok) throw new Error(json.error || "读取失败");
+  return json;
+}
 
 function copyRoutes(routes: BoardRoutes): BoardRoutes {
   return Object.fromEntries(PUSH_KINDS.map((kind) => {
@@ -81,34 +90,40 @@ export function PushRoutesBoard() {
   const [draft, setDraft] = useState<BoardRoutes | null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [flowMinimum, setFlowMinimum] = useState<string | number>(500_000);
+  const [saved, setSaved] = useState(false);
 
-  const load = useCallback(async () => {
-    const res = await fetch("/api/push-routes", { cache: "no-store" });
-    const json = (await res.json()) as Payload & { error?: string };
-    if (!res.ok) throw new Error(json.error || "读取失败");
+  const applyPayload = useCallback((json: Payload) => {
     setPayload(json);
     setDraft(copyRoutes(json.routes));
+    setFlowMinimum(json.optionFlowMinPremiumUsd);
     setError("");
   }, []);
 
   useEffect(() => {
-    load().catch((err: unknown) => setError(err instanceof Error ? err.message : "读取失败"));
-  }, [load]);
+    let active = true;
+    fetchPushBoard().then(json => { if (active) applyPayload(json); })
+      .catch((err: unknown) => { if (active) setError(err instanceof Error ? err.message : "读取失败"); });
+    return () => { active = false; };
+  }, [applyPayload]);
 
-  const dirty = Boolean(payload && draft && JSON.stringify(draft) !== JSON.stringify(payload.routes));
+  const dirty = Boolean(payload && draft && (JSON.stringify(draft) !== JSON.stringify(payload.routes) || flowMinimum !== payload.optionFlowMinPremiumUsd));
+  const validMinimum = validFlowMinPremium(flowMinimum);
 
   async function save() {
-    if (!payload || !draft) return;
+    if (!payload || !draft || !validMinimum) return;
+    setSaved(false);
     setSaving(true);
     try {
       const res = await fetch("/api/push-routes", {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ routes: draft, updatedAt: payload.updatedAt }),
+        body: JSON.stringify({ routes: draft, updatedAt: payload.updatedAt, optionFlowMinPremiumUsd: flowMinimum }),
       });
       const json = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(json.error || "保存失败");
-      await load();
+      applyPayload(await fetchPushBoard());
+      setSaved(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "保存失败");
     } finally {
@@ -134,6 +149,20 @@ export function PushRoutesBoard() {
           {error}
         </Alert>
       ) : null}
+      <div className="mb-6 grid gap-5 rounded-lg border border-emerald-300/15 bg-emerald-300/[0.035] p-5 sm:grid-cols-[1fr_17rem]">
+        <div>
+          <div className="mb-2 text-xs tracking-widest text-emerald-200/70">OPTIONS FLOW</div>
+          <h2 className="text-lg font-medium text-zinc-100">期权大单金额门槛</h2>
+          <p className="mt-2 text-sm leading-relaxed text-zinc-400">单笔与确认名单按每笔美元权利金筛选，Discord 和 Telegram 共用门槛。低于门槛或金额不明的记录仍保留在研究库。</p>
+          <p className="mt-2 text-xs text-zinc-500">消息时间：YYYY-MM-DD HH:mm 美东时间 · 到期日：YYYY-MM-DD；月份及相对期限保留原有精度。日结与 GEX 不受金额门槛影响。</p>
+        </div>
+        <div>
+          <NumberInput label="最低权利金（USD）" description="含等于门槛的金额；0 表示不过滤" value={flowMinimum} min={0} max={1_000_000_000_000} step={100_000} allowDecimal={false} allowNegative={false} thousandSeparator="," prefix="$ " disabled={!payload || saving} onChange={(value) => { setFlowMinimum(value); setSaved(false); }} error={!validMinimum ? "请输入非负整数金额" : undefined} />
+          <div className="mt-3 flex gap-2">
+            {[500_000, 1_000_000, 2_000_000].map(value => <Button key={value} size="compact-xs" variant={flowMinimum === value ? "light" : "subtle"} color="teal" disabled={!payload || saving} onClick={() => { setFlowMinimum(value); setSaved(false); }}>{value === 500_000 ? "$500K" : `$${value / 1_000_000}M`}</Button>)}
+          </div>
+        </div>
+      </div>
       <Text size="sm" c="dimmed" mb="md">
         Discord webhook 存在后端，打开页面会把现用推送地址写成默认值。改完保存即生效。第一个为主频道，后面的抄送失败不挡主频道。Telegram：在每个要收的话题里 /resume，然后在这里按话题勾选。同一话题群可以拆到不同信号。/pause 停全群。
       </Text>
@@ -223,7 +252,8 @@ export function PushRoutesBoard() {
             ? `Telegram @${payload.telegram.username || "bot"} · ${payload.telegram.groups.filter((g) => g.subscribed).length} 个接收位置`
             : "Telegram 中转未连上，开关仍可保存，话题列表暂空"}
         </Text>
-        <Button size="sm" disabled={!dirty || saving} loading={saving} onClick={() => void save()}>
+        {saved && !dirty ? <Text size="xs" c="teal" role="status">已保存，下一笔推送生效</Text> : null}
+        <Button size="sm" disabled={!dirty || saving || !validMinimum} loading={saving} onClick={() => void save()}>
           保存
         </Button>
       </div>

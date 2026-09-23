@@ -33,7 +33,7 @@ export function optionFlowPushUrl(): string {
   return (process.env.OPTION_FLOW_PUSH_URL || DEFAULT_FLOW_PUSH).trim();
 }
 
-export async function publishOptionFlow(post: OptionFlowPost): Promise<void> {
+export async function publishOptionFlow(post: OptionFlowPost): Promise<{ skipped: boolean }> {
   const filename = post.kind === "noteworthy" ? "option-flow-list.png" : post.kind === "gex" ? "option-flow-gex.png" : "option-flow.png";
   const content = post.kind === "noteworthy" ? "期权流 · 确认名单" : post.kind === "gex" ? "期权流 · 热力图" : "期权流 · 单笔";
   const bytes = await renderOptionFlowPng(post);
@@ -46,16 +46,19 @@ export async function publishOptionFlow(post: OptionFlowPost): Promise<void> {
         content,
         eventKey: `option-flow:${post.tweetId || post.id}`,
         png: bytes.toString("base64"),
+        premiumUsd: post.legs[0]?.premiumUsd,
       }),
       cache: "no-store",
     });
     if (!res.ok) throw new Error((await res.text()).trim() || `期权流推送失败 HTTP ${res.status}`);
-    return;
+    const result = await res.json() as { skipped?: boolean };
+    return { skipped: result.skipped === true };
   }
   const webhook = signalWebhookUrl();
   if (webhook) {
     await postDiscordImage(webhook, { filename, bytes, content });
-    return;
+    return { skipped: false };
   }
   await postDiscordBotImage(signalChannelId(), discordBotToken(), { filename, bytes, content });
+  return { skipped: false };
 }

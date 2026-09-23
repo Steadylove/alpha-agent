@@ -11,78 +11,58 @@ function pad(n: number): string {
   return String(n).padStart(2, "0");
 }
 
-export function formatMdY(year: number, month: number, day: number): string {
-  return `${pad(month)}/${pad(day)}/${String(year).slice(-2)}`;
+function calendarDate(year: number, month: number, day: number): string | undefined {
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (year < 2000 || year > 2199 || date.getUTCFullYear() !== year || date.getUTCMonth() + 1 !== month || date.getUTCDate() !== day) return undefined;
+  return `${year}-${pad(month)}-${pad(day)}`;
 }
 
-function thirdFriday(year: number, month: number): { year: number; month: number; day: number } {
-  const dow = new Date(Date.UTC(year, month - 1, 1)).getUTCDay();
-  const firstFriday = dow <= 5 ? 1 + (5 - dow) : 1 + (12 - dow);
-  const day = firstFriday + 14;
-  return { year, month, day };
-}
-
+/** Match the next stated month/day; explicit years are never rewritten. */
 function inferYear(asOf: string, month: number, day: number): number {
   const [year, asOfMonth, asOfDay] = asOf.split("-").map(Number);
-  if (month < asOfMonth || (month === asOfMonth && day < asOfDay)) return year + 1;
-  return year;
+  return month < asOfMonth || (month === asOfMonth && day < asOfDay) ? year + 1 : year;
 }
-
-function shiftDay(asOf: string, days: number): string {
-  const dt = new Date(`${asOf}T12:00:00Z`);
-  dt.setUTCDate(dt.getUTCDate() + days);
-  return formatMdY(dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate());
-}
-
 function monthNum(name: string): number | undefined {
   return MONTHS[name.toLowerCase().replace(/^sept$/i, "sep")];
 }
 
-/** 日结统一成 MM/DD/YY。月份按当月第三周五；「两周内」按会话日加天数。 */
+/** Consistent display while preserving source precision: never invent an expiry Friday. */
 export function normalizeExpiry(raw: string | undefined, asOf: string): string | undefined {
   if (!raw) return undefined;
   const t = raw.trim();
-  if (/^0DTE$/i.test(t)) {
-    const [year, month, day] = asOf.split("-").map(Number);
-    return formatMdY(year, month, day);
-  }
-  const slash = t.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
+  const session = /^(\d{4})-(\d{2})-(\d{2})$/.exec(asOf);
+  const validSession = session && calendarDate(Number(session[1]), Number(session[2]), Number(session[3]));
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t);
+  if (iso) return calendarDate(Number(iso[1]), Number(iso[2]), Number(iso[3]));
+  if (/^0DTE$/i.test(t)) return validSession || "当日到期";
+  const slash = t.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2}|\d{4}))?$/);
   if (slash) {
-    const month = Number(slash[1]);
-    const day = Number(slash[2]);
+    const month = Number(slash[1]), day = Number(slash[2]);
+    if (!slash[3] && !validSession) return undefined;
     let year = slash[3] ? Number(slash[3]) : inferYear(asOf, month, day);
     if (year < 100) year += 2000;
-    return formatMdY(year, month, day);
+    return calendarDate(year, month, day);
   }
   const monthYear = t.match(new RegExp(`^(${MONTH_NAME})\\.?\\s+(?:'(?:20)?(\\d{2})|(20\\d{2}))$`, "i"));
   if (monthYear) {
     const month = monthNum(monthYear[1]);
-    const yy = monthYear[2] || monthYear[3] || "";
-    if (month && yy) {
-      const year = yy.length === 4 ? Number(yy) : 2000 + Number(yy);
-      const fri = thirdFriday(year, month);
-      return formatMdY(fri.year, fri.month, fri.day);
-    }
+    const yy = monthYear[2] || monthYear[3];
+    if (month && yy) return `${yy.length === 4 ? yy : `20${yy}`}-${pad(month)}（月）`;
   }
-  const monthDay = t.match(new RegExp(`^(${MONTH_NAME})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?$`, "i"));
+  const monthDay = t.match(new RegExp(`^(${MONTH_NAME})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s+(20\\d{2}))?$`, "i"));
   if (monthDay) {
-    const month = monthNum(monthDay[1]);
-    const day = Number(monthDay[2]);
-    if (month) return formatMdY(inferYear(asOf, month, day), month, day);
+    const month = monthNum(monthDay[1]), day = Number(monthDay[2]);
+    if (month && (monthDay[3] || validSession)) return calendarDate(monthDay[3] ? Number(monthDay[3]) : inferYear(asOf, month, day), month, day);
   }
   const monthOnly = t.match(new RegExp(`^(${MONTH_NAME})$`, "i"));
-  if (monthOnly) {
-    const month = monthNum(monthOnly[1]);
-    if (month) {
-      const [year, asOfMonth] = asOf.split("-").map(Number);
-      const fri = thirdFriday(month < asOfMonth ? year + 1 : year, month);
-      return formatMdY(fri.year, fri.month, fri.day);
-    }
-  }
-  if (/^two weeks$/i.test(t)) return shiftDay(asOf, 14);
-  if (/^next week$/i.test(t)) return shiftDay(asOf, 7);
+  const month = monthOnly ? monthNum(monthOnly[1]) : /^\d{1,2}$/.test(t) ? Number(t) : undefined;
+  if (month && month <= 12) return `${pad(month)} 月（年份未明）`;
+  if (/^two weeks$/i.test(t)) return "约 2 周后";
+  if (/^next week$/i.test(t)) return "下周（日期未明）";
   const weeks = t.match(/^(\d+) weeks$/i);
-  if (weeks) return shiftDay(asOf, Number(weeks[1]) * 7);
+  if (weeks) return `约 ${Number(weeks[1])} 周后`;
+  if (/^next-year$/i.test(t)) return validSession ? `${Number(asOf.slice(0, 4)) + 1} 年（日期未明）` : "次年（日期未明）";
+  if (/^LEAPS$/i.test(t)) return "长期（日期未明）";
   return undefined;
 }
 

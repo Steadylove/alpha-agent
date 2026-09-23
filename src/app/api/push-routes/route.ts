@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { loadPushBoard, pushRoutesOf, writePushRoutes } from "@/lib/notifications/pushRoutes";
+import { loadPushBoard, pushRoutesOf, readPushRoutes, validFlowMinPremium, writePushRoutes } from "@/lib/notifications/pushRoutes";
 import { telegramRelayTargets } from "@/lib/telegram/relay";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +11,7 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     updatedAt: routes.updatedAt,
+    optionFlowMinPremiumUsd: routes.optionFlowMinPremiumUsd,
     routes: routes.routes,
     telegram: {
       ok: telegram.ok === true,
@@ -21,18 +22,23 @@ export async function GET() {
 }
 
 export async function PUT(request: Request) {
-  let body: { routes?: unknown; updatedAt?: unknown } = {};
+  let body: { routes?: unknown; updatedAt?: unknown; optionFlowMinPremiumUsd?: unknown } = {};
   try {
-    body = (await request.json()) as { routes?: unknown; updatedAt?: unknown };
+    body = (await request.json()) as typeof body;
   } catch {
     return NextResponse.json({ error: "无效 JSON" }, { status: 400 });
   }
+  if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({ error: "无效配置" }, { status: 400 });
+  if (body.optionFlowMinPremiumUsd !== undefined && !validFlowMinPremium(body.optionFlowMinPremiumUsd)) {
+    return NextResponse.json({ error: "金额门槛须为 0 至 1 万亿美元之间的整数美元" }, { status: 400 });
+  }
   try {
+    const previous = await readPushRoutes({ strict: true });
     const saved = await writePushRoutes(
-      pushRoutesOf({ routes: body.routes, updatedAt: "" }),
+      pushRoutesOf({ routes: body.routes ?? previous.routes, updatedAt: "", optionFlowMinPremiumUsd: body.optionFlowMinPremiumUsd ?? previous.optionFlowMinPremiumUsd }),
       typeof body.updatedAt === "string" ? body.updatedAt : "",
     );
-    return NextResponse.json({ ok: true, updatedAt: saved.updatedAt, routes: saved.routes });
+    return NextResponse.json({ ok: true, updatedAt: saved.updatedAt, optionFlowMinPremiumUsd: saved.optionFlowMinPremiumUsd, routes: saved.routes });
   } catch (error) {
     const message = error instanceof Error ? error.message : "保存失败";
     const conflict = message.includes("已被其他操作更新");

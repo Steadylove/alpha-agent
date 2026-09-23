@@ -1,4 +1,5 @@
 import type { OptionFlowConfig } from "./types";
+import { DEFAULT_FLOW_MIN_PREMIUM_USD, meetsFlowPremium, validFlowMinPremium } from "@/lib/notifications/pushRoutesLogic";
 
 export const DEFAULT_OPTION_CHANNEL_ID = "1546768709735948378";
 const ET = "America/New_York";
@@ -37,10 +38,10 @@ function boolEnv(name: string, fallback: boolean): boolean {
 }
 
 export function optionFlowConfig(): OptionFlowConfig {
-  const premium = Number(process.env.OPTION_FLOW_MIN_PREMIUM_USD ?? "0");
+  const premium = Number(process.env.OPTION_FLOW_MIN_PREMIUM_USD?.trim() || DEFAULT_FLOW_MIN_PREMIUM_USD);
   return {
     channelId: process.env.DISCORD_OPTION_CHANNEL_ID?.trim() || DEFAULT_OPTION_CHANNEL_ID,
-    minPremiumUsd: Number.isFinite(premium) ? Math.max(0, premium) : 0,
+    minPremiumUsd: validFlowMinPremium(premium) ? premium : DEFAULT_FLOW_MIN_PREMIUM_USD,
     dropAds: boolEnv("OPTION_FLOW_DROP_ADS", true),
     dropPaid: boolEnv("OPTION_FLOW_DROP_PAID", true),
   };
@@ -65,11 +66,17 @@ export function shouldForward(
 ): boolean {
   if (cfg.dropPaid && post.kind === "paid") return false;
   if (cfg.dropAds && post.kind === "ad") return false;
-  if (post.kind === "noteworthy") return post.legs.some((leg) => isCompleteLeg(leg) && (cfg.minPremiumUsd <= 0 || (leg.premiumUsd ?? 0) >= cfg.minPremiumUsd));
+  if (post.kind === "noteworthy") return post.legs.some((leg) => isCompleteLeg(leg) && meetsFlowPremium(leg.premiumUsd, cfg.minPremiumUsd));
   if (post.kind === "gex") return post.legs.some((leg) => leg.strike != null);
   if (post.kind !== "flow") return false;
   const leg = post.legs[0];
   if (!leg || !isCompleteLeg(leg)) return false;
-  if (cfg.minPremiumUsd <= 0) return true;
-  return (leg.premiumUsd ?? 0) >= cfg.minPremiumUsd;
+  return meetsFlowPremium(leg.premiumUsd, cfg.minPremiumUsd);
+}
+
+/** Only the rendered list is filtered; the original post remains in the research store. */
+export function filterForwardPost<T extends Parameters<typeof shouldForward>[0]>(post: T, cfg: Pick<OptionFlowConfig, "minPremiumUsd" | "dropAds" | "dropPaid">): T | null {
+  if (!shouldForward(post, cfg)) return null;
+  if (post.kind !== "noteworthy") return post;
+  return { ...post, legs: post.legs.filter(leg => isCompleteLeg(leg) && meetsFlowPremium(leg.premiumUsd, cfg.minPremiumUsd)) };
 }

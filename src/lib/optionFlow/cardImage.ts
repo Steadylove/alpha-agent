@@ -1,4 +1,4 @@
-import { CARD_TZ_ET, formatBeijingFromUtc } from "@/lib/discord/cardTime";
+import { CARD_TZ_ET, formatEtFromUtc } from "@/lib/discord/cardTime";
 import { CARD_INK as T } from "@/lib/discord/cardTheme";
 import { reportCard } from "@/lib/discord/reportCardLayout";
 import { renderReportCardPng, reportCardSvg } from "@/lib/discord/reportCardImage";
@@ -19,25 +19,17 @@ function trimNum(n: number): string {
   return n.toFixed(digits).replace(/\.0$/, "");
 }
 
-export function formatExpiry(raw?: string, asOf?: string): string {
-  if (asOf) {
-    const normalized = normalizeExpiry(raw, asOf);
-    if (normalized) return normalized;
-  }
+export function formatExpiry(raw?: string, asOf = ""): string {
   if (!raw) return "—";
-  if (raw === "next-year") return "次年";
-  if (raw === "0DTE") return "0DTE";
-  if (raw === "LEAPS") return "LEAPS";
-  if (raw === "two weeks") return "两周内";
-  if (raw === "next week") return "一周内";
-  const weeks = raw.match(/^(\d+) weeks$/);
-  if (weeks) return `${weeks[1]}周内`;
-  if (/^\d{2}$/.test(raw)) return `${Number(raw)}月`;
-  return raw;
+  return normalizeExpiry(raw, asOf) ?? "日期待核实";
 }
 
 function formatTime(iso: string): string {
-  return formatBeijingFromUtc(iso);
+  return formatEtFromUtc(iso);
+}
+
+function sessionDay(iso: string): string {
+  return formatEtFromUtc(iso).slice(0, 10);
 }
 
 function rightLabel(right?: string): string {
@@ -61,7 +53,7 @@ export function singleFlowLayout(post: OptionFlowPost) {
   text("行权价格", 460, 163, 182, 15, T.muted);
   text(leg?.strike != null ? `$${leg.strike}` : "—", 460, 194, 182, 32, T.text, 700, "left", true);
   text("到期日", 680, 163, 240, 15, T.muted);
-  text(formatExpiry(leg?.expiry), 680, 194, 240, 28, T.text, 700, "left", true);
+  text(formatExpiry(leg?.expiry, sessionDay(post.postedAt)), 680, 194, 240, 28, T.text, 700, "left", true);
 
   const details = [
     ...(leg?.otmPct != null ? [{ label: "价外幅度", value: `${leg.otmPct}%`, sub: "OTM" }] : []),
@@ -82,7 +74,7 @@ export function singleFlowLayout(post: OptionFlowPost) {
   return card.finish(y + 57);
 }
 
-function flowListLayout(title: string, meta: string, legs: readonly OptionFlowLeg[], confirmed: boolean) {
+function flowListLayout(title: string, meta: string, legs: readonly OptionFlowLeg[], confirmed: boolean, asOf: string) {
   const card = reportCard(), { text, rect, line } = card;
   card.header(title, confirmed ? "OI" : "FLOW", confirmed ? "持仓量确认" : "当日汇总", meta, T.take);
   const premiumLegs = legs.filter((leg) => leg.premiumUsd != null && Number.isFinite(leg.premiumUsd));
@@ -104,7 +96,7 @@ function flowListLayout(title: string, meta: string, legs: readonly OptionFlowLe
   legs.forEach((leg, i) => {
     const y = startY + rowH * i;
     if (i % 2 === 1) rect(40, y, 880, rowH, T.panel, 6);
-    const values = [leg.ticker, leg.right ? rightLabel(leg.right) : "—", leg.strike != null ? `$${leg.strike}` : "—", formatExpiry(leg.expiry), formatPremium(leg.premiumUsd)];
+    const values = [leg.ticker, leg.right ? rightLabel(leg.right) : "—", leg.strike != null ? `$${leg.strike}` : "—", formatExpiry(leg.expiry, asOf), formatPremium(leg.premiumUsd)];
     cols.forEach((col, j) => text(values[j], col.x, y + 15, col.width, 18,
       [1, 4].includes(j) ? rightColor(leg.right) : j === 0 ? T.text : T.secondary,
       [0, 4].includes(j) ? 700 : 400, col.end ? "right" : "left", true));
@@ -134,11 +126,11 @@ export function gexFlowLayout(post: OptionFlowPost) {
 }
 
 export function noteworthyLayout(post: OptionFlowPost) {
-  return flowListLayout("期权流 · 确认名单", formatTime(post.postedAt), post.legs, true);
+  return flowListLayout("期权流 · 确认名单", formatTime(post.postedAt), post.legs, true, sessionDay(post.postedAt));
 }
 
 export function sessionDigestLayout(title: string, asOf: string, legs: OptionFlowLeg[]) {
-  return flowListLayout(title, formatBeijingFromUtc(asOf), legs, false);
+  return flowListLayout(title, formatTime(asOf), legs, false, sessionDay(asOf));
 }
 
 export function dailyDigestLayout(view: FlowDigestView) {

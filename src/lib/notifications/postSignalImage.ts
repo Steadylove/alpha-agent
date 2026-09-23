@@ -2,7 +2,7 @@ import { postDiscordImage } from "@/lib/discord/sendWebhook";
 import { postDiscordMirror } from "@/lib/discord/mirrorWebhook";
 import { enqueueTelegramImage } from "@/lib/telegram/relay";
 
-import { discordWebhookOf, readPushRoutes, resolveDiscordTargets, type PushKind } from "./pushRoutes";
+import { discordWebhookOf, meetsFlowPremium, readPushRoutes, resolveDiscordTargets, type PushKind } from "./pushRoutes";
 
 export type PushImage = {
   kind: PushKind;
@@ -10,12 +10,15 @@ export type PushImage = {
   bytes: Buffer;
   content?: string;
   eventKey?: string;
+  premiumUsd?: number;
 };
 
 /** 按网页配置发 Discord / Telegram。镜像频道失败不挡主频道。 */
 export async function postSignalImage(webhook: string, input: PushImage): Promise<{ skipped: boolean }> {
-  const route = (await readPushRoutes()).routes[input.kind];
+  const settings = await readPushRoutes({ strict: input.kind === "option-flow" });
+  const route = settings.routes[input.kind];
   if (!route.enabled) return { skipped: true };
+  if (input.kind === "option-flow" && !meetsFlowPremium(input.premiumUsd, settings.optionFlowMinPremiumUsd)) return { skipped: true };
 
   const image = { filename: input.filename, bytes: input.bytes, content: input.content, eventKey: input.eventKey };
   const tasks: Array<{ name: string; run: Promise<unknown> }> = [];

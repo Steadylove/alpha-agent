@@ -10,6 +10,7 @@ type Body = {
   content?: string;
   eventKey?: string;
   png?: string;
+  premiumUsd?: number;
 };
 
 export async function POST(request: Request) {
@@ -23,15 +24,19 @@ export async function POST(request: Request) {
   if (!body.png || !body.filename) {
     return NextResponse.json({ error: "缺少 png / filename" }, { status: 400 });
   }
+  if (body.premiumUsd != null && (typeof body.premiumUsd !== "number" || !Number.isFinite(body.premiumUsd) || body.premiumUsd < 0)) {
+    return NextResponse.json({ error: "无效权利金金额" }, { status: 400 });
+  }
   try {
-    await postSignalImage(webhook, {
+    const result = await postSignalImage(webhook, {
       kind: "option-flow",
       filename: body.filename,
       eventKey: body.eventKey,
       bytes: Buffer.from(body.png, "base64"),
       content: body.content ?? "期权流 · 单笔",
+      premiumUsd: body.premiumUsd,
     });
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     const message = error instanceof Error ? error.message : "推送失败";
     return NextResponse.json({ error: message }, { status: 500 });

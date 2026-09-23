@@ -223,12 +223,12 @@ describe("option flow digest", () => {
   });
 
   it("研究日结保留来源到期提示，不用汇总的不同到期日覆盖原始记录", () => {
-    expect(normalizeExpiry("Dec '28", "2026-09-11")).toBe("12/15/28");
-    expect(normalizeExpiry("01/21/28", "2026-09-11")).toBe("01/21/28");
-    expect(normalizeExpiry("Mar '27", "2026-09-11")).toBe("03/19/27");
-    expect(normalizeExpiry("two weeks", "2026-09-11")).toBe("09/25/26");
-    expect(normalizeExpiry("Sept 25", "2026-09-11")).toBe("09/25/26");
-    expect(normalizeExpiry("March", "2026-09-11")).toBe("03/19/27");
+    expect(normalizeExpiry("Dec '28", "2026-09-11")).toBe("2028-12（月）");
+    expect(normalizeExpiry("01/21/28", "2026-09-11")).toBe("2028-01-21");
+    expect(normalizeExpiry("Mar '27", "2026-09-11")).toBe("2027-03（月）");
+    expect(normalizeExpiry("two weeks", "2026-09-11")).toBe("约 2 周后");
+    expect(normalizeExpiry("Sept 25", "2026-09-11")).toBe("2026-09-25");
+    expect(normalizeExpiry("March", "2026-09-11")).toBe("03 月（年份未明）");
     const view = buildDailyFlowDigest(
       [
         post({

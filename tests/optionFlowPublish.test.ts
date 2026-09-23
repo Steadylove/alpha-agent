@@ -20,7 +20,7 @@ function post(partial: Partial<OptionFlowPost> & Pick<OptionFlowPost, "id" | "ki
     postedAt: "2026-09-13T00:00:00Z",
     ingestedAt: "",
     thesis: "",
-    legs: [{ ticker: "NVDA" }],
+    legs: [{ ticker: "NVDA", premiumUsd: 600_000 }],
     imageUrls: [],
     imageProxyUrls: [],
     rawText: "",
@@ -47,9 +47,15 @@ it("单笔交给网站 postSignalImage 入口，和买卖卡同一条路径", as
     content: "期权流 · 单笔",
     eventKey: "option-flow:t1",
     png: Buffer.from("png").toString("base64"),
+    premiumUsd: 600_000,
   });
   expect(mocks.discord).not.toHaveBeenCalled();
   expect(mocks.bot).not.toHaveBeenCalled();
+});
+
+it("接收端因网页门槛跳过时返回未发送状态", async () => {
+  mocks.fetch.mockResolvedValue(new Response(JSON.stringify({ ok: true, skipped: true }), { status: 200 }));
+  expect(await publishOptionFlow(post({ id: "skip", kind: "flow" }))).toEqual({ skipped: true });
 });
 
 it("确认名单默认走 Discord 配置通道，不改网站单笔入口", async () => {

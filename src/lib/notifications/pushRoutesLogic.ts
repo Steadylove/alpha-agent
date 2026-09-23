@@ -35,8 +35,17 @@ export type PushRoute = {
 
 export type PushRoutesFile = {
   updatedAt: string;
+  optionFlowMinPremiumUsd: number;
   routes: Record<PushKind, PushRoute>;
 };
+
+export const DEFAULT_FLOW_MIN_PREMIUM_USD = 500_000;
+export function validFlowMinPremium(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= 1_000_000_000_000;
+}
+export function meetsFlowPremium(premium: unknown, minimum: number): boolean {
+  return minimum === 0 || (typeof premium === "number" && Number.isFinite(premium) && premium >= minimum);
+}
 
 export const PUSH_KIND_META: Record<PushKind, { label: string; hint: string }> = {
   "signal-4h": { label: "买卖点 · 4 小时", hint: "TradingView 4H 买/卖卡" },
@@ -95,6 +104,7 @@ export function expandTelegramChats(saved: string[], targetIds: string[]): strin
 export function defaultPushRoutes(): PushRoutesFile {
   return {
     updatedAt: "",
+    optionFlowMinPremiumUsd: DEFAULT_FLOW_MIN_PREMIUM_USD,
     routes: {
       "signal-4h": route({ discordDests: ["main", "mirror-4h"], telegram: true }),
       "signal-2h": route({ discordDests: ["main", "mirror-2h"], telegram: true }),
@@ -112,7 +122,7 @@ export function defaultPushRoutes(): PushRoutesFile {
 export function pushRoutesOf(raw: unknown): PushRoutesFile {
   const fallback = defaultPushRoutes();
   if (!raw || typeof raw !== "object") return fallback;
-  const value = raw as { updatedAt?: unknown; routes?: unknown };
+  const value = raw as { updatedAt?: unknown; routes?: unknown; optionFlowMinPremiumUsd?: unknown };
   const incoming = value.routes && typeof value.routes === "object" ? (value.routes as Record<string, Partial<PushRoute>>) : {};
   const routes = { ...fallback.routes };
   for (const kind of PUSH_KINDS) {
@@ -128,6 +138,7 @@ export function pushRoutesOf(raw: unknown): PushRoutesFile {
   }
   return {
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
+    optionFlowMinPremiumUsd: validFlowMinPremium(value.optionFlowMinPremiumUsd) ? value.optionFlowMinPremiumUsd : DEFAULT_FLOW_MIN_PREMIUM_USD,
     routes,
   };
 }

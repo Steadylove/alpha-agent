@@ -228,6 +228,7 @@ it("期权流单笔接口走买卖卡同一套 postSignalImage", async () => {
     content: "期权流 · 单笔",
     eventKey: "option-flow:t1",
     png,
+    premiumUsd: 800_000,
   }))).status).toBe(200);
   expect(mocks.push).toHaveBeenCalledWith(hook, {
     kind: "option-flow",
@@ -235,6 +236,7 @@ it("期权流单笔接口走买卖卡同一套 postSignalImage", async () => {
     content: "期权流 · 单笔",
     eventKey: "option-flow:t1",
     bytes: Buffer.from(png, "base64"),
+    premiumUsd: 800_000,
   });
 });
 it("期权流日结接口缺图时返回 400，不加载出图模块", async () => {

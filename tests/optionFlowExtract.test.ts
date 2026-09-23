@@ -128,7 +128,7 @@ describe("option flow extract", () => {
     expect(shouldForward(wall, cfg)).toBe(true);
   });
 
-  it("门槛可配，默认 0 不拦金额，缺行权到期不转", () => {
+  it("门槛可配，显式 0 不拦金额，缺行权到期不转", () => {
     const post = { kind: "flow" as const, legs: [{ ticker: "LYFT", strike: 13, expiry: "03/19/27", premiumUsd: 158_000 }] };
     expect(shouldForward(post, { minPremiumUsd: 0, dropAds: true, dropPaid: true })).toBe(true);
     expect(shouldForward(post, { minPremiumUsd: 200_000, dropAds: true, dropPaid: true })).toBe(false);

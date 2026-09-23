@@ -1,13 +1,14 @@
 import { createServer } from "node:http";
 import { setTimeout as sleep } from "node:timers/promises";
 
-import { optionFlowConfig } from "@/lib/optionFlow/config";
+import { filterForwardPost, optionFlowConfig } from "@/lib/optionFlow/config";
+import { readPushRoutes } from "@/lib/notifications/pushRoutes";
 import { fetchAllMessages, fetchMessagesAfter, fetchMessagesSince } from "@/lib/optionFlow/discordFetch";
 import { enrichFromChart } from "@/lib/optionFlow/enrichChart";
 import { parseRelayMessage } from "@/lib/optionFlow/parseDiscord";
 import { publishOptionFlow, shouldPublish, signalChannelId, signalWebhookUrl } from "@/lib/optionFlow/publish";
 import { mergeOptionFlow, readOptionFlow, withChannelCursor, writeOptionFlow } from "@/lib/optionFlow/store";
-import type { OptionFlowPost, OptionFlowStore } from "@/lib/optionFlow/types";
+import type { OptionFlowConfig, OptionFlowPost, OptionFlowStore } from "@/lib/optionFlow/types";
 
 const INTERVAL_MS = Number(process.env.OPTION_FLOW_POLL_MS || 3000);
 /** #常规 里 X-Relay 从这天开始进频道，只补这之后的遗漏。 */
@@ -25,8 +26,8 @@ async function ingestChannel(
   channelId: string,
   publish: boolean,
   raw: Awaited<ReturnType<typeof fetchMessagesAfter>>,
+  cfg: OptionFlowConfig,
 ): Promise<{ store: OptionFlowStore; pulled: number; published: number }> {
-  const cfg = optionFlowConfig();
   const incoming: OptionFlowPost[] = [];
   let published = 0;
   for (const message of raw) {
@@ -34,11 +35,14 @@ async function ingestChannel(
     if (!parsed) continue;
     const post = await enrichFromChart(parsed);
     if (publish && shouldPublish(post, cfg, store.posts.concat(incoming))) {
-      await publishOptionFlow(post);
-      post.publishedAt = new Date().toISOString();
-      published += 1;
-      log(`published ${post.kind} ${post.legs[0]?.ticker ?? ""} ${post.id}`);
-      await sleep(250);
+      const outgoing = filterForwardPost(post, cfg)!;
+      const result = await publishOptionFlow(outgoing);
+      if (!result.skipped) {
+        post.publishedAt = new Date().toISOString();
+        published += 1;
+        log(`published ${post.kind} ${post.legs[0]?.ticker ?? ""} ${post.id}`);
+        await sleep(250);
+      }
     } else if (post.tweetId && store.posts.some((row) => row.tweetId === post.tweetId && row.publishedAt)) {
       post.publishedAt = store.posts.find((row) => row.tweetId === post.tweetId && row.publishedAt)?.publishedAt;
     }
@@ -50,7 +54,9 @@ async function ingestChannel(
 }
 
 async function ingestNew(): Promise<{ pulled: number; published: number }> {
-  const cfg = optionFlowConfig();
+  // A failed settings read must not silently relax a saved higher threshold.
+  const settings = await readPushRoutes({ strict: true });
+  const cfg = { ...optionFlowConfig(), minPremiumUsd: settings.optionFlowMinPremiumUsd };
   const signalId = signalChannelId();
   let store = await readOptionFlow();
   let pulled = 0;
@@ -58,7 +64,7 @@ async function ingestNew(): Promise<{ pulled: number; published: number }> {
 
   if (!store.lastMessageId) {
     const raw = await fetchAllMessages(cfg.channelId);
-    const seeded = await ingestChannel(store, cfg.channelId, false, raw);
+    const seeded = await ingestChannel(store, cfg.channelId, false, raw, cfg);
     store = seeded.store;
     pulled += seeded.pulled;
     await writeOptionFlow(store);
@@ -66,7 +72,7 @@ async function ingestNew(): Promise<{ pulled: number; published: number }> {
   } else {
     const sourceCursor = store.lastByChannel?.[cfg.channelId] || store.lastMessageId;
     const raw = await fetchMessagesAfter(cfg.channelId, sourceCursor);
-    const next = await ingestChannel(store, cfg.channelId, true, raw);
+    const next = await ingestChannel(store, cfg.channelId, true, raw, cfg);
     store = next.store;
     pulled += next.pulled;
     published += next.published;
@@ -78,7 +84,7 @@ async function ingestNew(): Promise<{ pulled: number; published: number }> {
     const raw = cursor
       ? await fetchMessagesAfter(signalId, cursor)
       : await fetchMessagesSince(signalId, SIGNAL_SINCE);
-    const next = await ingestChannel(store, signalId, true, raw);
+    const next = await ingestChannel(store, signalId, true, raw, cfg);
     store = next.store;
     pulled += next.pulled;
     published += next.published;

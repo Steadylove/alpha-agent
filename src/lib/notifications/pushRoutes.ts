@@ -12,6 +12,7 @@ import {
   isDiscordWebhookUrl,
   presentDiscordHookRows,
   pushRoutesOf,
+  validFlowMinPremium,
   type DiscordDest,
   type PushKind,
   type PushRoutesFile,
@@ -34,27 +35,38 @@ function usesRemoteStore(): boolean {
   return !process.env.PUSH_ROUTES_PATH && deskRemoteUrl(REMOTE_FILE) != null;
 }
 
-function readLocal(): PushRoutesFile {
+function parseStoredRoutes(raw: unknown, strict = false): PushRoutesFile {
+  if (strict) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("推送配置格式无效");
+    const minimum = (raw as { optionFlowMinPremiumUsd?: unknown }).optionFlowMinPremiumUsd;
+    if (minimum !== undefined && !validFlowMinPremium(minimum)) throw new Error("期权金额门槛无效，暂停推送");
+  }
+  return pushRoutesOf(raw);
+}
+
+function readLocal(strict = false): PushRoutesFile {
   const file = pushRoutesPath();
   if (!existsSync(file)) return defaultPushRoutes();
   try {
-    return pushRoutesOf(JSON.parse(readFileSync(file, "utf8")));
-  } catch {
+    return parseStoredRoutes(JSON.parse(readFileSync(file, "utf8")), strict);
+  } catch (error) {
+    if (strict) throw error;
     return defaultPushRoutes();
   }
 }
 
-export async function readPushRoutes(): Promise<PushRoutesFile> {
-  if (!usesRemoteStore()) return readLocal();
+export async function readPushRoutes(options: { strict?: boolean } = {}): Promise<PushRoutesFile> {
+  if (!usesRemoteStore()) return readLocal(options.strict);
   try {
-    return pushRoutesOf(await readDeskJson(REMOTE_FILE));
-  } catch {
+    return parseStoredRoutes(await readDeskJson(REMOTE_FILE, AbortSignal.timeout(10000)), options.strict);
+  } catch (error) {
+    if (options.strict) throw error;
     return defaultPushRoutes();
   }
 }
 
 export async function writePushRoutes(next: PushRoutesFile, expectedUpdatedAt?: string): Promise<PushRoutesFile> {
-  const previous = await readPushRoutes();
+  const previous = await readPushRoutes({ strict: true });
   if (expectedUpdatedAt != null && previous.updatedAt !== expectedUpdatedAt) {
     throw new Error("配置已被其他操作更新，请刷新后重试");
   }
@@ -82,6 +94,7 @@ export function discordWebhookOf(dest: DiscordDest, fallback = ""): string {
 export function presentPushBoard(file: PushRoutesFile) {
   return {
     updatedAt: file.updatedAt,
+    optionFlowMinPremiumUsd: file.optionFlowMinPremiumUsd,
     routes: Object.fromEntries(
       PUSH_KINDS.map((kind) => {
         const item = file.routes[kind];
@@ -92,7 +105,7 @@ export function presentPushBoard(file: PushRoutesFile) {
 }
 
 export async function loadPushBoard() {
-  const stored = await readPushRoutes();
+  const stored = await readPushRoutes({ strict: true });
   const hydrated = hydrateDiscordWebhooks(stored, (dest) => discordWebhookOf(dest));
   const seeded = PUSH_KINDS.some((kind) => hydrated.routes[kind].discordWebhooks.length > stored.routes[kind].discordWebhooks.length);
   if (seeded) {
