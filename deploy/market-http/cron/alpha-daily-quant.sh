@@ -54,9 +54,16 @@ retry() {
 }
 
 fetch_gex() {
-  python3 scripts/fetch-gex-snapshot.py || return 1
+  local collector=scripts/fetch-gex-snapshot.py
+  # Installed asset survives the repo's daily reset to origin/main.
+  if [ -f "$ROOT/market-http/fetch-gex-snapshot.py" ]; then collector=$ROOT/market-http/fetch-gex-snapshot.py; fi
+  GEX_OUTPUT_DIR="$REPO/.cache/gex" python3 "$collector" || return 1
   env -u VERCEL MARKET_DATA_BASE_URL= npm run review:check -- --stage=gex --file=.cache/gex/latest.json || return 1
   cp .cache/gex/latest.json "$MARKET/snapshots/gex.json"
+  if [ -d .cache/gex/profiles ]; then
+    mkdir -p "$MARKET/snapshots/gex-profiles"
+    cp -a .cache/gex/profiles/. "$MARKET/snapshots/gex-profiles/"
+  fi
 }
 
 check_review() {
@@ -137,6 +144,11 @@ if [ "$gex_ok" -eq 1 ]; then
   soft gex-card npx --yes tsx scripts/push-gex-card.ts
 else
   log "跳过 GEX 推送：本次采集或完整性校验失败"
+fi
+if [ "$gex_ok" -eq 1 ] && [ "$review_ok" -eq 1 ]; then
+  if ! "$ROOT/bin/alpha-review-cards.sh"; then failed=1; fi
+else
+  log "跳过两张复盘图：本次 GEX 或每日复盘未完成"
 fi
 soft screener env SCREENER_SKIP_AI=true npm run screener:push
 

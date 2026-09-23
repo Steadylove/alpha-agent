@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="84" height="84" viewBox="0 0 128 128" fill="none">
+  <title>Trend Adaptive compass rose</title>
+  <circle cx="64" cy="64" r="43" stroke="#A28F70" stroke-width="1.6"/>
+  <circle cx="64" cy="64" r="38.5" stroke="#D0BE9D" stroke-width="0.9"/>
+  <g stroke="#A28F70" stroke-width="0.8">
+    <path d="M33 33L60 52L64 64L52 60Z" fill="#B7A07B"/>
+    <path d="M33 33L64 64L52 60Z" fill="#24312F"/>
+    <path d="M95 33L76 60L64 64L68 52Z" fill="#B7A07B"/>
+    <path d="M95 33L64 64L68 52Z" fill="#24312F"/>
+    <path d="M95 95L68 76L64 64L76 68Z" fill="#B7A07B"/>
+    <path d="M95 95L64 64L76 68Z" fill="#24312F"/>
+    <path d="M33 95L52 68L64 64L60 76Z" fill="#B7A07B"/>
+    <path d="M33 95L64 64L60 76Z" fill="#24312F"/>
+  </g>
+  <g stroke="#D3BF99" stroke-width="1" stroke-linejoin="round">
+    <path d="M64 4L73 53L64 64L55 53Z" fill="#EEE2C9"/>
+    <path d="M64 4L64 64L73 53Z" fill="#182320"/>
+    <path d="M124 64L75 73L64 64L75 55Z" fill="#EEE2C9"/>
+    <path d="M124 64L64 64L75 73Z" fill="#182320"/>
+    <path d="M64 124L55 75L64 64L73 75Z" fill="#EEE2C9"/>
+    <path d="M64 124L64 64L55 75Z" fill="#182320"/>
+    <path d="M4 64L53 55L64 64L53 73Z" fill="#EEE2C9"/>
+    <path d="M4 64L64 64L53 55Z" fill="#182320"/>
+  </g>
+  <path d="M64 58L70 64L64 70L58 64Z" fill="#DFCAA4" stroke="#F0E4CC" stroke-width="0.8"/>
+</svg>

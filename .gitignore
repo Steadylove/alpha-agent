@@ -52,4 +52,8 @@ deploy/market-http/compute.mjs
 deploy/market-http/telegram.mjs
 deploy/market-http/option-flow.mjs
 deploy/market-http/review-macro.mjs
+deploy/market-http/review-cards.mjs
+deploy/market-http/fetch-gex-snapshot.py
+deploy/market-http/review-card-assets/
+**/__pycache__/
 **/telegram.config.mjs

@@ -46,6 +46,9 @@ wait_http() {
   exit 1
 }
 
+if [ -f "$SRC/cron/install-review-cards.sh" ]; then
+  bash "$SRC/cron/install-review-cards.sh"
+fi
 if [ -f "$SRC/cron/install-daily-quant.sh" ]; then
   bash "$SRC/cron/install-daily-quant.sh"
 fi

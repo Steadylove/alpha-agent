@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import sys
 import urllib.request
@@ -31,7 +32,7 @@ MULTIPLIER = 100
 NEAR_DTE_MAX = 45
 WALL_BAND = 0.03
 RATE = 0.04
-OUT_DIR = Path(__file__).resolve().parents[1] / ".cache" / "gex"
+OUT_DIR = Path(os.environ.get("GEX_OUTPUT_DIR") or Path(__file__).resolve().parents[1] / ".cache" / "gex")
 
 
 def fetch_json(url: str, timeout: int = 90) -> dict:
@@ -199,7 +200,7 @@ def collect_contracts(payload: dict, snapshot: date | None, dividend: float) -> 
     return contracts, rows, used, skipped_far
 
 
-def summarize(label: str, payload: dict, dividend: float) -> dict:
+def summarize(label: str, payload: dict, dividend: float, profiles: dict | None = None) -> dict:
     data = payload["data"]
     spot = float(data.get("close") or data["current_price"])
     as_of = data.get("last_trade_time") or payload.get("timestamp")
@@ -231,6 +232,12 @@ def summarize(label: str, payload: dict, dividend: float) -> dict:
         "iv30": data.get("iv30"),
     }
     result["quality"] = validate_row(result)
+    if profiles is not None:
+        profiles[label] = {
+            "date": snapshot.isoformat(), "asOf": as_of, "spot": spot,
+            "netGex": gex_spot, "source": "cboe-delayed", "method": "cboe-gex-v2",
+            "dte": f"0-{NEAR_DTE_MAX}d", "rows": rows,
+        }
     return result
 
 
@@ -387,9 +394,10 @@ def main() -> None:
         self_test()
         return
     rows = []
+    profiles: dict = {}
     for label, cboe_symbol, dividend in SYMBOLS:
         payload = fetch_json(CBOE.format(symbol=cboe_symbol))
-        row = summarize(label, payload, dividend)
+        row = summarize(label, payload, dividend, profiles)
         rows.append(row)
         print(f"fetched {label}: {row['contracts_used']} near-month @ {row['spot']}")
 
@@ -416,6 +424,15 @@ def main() -> None:
     (OUT_DIR / f"gex-{stamp}.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     if all(row["contracts_used"] == 0 for row in rows):
         raise SystemExit("No valid option chains; latest snapshot was not replaced")
+    # Profile and totals come from the exact same fetched option chain.
+    # Keep this sidecar out of the review JSON to avoid inflating every page response.
+    for label, profile in profiles.items():
+        directory = OUT_DIR / "profiles" / profile["date"]
+        directory.mkdir(parents=True, exist_ok=True)
+        target = directory / f"{label}.json"
+        temp = target.with_suffix(".tmp")
+        temp.write_text(json.dumps(profile, ensure_ascii=False), encoding="utf-8")
+        temp.replace(target)
     latest_md.write_text(markdown, encoding="utf-8")
     (OUT_DIR / "latest.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     print(markdown)

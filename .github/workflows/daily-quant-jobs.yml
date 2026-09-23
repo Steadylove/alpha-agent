@@ -83,6 +83,10 @@ jobs:
         run: |
           mkdir -p "$MARKET_DATA_DIR/snapshots"
           cp .cache/gex/latest.json "$MARKET_DATA_DIR/snapshots/gex.json"
+          if [ -d .cache/gex/profiles ]; then
+            mkdir -p "$MARKET_DATA_DIR/snapshots/gex-profiles"
+            cp -a .cache/gex/profiles/. "$MARKET_DATA_DIR/snapshots/gex-profiles/"
+          fi
 
       - name: Push market files to VPS
         run: |
@@ -138,3 +142,8 @@ jobs:
         run: npx --yes tsx scripts/push-gex-card.ts
         env:
           BOOK_PUSH_URL: ${{ secrets.BOOK_PUSH_URL }}
+
+      - name: Push Tomorrow Map and Options Market Map
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes "root@${HOST}" \
+            "bash /var/lib/alpha-agent/bin/alpha-review-cards.sh"
