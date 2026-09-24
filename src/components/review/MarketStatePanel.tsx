@@ -1,3 +1,4 @@
+import { Disclosure } from "@/components/Disclosure";
 import type { DailyReview, MarketContext } from "@/lib/review/types";
 import styles from "./review.module.css";
 import css from "./marketState.module.css";
@@ -224,11 +225,11 @@ export function MarketStatePanel({ review: r }: { review: DailyReview }) {
           宏观环境独立描述利率与美元压力；商品与 BTC 单列观察。
         </p>
       </div>
-      <details className={css.details}>
-        <summary>
+      <Disclosure className={css.details} title={<>
           判断依据与数据口径
           {e?.basis === "reconstructed" ? " · 历史规则重算" : ""}
-        </summary>
+        </>}>
+
         <div className={styles.tableWrap}>
           <table>
             <thead>
@@ -333,7 +334,7 @@ export function MarketStatePanel({ review: r }: { review: DailyReview }) {
             ）。页面重算不会替换买点中已经冻结的市场上下文。
           </p>
         )}
-      </details>
+      </Disclosure>
     </section>
   );
 }

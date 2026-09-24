@@ -1,5 +1,7 @@
 "use client";
 
+import { chartTheme } from "@/lib/ui/chartTheme";
+
 import { Text } from "@mantine/core";
 import {
   CartesianGrid,
@@ -14,9 +16,9 @@ import {
 import { bookPnlLabel } from "@/lib/discord/bookCopy";
 import type { LookbackPoint } from "@/lib/fund/lookbackLogic";
 
-const POS = "#089981";
-const NEG = "#f23645";
-const ROTATE = "#d97706";
+const POS = chartTheme.positive;
+const NEG = chartTheme.negative;
+const ROTATE = chartTheme.gold;
 
 const pct = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
 
@@ -66,18 +68,18 @@ export function LookbackEquityChart({
             }}
             onMouseLeave={() => onHover?.(null)}
           >
-            <CartesianGrid stroke="#27272a" vertical={false} />
+            <CartesianGrid stroke={chartTheme.grid} vertical={false} />
             <XAxis
               dataKey="date"
-              tick={{ fill: "#71717a", fontSize: 11 }}
+              tick={{ fill: chartTheme.benchmark, fontSize: 11 }}
               tickLine={false}
-              axisLine={{ stroke: "#27272a" }}
+              axisLine={{ stroke: chartTheme.grid }}
               minTickGap={48}
               tickFormatter={(d: string) => d.slice(0, 7)}
             />
             <YAxis
               domain={equityDomain(curve)}
-              tick={{ fill: "#71717a", fontSize: 11 }}
+              tick={{ fill: chartTheme.benchmark, fontSize: 11 }}
               tickLine={false}
               axisLine={false}
               width={56}
@@ -122,7 +124,7 @@ export function LookbackEquityChart({
                   </div>
                 );
               }}
-              cursor={{ stroke: "#52525b" }}
+              cursor={{ stroke: chartTheme.crosshair }}
               isAnimationActive={false}
             />
             <Line
@@ -162,5 +164,5 @@ function tradeDot(props: { cx?: number; cy?: number; payload?: LookbackPoint }) 
     return <circle cx={props.cx} cy={props.cy} r={3.5} fill={fill} />;
   }
   if (!p.misses?.length) return null;
-  return <circle cx={props.cx} cy={props.cy} r={3} fill="#a1a1aa" />;
+  return <circle cx={props.cx} cy={props.cy} r={3} fill={chartTheme.muted} />;
 }

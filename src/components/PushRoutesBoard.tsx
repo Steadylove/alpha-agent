@@ -149,7 +149,7 @@ export function PushRoutesBoard() {
           {error}
         </Alert>
       ) : null}
-      <div className="mb-6 grid gap-5 rounded-lg border border-emerald-300/15 bg-emerald-300/[0.035] p-5 sm:grid-cols-[1fr_17rem]">
+      <div className="mb-6 grid gap-5 rounded border border-emerald-300/15 bg-emerald-300/[0.035] p-5 sm:grid-cols-[1fr_17rem]">
         <div>
           <div className="mb-2 text-xs tracking-widest text-emerald-200/70">OPTIONS FLOW</div>
           <h2 className="text-lg font-medium text-zinc-100">期权大单金额门槛</h2>

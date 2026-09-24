@@ -181,7 +181,7 @@
   font-size: 11px;
   line-height: 1.9;
 }
-.details summary {
+.details :global(.ta-disclosure-label) {
   cursor: pointer;
   color: #b8c8c1;
 }

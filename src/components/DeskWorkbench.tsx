@@ -1,7 +1,9 @@
 "use client";
 
+import { chartTheme } from "@/lib/ui/chartTheme";
+
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Group, Loader, SegmentedControl, Table, Text, TextInput } from "@mantine/core";
+import { Group, Loader, SegmentedControl, Table, Text, UnstyledButton, TextInput } from "@mantine/core";
 
 import { Card } from "@/components/Card";
 import { LabSymbolChart, type ChartTarget } from "@/components/LabSymbolChart";
@@ -71,8 +73,8 @@ function sigName(n: 1 | 2): string {
   return n === 1 ? "一买" : "二买";
 }
 
-const BUY1 = "#ff4976";
-const BUY2 = "#fbbf24";
+const BUY1 = chartTheme.rose;
+const BUY2 = chartTheme.gold;
 
 function TfCell({ state }: { state: DeskBarState | null }) {
   if (!state) return <span className="text-zinc-600">—</span>;
@@ -116,7 +118,7 @@ function SpecPane({
   rows: [string, string][];
 }) {
   return (
-    <div className="rounded-lg border border-(--border-subtle) bg-(--surface-sunken) p-4">
+    <div className="rounded border border-(--border-subtle) bg-(--surface-sunken) p-4">
       <div className="mb-3 flex items-baseline justify-between gap-3">
         <Text size="sm" fw={600} c="gray.1">
           {title}
@@ -154,13 +156,13 @@ function QuietStrip({
 }) {
   if (rows.length === 0) return null;
   return (
-    <div className="mb-3 rounded-lg border border-(--border-subtle) bg-(--surface-sunken) px-3 py-2.5">
+    <div className="mb-3 rounded border border-(--border-subtle) bg-(--surface-sunken) px-3 py-2.5">
       <Text size="xs" c="dimmed" mb={8}>
         其余 {rows.length} 只 · 这根没有仓也没有买点
       </Text>
       <div className="flex flex-wrap gap-x-3 gap-y-1.5">
         {rows.map((row) => (
-          <button
+          <UnstyledButton
             key={row.symbol}
             type="button"
             title={`查看 ${row.symbol}`}
@@ -168,7 +170,7 @@ function QuietStrip({
             onClick={() => onOpen(row)}
           >
             {row.symbol}
-          </button>
+          </UnstyledButton>
         ))}
       </div>
     </div>
@@ -185,7 +187,7 @@ function TfButton({
   children: ReactNode;
 }) {
   return (
-    <button
+    <UnstyledButton
       type="button"
       title={label}
       aria-label={label}
@@ -193,7 +195,7 @@ function TfButton({
       className="w-full cursor-pointer rounded-md px-1.5 py-1 text-left transition-colors duration-150 hover:bg-[var(--accent-soft)]"
     >
       {children}
-    </button>
+    </UnstyledButton>
   );
 }
 
@@ -313,7 +315,7 @@ export function DeskWorkbench({ initialQuery = "" }: { initialQuery?: string }) 
                   {shown.map((row) => (
                     <Table.Tr key={row.symbol}>
                       <Table.Td>
-                        <button
+                        <UnstyledButton
                           type="button"
                           title={`查看 ${row.symbol} 4小时图`}
                           aria-label={`查看 ${row.symbol} 4小时图`}
@@ -321,7 +323,7 @@ export function DeskWorkbench({ initialQuery = "" }: { initialQuery?: string }) 
                           onClick={() => open(row.symbol, "4h", row.h4)}
                         >
                           {row.symbol}
-                        </button>
+                        </UnstyledButton>
                       </Table.Td>
                       <Table.Td>
                         <TfButton

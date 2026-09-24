@@ -1,5 +1,7 @@
 "use client";
 
+import { Disclosure } from "@/components/Disclosure";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Button, Group, Modal, ScrollArea, Select, Table, Text } from "@mantine/core";
 import { Card } from "@/components/Card";
@@ -75,8 +77,8 @@ export function BookHistoryCard({ current }: { current: FundSnapshot | null }) {
               <Text size="sm">此后纳入：{changes.added.join(", ") || "无"}</Text>
               <Text size="sm" mt="xs">此后剔除：{changes.removed.join(", ") || "无"}</Text>
             </ScrollArea>
-            {book.poolHistory ? <details>
-              <summary className="cursor-pointer text-sm">截至该版本的池子变更记录</summary>
+            {book.poolHistory ? <Disclosure title={<>截至该版本的池子变更记录</>}>
+
               {book.poolHistory.map((revision, i) => {
                 const before = book.poolHistory?.[i - 1]?.members ?? [];
                 const added = revision.members.filter((m) => !before.includes(m));
@@ -87,8 +89,8 @@ export function BookHistoryCard({ current }: { current: FundSnapshot | null }) {
                 </Text>;
               })}
               <Text size="xs" mt="xs" c="dimmed">变更仅作用于保存后新开始的 K 线，原有持仓继续管理退出。</Text>
-            </details> : null}
-            <Table fz="xs">
+            </Disclosure> : null}
+            <div className="table-scroll"><Table fz="xs">
               <Table.Thead><Table.Tr><Table.Th>周期</Table.Th><Table.Th>历史 / 当前截至</Table.Th><Table.Th>累计收益</Table.Th><Table.Th>回撤</Table.Th><Table.Th>持仓数</Table.Th></Table.Tr></Table.Thead>
               <Table.Tbody>{book.books.map((old) => {
                 const match = current?.books.find((b) => b.tf === old.tf);
@@ -101,7 +103,7 @@ export function BookHistoryCard({ current }: { current: FundSnapshot | null }) {
                   <Table.Td>{old.view.rows.length} → {now?.rows.length ?? "—"}</Table.Td>
                 </Table.Tr>;
               })}</Table.Tbody>
-            </Table>
+            </Table></div>
             {book.books.map((old) => {
               const match = current?.books.find((b) => b.tf === old.tf);
               const now = match && "view" in match ? match.view : null;

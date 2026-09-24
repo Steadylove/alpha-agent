@@ -35,7 +35,7 @@
   padding: 14px 0;
   border-bottom: 1px solid #ffffff0d;
 }
-.event summary {
+.event :global(.ta-disclosure-label) {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -43,9 +43,6 @@
   cursor: pointer;
   list-style: none;
   font-size: 14px;
-}
-.event summary::-webkit-details-marker {
-  display: none;
 }
 .more {
   flex-shrink: 0;
@@ -64,8 +61,8 @@
   color: #9bcbba;
   text-decoration: none;
 }
-.event summary:focus-visible,
-.details summary:focus-visible,
+.event :global(.ta-disclosure-control):focus-visible,
+.details :global(.ta-disclosure-control):focus-visible,
 .event a:focus-visible {
   outline: 2px solid #a0cdbb;
   outline-offset: 5px;
@@ -144,12 +141,12 @@
   border-bottom: 1px solid #ffffff0c;
   padding: 13px 0;
 }
-.details summary {
+.details :global(.ta-disclosure-label) {
   cursor: pointer;
   font-size: 12px;
   color: #9aa7ad;
 }
-.details > p {
+.details :global(.ta-disclosure-content) > p {
   font-size: 11px;
   line-height: 1.85;
   color: #86969b;
@@ -211,7 +208,7 @@
   .focusTitle h3 {
     font-size: 20px;
   }
-  .event summary {
+  .event :global(.ta-disclosure-label) {
     align-items: flex-start;
   }
   .focus li {

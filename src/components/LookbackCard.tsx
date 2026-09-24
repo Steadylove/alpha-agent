@@ -1,5 +1,7 @@
 "use client";
 
+import { chartTheme } from "@/lib/ui/chartTheme";
+
 import { usableTwoHourResult } from "@/lib/backtest/twoHourVersion";
 
 import { useEffect, useRef, useState } from "react";
@@ -18,8 +20,8 @@ import {
 } from "@/lib/fund/lookbackLogic";
 import { defaultSnapshotName, type LookbackSnapshot } from "@/lib/fund/lookbackSnapshotLogic";
 
-const POS = "#089981";
-const NEG = "#f23645";
+const POS = chartTheme.positive;
+const NEG = chartTheme.negative;
 
 type Result = LookbackView & { tf: LookbackTf; twoHourVersion?: string };
 
@@ -262,7 +264,7 @@ export function LookbackCard({
         </Button>
       </Group>
       {snapshots.length > 0 ? (
-        <Table fz="xs" mb="md" verticalSpacing={4}>
+        <div className="table-scroll"><Table fz="xs" mb="md" verticalSpacing={4}>
           <Table.Thead>
             <Table.Tr>
               <Table.Th>快照</Table.Th>
@@ -334,7 +336,7 @@ export function LookbackCard({
               </Table.Tr>
             ))}
           </Table.Tbody>
-        </Table>
+        </Table></div>
       ) : (
         <Text size="xs" c="dimmed" mb="md">
           回看出成绩后可把当前名单和收益存成快照，下次载入名单再回看。
@@ -434,7 +436,7 @@ function LookbackResult({
           空仓
         </Text>
       ) : (
-        <Table fz="xs" mt="sm" verticalSpacing={4}>
+        <div className="table-scroll"><Table fz="xs" mt="sm" verticalSpacing={4}>
           <Table.Thead>
             <Table.Tr>
               <Table.Th>代码</Table.Th>
@@ -462,7 +464,7 @@ function LookbackResult({
               </Table.Tr>
             ))}
           </Table.Tbody>
-        </Table>
+        </Table></div>
       )}
     </>
   );

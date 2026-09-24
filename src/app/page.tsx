@@ -3,7 +3,7 @@ import { getReviewData } from "@/lib/review/store";
 
 export const dynamic = "force-dynamic";
 export const metadata = {
-  title: "每日复盘 · Market Compass",
+  title: { absolute: "每日复盘 · TREND ADAPTIVE" },
   description: "市场状态、期权结构、板块轮动、买点留档与系统事后验证。",
 };
 

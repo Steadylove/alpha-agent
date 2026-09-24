@@ -1,7 +1,9 @@
 "use client";
 
+import { chartTheme } from "@/lib/ui/chartTheme";
+
 import { useEffect, useMemo, useState } from "react";
-import { Badge, Group, SegmentedControl, Stack, Table, Text } from "@mantine/core";
+import { Badge, Group, SegmentedControl, Stack, Table, Text, UnstyledButton } from "@mantine/core";
 import {
   CartesianGrid,
   Line,
@@ -17,10 +19,10 @@ import { Card } from "@/components/Card";
 import { DayPicker } from "@/components/DayPicker";
 import type { DayBook, HoldingDay, YearToDate } from "@/lib/backtest/engine";
 
-const POS = "#089981";
-const NEG = "#f23645";
-const BENCH = "#71717a";
-const SPY = "#d97706";
+const POS = chartTheme.positive;
+const NEG = chartTheme.negative;
+const BENCH = chartTheme.benchmark;
+const SPY = chartTheme.gold;
 
 const pct = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
 const tone = (v: number) => (v >= 0 ? POS : NEG);
@@ -108,7 +110,7 @@ export function LabFundChart({
     <Stack gap="sm">
       <Card
         title={
-          <Group justify="space-between" align="flex-start" wrap="nowrap">
+          <Group justify="space-between" align="flex-start" wrap="wrap" w="100%">
             <Stack gap={4}>
               <Text size="sm" fw={700} c="gray.1">
                 净值
@@ -149,31 +151,31 @@ export function LabFundChart({
                 if (d) pickDate(d);
               }}
             >
-              <CartesianGrid stroke="#27272a" vertical={false} />
+              <CartesianGrid stroke={chartTheme.grid} vertical={false} />
               <XAxis
                 dataKey="date"
-                tick={{ fill: "#71717a", fontSize: 11 }}
+                tick={{ fill: chartTheme.benchmark, fontSize: 11 }}
                 tickLine={false}
-                axisLine={{ stroke: "#27272a" }}
+                axisLine={{ stroke: chartTheme.grid }}
                 minTickGap={56}
                 tickFormatter={(d: string) => d.slice(0, 7)}
               />
               <YAxis
                 scale={view === "all" ? "log" : "auto"}
                 domain={["auto", "auto"]}
-                tick={{ fill: "#71717a", fontSize: 11 }}
+                tick={{ fill: chartTheme.benchmark, fontSize: 11 }}
                 tickLine={false}
                 axisLine={false}
                 width={52}
                 tickFormatter={(v: number) => `${v.toFixed(view === "all" ? 1 : 2)}x`}
               />
-              <ReferenceLine y={1} stroke="#3f3f46" />
+              <ReferenceLine y={1} stroke={chartTheme.border} />
               {selectedDate ? (
-                <ReferenceLine x={selectedDate} stroke="#a1a1aa" strokeDasharray="3 3" />
+                <ReferenceLine x={selectedDate} stroke={chartTheme.muted} strokeDasharray="3 3" />
               ) : null}
               <Tooltip
                 content={<FundTooltip range={view} externalLabel={externalLabel} />}
-                cursor={{ stroke: "#52525b" }}
+                cursor={{ stroke: chartTheme.crosshair }}
                 isAnimationActive={false}
               />
               <Line type="monotone" dataKey="benchmark" stroke={BENCH} strokeWidth={1.25} dot={false} isAnimationActive={false} />
@@ -239,7 +241,7 @@ export function LabFundChart({
             空仓
           </Text>
         ) : (
-          <Table verticalSpacing={4} fz="xs" highlightOnHover>
+          <div className="table-scroll"><Table verticalSpacing={4} fz="xs" highlightOnHover>
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>标的</Table.Th>
@@ -270,13 +272,13 @@ export function LabFundChart({
                 </Table.Tr>
               ))}
             </Table.Tbody>
-          </Table>
+          </Table></div>
         )}
 
         {dayTrades.length > 0 ? (
           <div className="mt-3 border-t border-[var(--border-subtle)] pt-2">
             {dayTrades.map((t) => (
-              <button
+              <UnstyledButton
                 key={`${t.symbol}-${t.entryDate}`}
                 type="button"
                 className="flex w-full justify-between py-1 font-mono text-xs text-zinc-400 hover:text-zinc-200"
@@ -288,7 +290,7 @@ export function LabFundChart({
                 <span style={{ color: t.exitDate === selectedDate ? tone(t.pnlPct) : undefined }}>
                   {t.exitDate === selectedDate ? pct(t.pnlPct) : t.entryDate}
                 </span>
-              </button>
+              </UnstyledButton>
             ))}
           </div>
         ) : null}

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Select } from "@mantine/core";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Bell,
@@ -31,12 +32,11 @@ export function SiteNav() {
 
   return (
     <>
-    <select aria-label="页面导航" value={primaryNav.find(item => isActive(item.href))?.href ?? "/"}
-      onChange={event => router.push(event.target.value)}
-      className="max-w-28 rounded border border-white/10 bg-[var(--surface-base)] px-2 py-1.5 text-xs text-zinc-300 md:hidden">
-      {primaryNav.map(item => <option key={item.href} value={item.href}>{item.label}</option>)}
-    </select>
-    <nav className="hidden items-center gap-0.5 text-sm md:flex">
+    <Select aria-label="页面导航" value={primaryNav.find(item => isActive(item.href))?.href ?? "/"}
+      onChange={value => { if (value) router.push(value); }}
+      data={primaryNav.map(item => ({ value: item.href, label: item.label }))}
+      size="xs" className="site-nav-select" />
+    <nav aria-label="主导航" className="site-nav">
       {primaryNav.map((item) => (
         <NavLink key={item.href} {...item} active={isActive(item.href)} />
       ))}
@@ -60,18 +60,11 @@ function NavLink({
     <Link
       href={href}
       aria-current={active ? "page" : undefined}
-      className={[
-        "relative flex items-center gap-1.5 rounded-md px-2.5 py-1.5 transition-colors duration-200",
-        active
-          ? "bg-[var(--surface-hover)] text-zinc-50"
-          : "text-zinc-400 hover:bg-[var(--surface-raised)] hover:text-zinc-50",
-      ].join(" ")}
+      className="site-nav-link"
     >
       <Icon className="h-4 w-4" />
       <span>{label}</span>
-      {active ? (
-        <span className="absolute inset-x-2.5 -bottom-1.5 h-px bg-[var(--accent)]" />
-      ) : null}
+
     </Link>
   );
 }

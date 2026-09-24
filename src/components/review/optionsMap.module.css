@@ -225,12 +225,12 @@
   margin-top: 16px;
   line-height: 1.9;
 }
-.method summary {
+.method :global(.ta-disclosure-label) {
   cursor: pointer;
   width: fit-content;
   color: #b0bdb9;
 }
-.method summary span {
+.method :global(.ta-disclosure-label) span {
   margin-left: 12px;
   color: var(--dim);
 }

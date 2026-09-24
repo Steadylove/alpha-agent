@@ -549,7 +549,7 @@ export function SignalPoolCard({
         </ChipRow>
       ) : null}
       {saved && liveOpen ? (
-        <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-sunken)]">
+        <div className="rounded border border-[var(--border-subtle)] bg-[var(--surface-sunken)]">
           <UnstyledButton
             onClick={() => setListOpen((v) => !v)}
             aria-expanded={listOpen}
@@ -766,7 +766,7 @@ function TickerRow({
         {editing ? (
           <Checkbox size="xs" checked={checked} onChange={onToggle} aria-label={`选择 ${symbol}`} />
         ) : null}
-        <button
+        <UnstyledButton
           type="button"
           onClick={onOpen}
           className={`truncate font-mono text-sm font-semibold underline decoration-zinc-600 underline-offset-2 hover:text-zinc-100 ${
@@ -774,7 +774,7 @@ function TickerRow({
           }`}
         >
           {symbol}
-        </button>
+        </UnstyledButton>
         {tag ? (
           <Badge size="xs" variant="light" color={tagColor}>
             {tag}

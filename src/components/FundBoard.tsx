@@ -198,7 +198,7 @@ function LiveBookCard({
 
   return (
     <Card title={`${name} · ${stamp(view.asOf)}`}>
-      <div className="mb-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <MetricCard label="累计" value={view.pnl} valueColor={view.equity >= 1 ? "teal.4" : "red.4"} hint={`自 ${view.since}`} />
         <MetricCard
           label={s.ytdYear != null ? `${s.ytdYear} YTD` : "YTD"}
@@ -260,7 +260,7 @@ function LiveBookCard({
           空仓
         </Text>
       ) : (
-        <Table striped highlightOnHover mb="lg" fz="sm">
+        <div className="table-scroll"><Table striped highlightOnHover mb="lg" fz="sm">
           <Table.Thead>
             <Table.Tr>
               <Table.Th>标的</Table.Th>
@@ -302,7 +302,7 @@ function LiveBookCard({
               </Table.Tr>
             ))}
           </Table.Tbody>
-        </Table>
+        </Table></div>
       )}
 
       <UnstyledButton onClick={onToggleFills} mb="xs">
@@ -316,7 +316,7 @@ function LiveBookCard({
             这段窗口没有成交
           </Text>
         ) : (
-          <Table striped highlightOnHover fz="sm">
+          <div className="table-scroll"><Table striped highlightOnHover fz="sm">
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>时间</Table.Th>
@@ -337,7 +337,7 @@ function LiveBookCard({
                 />
               ))}
             </Table.Tbody>
-          </Table>
+          </Table></div>
         )
       ) : null}
     </Card>

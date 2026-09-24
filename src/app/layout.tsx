@@ -4,11 +4,12 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Providers } from "@/app/providers";
 import { SiteNav } from "@/components/SiteNav";
-import { Compass } from "lucide-react";
+import Image from "next/image";
 
 export const metadata: Metadata = {
-  title: "Market Compass",
-  description: "US equities swing-trading market compass dashboard",
+  title: { default: "TREND ADAPTIVE", template: "%s · TREND ADAPTIVE" },
+  applicationName: "TREND ADAPTIVE",
+  description: "趋势自适应系统 · 市场复盘、期权结构与信号研究。",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
@@ -17,29 +18,20 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="zh-CN" data-mantine-color-scheme="dark" suppressHydrationWarning>
       <body>
         <div className="relative min-h-screen text-zinc-50">
-          {/* 顶部一层极淡的光晕，避免整页是一块纯色死黑 */}
-          <div
-            aria-hidden
-            className="pointer-events-none fixed inset-x-0 top-0 h-[420px]"
-            style={{
-              background:
-                "radial-gradient(80% 100% at 50% 0%, rgba(91,141,239,0.07) 0%, rgba(91,141,239,0) 70%)",
-            }}
-          />
           <Providers>
-            <header className="sticky top-0 z-50 border-b border-[var(--border-subtle)] bg-[var(--surface-base)]/80 backdrop-blur-xl">
-              <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
-                <Link
-                  href="/"
-                  className="flex items-center gap-2 text-zinc-100 transition-colors hover:text-white"
-                >
-                  <Compass className="h-5 w-5" style={{ color: "var(--accent)" }} />
-                  <span className="text-sm font-semibold tracking-wide">Market Compass</span>
+            <header className="site-header">
+              <div className="site-header-inner">
+                <Link href="/" className="site-brand" aria-label="TREND ADAPTIVE 首页">
+                  <Image src="/brand/trend-adaptive.svg" alt="" width={40} height={40} priority />
+                  <span>
+                    <span className="site-brand-name">TREND ADAPTIVE</span>
+                    <span className="site-brand-caption">FOLLOW THE FLOW · TRADE THE TREND</span>
+                  </span>
                 </Link>
                 <SiteNav />
               </div>
             </header>
-            <main className="relative mx-auto max-w-6xl px-6 py-10">{children}</main>
+            <main className="site-main">{children}</main>
           </Providers>
         </div>
       </body>

@@ -1,7 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 144 144" fill="none">
-<rect width="144" height="144" rx="28" fill="#101114"/>
-<g transform="translate(8 8)">
-<title>Trend Adaptive compass rose</title>
+<svg xmlns="http://www.w3.org/2000/svg" width="84" height="84" viewBox="0 0 128 128" fill="none">
+  <title>Trend Adaptive compass rose</title>
   <circle cx="64" cy="64" r="43" stroke="#A28F70" stroke-width="1.6"/>
   <circle cx="64" cy="64" r="38.5" stroke="#D0BE9D" stroke-width="0.9"/>
   <g stroke="#A28F70" stroke-width="0.8">
@@ -25,6 +23,4 @@
     <path d="M4 64L64 64L53 55Z" fill="#182320"/>
   </g>
   <path d="M64 58L70 64L64 70L58 64Z" fill="#DFCAA4" stroke="#F0E4CC" stroke-width="0.8"/>
-
-</g>
 </svg>

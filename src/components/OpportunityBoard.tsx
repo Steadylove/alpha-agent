@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { Pagination, SegmentedControl, TextInput } from "@mantine/core";
 
 import { flattenStocksBySector, matchStock, pageSlice } from "@/lib/opportunity/groupStocks";
 import type { OpportunityData, OpportunitySectorRow, OpportunityStock } from "@/lib/opportunity/types";
@@ -193,15 +194,9 @@ function PagedStockList({
 
   return (
     <div>
-      <label className="mb-4 block text-xs text-zinc-500">
-        搜索代码 / 名称 / 行业
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="NVDA 或 能源"
-          className="mt-1 block h-11 w-full max-w-xs rounded-lg border border-(--border-subtle) bg-(--surface-sunken) px-3 text-sm text-zinc-100"
-        />
-      </label>
+      <TextInput label="搜索代码 / 名称 / 行业" value={query}
+        onChange={(event) => setQuery(event.currentTarget.value)}
+        placeholder="NVDA 或 能源" size="sm" className="mb-4 max-w-xs" />
       {slice.rows.length === 0 ? (
         <p className="text-xs text-zinc-600">{empty ?? "没有符合条件的票。"}</p>
       ) : (
@@ -212,24 +207,10 @@ function PagedStockList({
           <p>
             第 {slice.page} / {slice.pages} 页 · {matched.length} 只 · 每页 {PAGE_SIZE} 只
           </p>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              disabled={slice.page <= 1}
-              onClick={() => setPage(slice.page - 1)}
-              className="inline-flex min-h-11 items-center rounded-lg border border-(--border-subtle) px-3 text-zinc-200 disabled:opacity-40"
-            >
-              上一页
-            </button>
-            <button
-              type="button"
-              disabled={slice.page >= slice.pages}
-              onClick={() => setPage(slice.page + 1)}
-              className="inline-flex min-h-11 items-center rounded-lg border border-(--border-subtle) px-3 text-zinc-200 disabled:opacity-40"
-            >
-              下一页
-            </button>
-          </div>
+          <Pagination size="sm" value={slice.page} total={slice.pages} onChange={setPage}
+            siblings={0} boundaries={1}
+            getControlProps={(control) => ({ "aria-label": control === "previous" ? "上一页" : "下一页" })}
+            getItemProps={(page) => ({ "aria-label": `第 ${page} 页` })} />
         </div>
       ) : null}
     </div>
@@ -253,33 +234,14 @@ function UniverseSection({
   });
 
   return (
-    <section className="rounded-xl border border-(--border-subtle) bg-(--surface-raised) p-5">
+    <section className="rounded-md border border-(--border-subtle) bg-(--surface-raised) p-5">
       <h2 className="mb-2 text-sm font-semibold text-zinc-100">全市场截面</h2>
       <p className="mb-4 text-xs text-zinc-500">
         标普日线截面 {stocks.length} 只，不是现网 55 只。点代码只去信号台，不加池。
       </p>
-      <div className="mb-4 flex flex-wrap gap-2">
-        {(
-          [
-            ["all", `全部 ${stocks.length}`],
-            ["strong", `强势 ${strongCount}`],
-            ["pool", `在池 ${poolCount}`],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setScope(id)}
-            className={`inline-flex min-h-11 items-center rounded-lg border px-3 text-xs ${
-              scope === id
-                ? "border-(--border-strong) bg-(--surface-hover) text-zinc-100"
-                : "border-(--border-subtle) text-zinc-400"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <SegmentedControl aria-label="股票范围" size="xs" className="mb-4 timeframe-selector" value={scope}
+        onChange={(value) => setScope(value as typeof scope)}
+        data={[{ value: "all", label: `全部 ${stocks.length}` }, { value: "strong", label: `强势 ${strongCount}` }, { value: "pool", label: `在池 ${poolCount}` }]} />
       <PagedStockList stocks={shown} sectors={sectors} showPoolMark empty="没有符合条件的票" />
     </section>
   );
@@ -300,7 +262,7 @@ export function OpportunityBoard({ data }: { data: OpportunityData }) {
 
   return (
     <div className="space-y-8">
-      <section className="rounded-xl border border-(--border-subtle) bg-(--surface-raised) p-5">
+      <section className="rounded-md border border-(--border-subtle) bg-(--surface-raised) p-5">
         <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="text-sm font-semibold text-zinc-100">行业时钟</h2>
           <p className="font-mono text-xs text-zinc-500">截至 {data.asOf}</p>
@@ -318,7 +280,7 @@ export function OpportunityBoard({ data }: { data: OpportunityData }) {
       )}
 
       {data.pool.length > 0 ? (
-        <section className="rounded-xl border border-(--border-subtle) bg-(--surface-raised) p-5">
+        <section className="rounded-md border border-(--border-subtle) bg-(--surface-raised) p-5">
           <h2 className="mb-2 text-sm font-semibold text-zinc-100">现网池对照</h2>
           <p className="mb-4 text-xs text-zinc-500">这 {data.pool.length} 只是现网名单，只对照，不改。</p>
           <PagedStockList stocks={data.pool} sectors={data.sectors} showPoolMark={false} />

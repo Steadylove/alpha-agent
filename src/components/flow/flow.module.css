@@ -1,68 +1,25 @@
 .root {
-  --mint:#a7d3bb;
-  --gold:#c9b78d;
-  --line:#ffffff14;
-  --muted:#939aa2;
-  color:#e7e8e5;
+  --mint:var(--accent);
+  --line:var(--border-subtle);
+  --muted:var(--text-muted);
+  color:var(--text-primary);
   font-size:13px;
   line-height:1.6;
   padding-bottom:40px
 }
-.hero {
-  display:flex;
-  justify-content:space-between;
-  gap:24px;
-  align-items:flex-end;
-  padding:12px 0 28px;
-  border-bottom:1px solid var(--line)
-}
 .eyebrow {
   color:var(--mint);
-  font:11px ui-monospace,monospace;
+  font:500 10px var(--font-interface);
   letter-spacing:.16em
-}
-.hero h1 {
-  font-size:38px;
-  letter-spacing:-.04em;
-  margin:12px 0 8px;
-  font-weight:650
-}
-.hero h1 em {
-  font-family:Georgia,serif;
-  font-style:normal;
-  font-weight:400;
-  color:#a4ada9
-}
-.hero p {
-  color:var(--muted);
-  margin:0
 }
 .dateControl {
   display:flex;
   align-items:center;
-  border:1px solid #ffffff26;
+  border:1px solid var(--border-strong);
   border-radius:4px;
   padding:5px;
+  gap:6px;
   flex-shrink:0
-}
-.dateControl select {
-  background:transparent;
-  border:0;
-  color:#e7e8e5;
-  padding:6px;
-  font:12px ui-monospace,monospace;
-  max-width:180px
-}
-.dateControl option {
-  background:#202427
-}
-.dateControl button {
-  padding:6px;
-  cursor:pointer
-}
-.dateControl button:disabled {
-  opacity:.25;
-  cursor:default
 }
 .meta {
   display:flex;
@@ -83,7 +40,7 @@
   display:grid;
   grid-template-columns:repeat(4,1fr);
   border-block:1px solid var(--line);
-  background:#ffffff03
+  background:var(--surface-raised)
 }
 .metrics>div {
   padding:23px 20px;
@@ -138,9 +95,9 @@
 }
 .panel {
   padding:24px;
-  background:#ffffff03;
+  background:var(--surface-raised);
   border:1px solid var(--line);
-  border-radius:3px
+  border-radius:4px
 }
 .sectionHeading {
   display:flex;
@@ -210,10 +167,10 @@
   font:22px ui-monospace,monospace
 }
 .up {
-  color:#a4d3b8
+  color:var(--pos)
 }
 .down {
-  color:#e0a0a1
+  color:var(--neg)
 }
 .gold {
   color:var(--gold)
@@ -250,37 +207,10 @@
   gap:15px;
   margin-bottom:16px
 }
-.filters {
-  display:flex;
-  gap:4px;
-  flex-wrap:wrap
-}
-.filters button {
-  padding:5px 11px;
-  font-size:12px;
-  color:var(--muted);
-  cursor:pointer;
-  border-radius:3px
-}
-.filters .active {
-  background:#a7d3bb14;
-  color:var(--mint)
-}
 .search {
-  display:flex;
-  gap:8px;
-  align-items:center;
-  border-bottom:1px solid #ffffff26;
-  color:var(--muted);
-  padding:4px
-}
-.search input {
-  background:transparent;
-  border:0;
-  outline:none;
-  width:105px;
-  font-size:12px;
-  color:#eee
+  width: 190px;
+  max-width: 100%;
+  flex-shrink: 0;
 }
 .tableWrap {
   overflow:auto;
@@ -316,7 +246,7 @@
   margin-top:5px
 }
 .tableWrap tbody tr:hover {
-  background:#ffffff03
+  background:var(--surface-raised)
 }
 .rps {
   min-width:46px;
@@ -337,7 +267,7 @@
   padding:4px 7px;
   background:#ffffff06;
   font:10px sans-serif;
-  border-radius:3px
+  border-radius:4px
 }
 .badgeGood {
   color:var(--mint);
@@ -435,12 +365,12 @@
   border-block:1px solid var(--line);
   margin-top:24px
 }
-.details summary {
+.details :global(.ta-disclosure-label) {
   padding:17px 0;
   cursor:pointer;
   font-size:13px
 }
-.details summary>span {
+.details :global(.ta-disclosure-label)>span {
   margin-left:12px;
   font-size:11px;
   color:var(--muted)
@@ -479,21 +409,12 @@
   text-align:center;
   font-size:13px
 }
-.empty button {
-  display:block;
-  margin:18px auto;
-  border:1px solid var(--line);
-  padding:8px 20px;
-  cursor:pointer
-}
-.root button:focus-visible,.root select:focus-visible,.root summary:focus-visible,.root input:focus-visible,.root a:focus-visible {
+
+.root button:focus-visible,.root select:focus-visible,.root :global(.ta-disclosure-control):focus-visible,.root input:focus-visible,.root a:focus-visible {
   outline:2px solid var(--mint);
   outline-offset:4px
 }
 @media(max-width:900px) {
-  .hero h1 {
-    font-size:32px
-  }
   .metrics>div {
     padding:18px 12px
   }
@@ -516,14 +437,6 @@
   }
 }
 @media(max-width:600px) {
-  .hero {
-    flex-direction:column;
-    align-items:flex-start;
-    gap:20px
-  }
-  .hero h1 {
-    font-size:30px
-  }
   .eyebrow {
     font-size:9px
   }
@@ -566,7 +479,7 @@
   .section {
     margin-top:32px
   }
-  .details summary>span {
+  .details :global(.ta-disclosure-label)>span {
     display:block;
     margin-left:16px
   }

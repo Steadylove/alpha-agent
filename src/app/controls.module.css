@@ -1,0 +1,23 @@
+.dropdown {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  color: var(--text-primary);
+  box-shadow: 0 12px 36px rgb(0 0 0 / 30%);
+}
+.option {
+  min-height: 32px;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.option[data-combobox-selected],
+.option[data-combobox-active] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.label {
+  margin-bottom: 5px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 400;
+}

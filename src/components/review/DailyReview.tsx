@@ -1,8 +1,12 @@
 "use client";
 
+import { Disclosure } from "@/components/Disclosure";
+
 import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { ActionIcon, Pagination, SegmentedControl, Select, TextInput } from "@mantine/core";
+import { DatePickerInput } from "@mantine/dates";
 import {
   ArrowDownRight,
   ArrowRight,
@@ -120,33 +124,29 @@ function DatePicker({
     i = dates.indexOf(selected ?? dates[0]);
   return (
     <div className={styles.datePicker}>
-      <button
+      <ActionIcon variant="subtle" color="gray" size="sm"
         aria-label="前一份复盘"
         disabled={i < 0 || i >= dates.length - 1}
         onClick={() => router.push(`/?date=${dates[i + 1]}`)}
       >
         <ChevronLeft size={16} />
-      </button>
-      <CalendarDays size={15} aria-hidden />
-      <select
+      </ActionIcon>
+      <Select size="xs" searchable w={170}
         aria-label="复盘交易日（美东）"
-        value={selected ?? dates[0] ?? ""}
-        onChange={(e) => router.push(`/?date=${e.target.value}`)}
-      >
-        {!dates.length && <option value="">等待首份复盘</option>}
-        {dates.map((d) => (
-          <option key={d} value={d}>
-            {d}
-          </option>
-        ))}
-      </select>
-      <button
+        leftSection={<CalendarDays size={14} aria-hidden />}
+        value={selected ?? dates[0] ?? null}
+        placeholder="等待首份复盘" disabled={!dates.length}
+        nothingFoundMessage="没有该日期的复盘"
+        data={dates}
+        onChange={(value) => { if (value) router.push(`/?date=${value}`); }}
+      />
+      <ActionIcon variant="subtle" color="gray" size="sm"
         aria-label="后一份复盘"
         disabled={i <= 0}
         onClick={() => router.push(`/?date=${dates[i - 1]}`)}
       >
         <ChevronRight size={16} />
-      </button>
+      </ActionIcon>
     </div>
   );
 }
@@ -174,29 +174,13 @@ function Sectors({
   return (
     <>
       <div className={styles.toolbar}>
-        <div className={styles.segment} aria-label="强度变化周期">
-          {(["d1", "d5", "d20"] as const).map((h) => (
-            <button
-              key={h}
-              aria-pressed={horizon === h}
-              onClick={() => setHorizon(h)}
-            >
-              {h.slice(1)}D
-            </button>
-          ))}
-        </div>
+        <SegmentedControl size="xs" aria-label="强度变化周期"
+          value={horizon} onChange={(value) => setHorizon(value as typeof horizon)}
+          data={[{ value: "d1", label: "1D" }, { value: "d5", label: "5D" }, { value: "d20", label: "20D" }]} />
         {grouped && (
-          <div className={styles.segment} aria-label="强度排名分组">
-            {(["sector", "industry"] as const).map((g) => (
-              <button
-                key={g}
-                aria-pressed={group === g}
-                onClick={() => setGroup(g)}
-              >
-                {g === "sector" ? "11 大板块" : "3 细分行业"}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl size="xs" aria-label="强度排名分组"
+            value={group} onChange={(value) => setGroup(value as typeof group)}
+            data={[{ value: "sector", label: "11 大板块" }, { value: "industry", label: "3 细分行业" }]} />
         )}
       </div>
       <div className={styles.strengthLeads}>
@@ -299,10 +283,10 @@ function Score({ signal: s }: { signal: JournalSignal }) {
 }
 function SignalDetail({ signal: s }: { signal: JournalSignal }) {
   return (
-    <details className={styles.signalDetail}>
-      <summary>
+    <Disclosure className={styles.signalDetail} title={<>
         {s.symbol} <small>{time(s.signalTime)} ET</small>
-      </summary>
+      </>}>
+
       <div>
         <p>
           {s.quality.version.toUpperCase()} · 触发价 ${number(s.price)} ·{" "}
@@ -326,7 +310,7 @@ function SignalDetail({ signal: s }: { signal: JournalSignal }) {
         </p>
         <FrozenSignalOptions signal={s} />
       </div>
-    </details>
+    </Disclosure>
   );
 }
 function BuyPoints({ signals }: { signals: JournalSignal[] }) {
@@ -694,87 +678,23 @@ function SignalJournal({
         </p>
       </div>
       <div className={styles.filters}>
-        <label>
-          周期
-          <select
-            value={tf}
-            onChange={(e) => {
-              setTf(e.target.value);
-              setPage(0);
-            }}
-          >
-            <option value="all">2H + 4H</option>
-            <option value="2h">2H</option>
-            <option value="4h">4H</option>
-          </select>
-        </label>
-        <label>
-          评分版本
-          <select
-            value={version}
-            onChange={(e) => {
-              setVersion(e.target.value as JournalSignal["quality"]["version"]);
-              setPage(0);
-            }}
-          >
-            {versions.map((v) => (
-              <option key={v}>{v}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          最低评分
-          <select
-            value={minScore}
-            onChange={(e) => {
-              setMinScore(e.target.value);
-              setPage(0);
-            }}
-          >
-            {[0, 60, 70, 80, 90].map((n) => (
-              <option value={n} key={n}>
-                {n === 0 ? "全部" : `≥ ${n} 分`}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          来源
-          <select
-            value={source}
-            onChange={(e) => {
-              setSource(e.target.value);
-              setPage(0);
-            }}
-          >
-            <option value="live">实时留档</option>
-            <option value="replay">延迟 / 重放</option>
-          </select>
-        </label>
-        <label>
-          起始日
-          <input
-            type="date"
-            value={since}
-            max={date}
-            onChange={(e) => {
-              setSince(e.target.value);
-              setPage(0);
-            }}
-          />
-        </label>
-        <label>
-          股票
-          <input
-            placeholder="搜索代码"
-            aria-label="搜索股票代码"
-            value={symbol}
-            onChange={(e) => {
-              setSymbol(e.target.value);
-              setPage(0);
-            }}
-          />
-        </label>
+        <Select label="周期" size="xs" value={tf}
+          data={[{ value: "all", label: "2H + 4H" }, { value: "2h", label: "2H" }, { value: "4h", label: "4H" }]}
+          onChange={(value) => { if (value) { setTf(value); setPage(0); } }} />
+        <Select label="评分版本" size="xs" value={version} data={versions}
+          onChange={(value) => { if (value) { setVersion(value as JournalSignal["quality"]["version"]); setPage(0); } }} />
+        <Select label="最低评分" size="xs" value={minScore}
+          data={[0, 60, 70, 80, 90].map((n) => ({ value: String(n), label: n === 0 ? "全部" : `≥ ${n} 分` }))}
+          onChange={(value) => { if (value !== null) { setMinScore(value); setPage(0); } }} />
+        <Select label="来源" size="xs" value={source}
+          data={[{ value: "live", label: "实时留档" }, { value: "replay", label: "延迟 / 重放" }]}
+          onChange={(value) => { if (value) { setSource(value); setPage(0); } }} />
+        <DatePickerInput label="起始日" size="xs" value={since || null} maxDate={date}
+          placeholder="全部日期" clearable leftSection={<CalendarDays size={14} />} aria-label="起始日"
+          clearButtonProps={{ "aria-label": "清除起始日" }}
+          onChange={(value) => { setSince(value ?? ""); setPage(0); }} />
+        <TextInput label="股票" size="xs" placeholder="搜索代码" aria-label="搜索股票代码" value={symbol}
+          onChange={(event) => { setSymbol(event.currentTarget.value); setPage(0); }} />
       </div>
       {filtered.length ? (
         <>
@@ -840,21 +760,10 @@ function SignalJournal({
           </div>
           <div className={styles.pagination}>
             <span>{filtered.length} 条记录</span>
-            <button
-              disabled={currentPage === 0}
-              onClick={() => setPage(currentPage - 1)}
-            >
-              上一页
-            </button>
-            <span>
-              {currentPage + 1} / {pageCount}
-            </span>
-            <button
-              disabled={currentPage + 1 >= pageCount}
-              onClick={() => setPage(currentPage + 1)}
-            >
-              下一页
-            </button>
+            <Pagination size="xs" total={pageCount} value={currentPage + 1}
+              onChange={(value) => setPage(value - 1)} siblings={0} boundaries={1}
+              getControlProps={(control) => ({ "aria-label": control === "previous" ? "上一页" : "下一页" })}
+              getItemProps={(page) => ({ "aria-label": `第 ${page} 页` })} />
           </div>
         </>
       ) : (
@@ -867,8 +776,8 @@ function SignalJournal({
           系统事后验证 <span>同版本 · 同来源 · T+5</span>
         </h3>
         <CohortTable rows={groups} />
-        <details className={styles.research}>
-          <summary>展开：因子相关性、市场状态与板块表现</summary>
+        <Disclosure className={styles.research} title={<>展开：因子相关性、市场状态与板块表现</>}>
+
           <div className={styles.tableWrap}>
             <table>
               <thead>
@@ -916,7 +825,7 @@ function SignalJournal({
               ),
             )}
           />
-        </details>
+        </Disclosure>
       </div>
       <OptionsSignalStudy signals={filtered} date={date} />
       <p className={styles.note}>
@@ -943,7 +852,7 @@ export function DailyReview({
     <div className={styles.review}>
       <header className={styles.masthead}>
         <div>
-          <p className={styles.eyebrow}>THE DAILY BRIEF / MARKET COMPASS</p>
+          <p className={styles.eyebrow}>THE DAILY BRIEF / TREND ADAPTIVE</p>
           <h1>
             每日复盘<span>Market review</span>
           </h1>
@@ -1055,14 +964,14 @@ export function DailyReview({
           >
             <TomorrowMap review={r} />
           </Section>
-          <details className={styles.method}>
-            <summary>
+          <Disclosure className={styles.method} title={<>
               <CircleHelp size={16} />
               数据与判定口径{" "}
               {r.warnings.length > 0 && (
                 <span>{r.warnings.length} 项数据提示</span>
               )}
-            </summary>
+            </>}>
+
             <div>
               <p>
                 状态规则：SPY / QQQ / IWM 同涨、上涨比例 ≥60%、VIX 不涨 →
@@ -1079,9 +988,9 @@ export function DailyReview({
                 </p>
               ))}
             </div>
-          </details>
+          </Disclosure>
           <footer className={styles.footer}>
-            <span>MARKET COMPASS / DAILY REVIEW</span>
+            <span>TREND ADAPTIVE / DAILY REVIEW</span>
             <span>记录事实，检验判断。</span>
           </footer>
         </>

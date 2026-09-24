@@ -1,23 +1,10 @@
 .review {
-  --ink: #e8ece9;
-  --sub: #97a09e;
-  --line: #2b3434;
-  --mint: #9ed6bc;
+  --ink: var(--text-primary);
+  --sub: var(--text-muted);
+  --line: var(--border-subtle);
+  --mint: var(--accent);
   color: var(--ink);
   font-size: 14px;
-}
-.review :is(button, select, input, summary, a):focus-visible {
-  outline: 2px solid var(--mint);
-  outline-offset: 4px;
-}
-.review button,
-.review select,
-.review summary {
-  cursor: pointer;
-}
-.review button:disabled {
-  opacity: 0.3;
-  cursor: default;
 }
 .review small,
 .muted {
@@ -62,8 +49,9 @@
   padding: 6px 0 25px;
 }
 .eyebrow {
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-interface);
   font-size: 10px;
+  font-weight: 500;
   letter-spacing: 0.17em;
   color: var(--mint);
   margin: 0 0 15px;
@@ -90,23 +78,6 @@
   border: 1px solid var(--line);
   border-radius: 4px;
   padding: 8px;
-}
-.datePicker select {
-  background: transparent;
-  font:
-    12px ui-monospace,
-    monospace;
-  max-width: 135px;
-}
-.datePicker option,
-.filters option {
-  background: #181d1d;
-}
-.datePicker button {
-  background: transparent;
-  color: var(--sub);
-  border: 0;
-  padding: 3px;
 }
 .edition {
   display: flex;
@@ -311,26 +282,7 @@
   margin-bottom: 17px;
   font-size: 10px;
 }
-.segment {
-  display: flex;
-  border: 1px solid var(--line);
-  padding: 3px;
-  border-radius: 4px;
-}
-.segment button {
-  background: transparent;
-  border: 0;
-  color: var(--sub);
-  padding: 5px 18px;
-  font:
-    11px ui-monospace,
-    monospace;
-  border-radius: 2px;
-}
-.segment button[aria-pressed="true"] {
-  background: #2c3a34;
-  color: #c7e9d7;
-}
+
 .strengthLeads {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -487,16 +439,16 @@
   white-space: normal;
   min-width: 80px;
 }
-.signalDetail summary {
+.signalDetail :global(.ta-disclosure-label) {
   font-weight: 600;
   white-space: nowrap;
 }
-.signalDetail summary small {
+.signalDetail :global(.ta-disclosure-label) small {
   display: block;
   font-weight: 400;
   margin-top: 3px;
 }
-.signalDetail > div {
+.signalDetail :global(.ta-disclosure-content) {
   width: 265px;
   max-width: 75vw;
   padding-top: 6px;
@@ -645,35 +597,20 @@
   font-size: 10px;
 }
 .filters {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
   gap: 12px;
   padding: 24px 0;
+  align-items: end;
 }
-.filters label {
-  color: var(--sub);
-  font-size: 10px;
-  display: grid;
-  gap: 7px;
-  flex: 1 1 115px;
-}
-.filters select,
-.filters input {
-  background: #161b1c;
-  border: 1px solid var(--line);
-  border-radius: 3px;
-  padding: 8px;
-  color: var(--ink);
-  font-size: 11px;
-  width: 100%;
-  min-width: 0;
-}
+.filters > div { min-width: 0; }
 .pending {
   color: #83908a;
   font-size: 10px;
 }
 .pagination {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   align-items: center;
   gap: 15px;
@@ -684,12 +621,7 @@
 .pagination > span:first-child {
   margin-right: auto;
 }
-.pagination button {
-  color: var(--ink);
-  background: transparent;
-  border: 1px solid var(--line);
-  padding: 4px 8px;
-}
+
 .study {
   border-top: 1px solid var(--line);
   margin-top: 16px;
@@ -708,7 +640,7 @@
 .research {
   margin-top: 18px;
 }
-.research summary {
+.research :global(.ta-disclosure-label) {
   color: var(--mint);
   font-size: 11px;
   padding: 12px 0;
@@ -722,18 +654,18 @@
   border-block: 1px solid var(--line);
   padding: 17px 0;
 }
-.method summary {
+.method :global(.ta-disclosure-label) {
   display: flex;
   align-items: center;
   gap: 8px;
   color: var(--sub);
   font-size: 11px;
 }
-.method summary span {
+.method :global(.ta-disclosure-label) span {
   margin-left: auto;
   color: #d5b986;
 }
-.method > div {
+.method :global(.ta-disclosure-content) {
   padding: 10px 20px;
   font-size: 11px;
   line-height: 1.9;
@@ -850,10 +782,10 @@
   .journalHeadline p {
     margin: 0;
   }
-  .method summary {
+  .method :global(.ta-disclosure-label) {
     flex-wrap: wrap;
   }
-  .method summary span {
+  .method :global(.ta-disclosure-label) span {
     margin-left: 0;
   }
   .footer {

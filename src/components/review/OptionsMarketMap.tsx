@@ -1,3 +1,4 @@
+import { Disclosure } from "@/components/Disclosure";
 import type { OptionsRow } from "@/lib/review/types";
 import { optionsRowForDisplay } from "@/lib/review/options";
 import {
@@ -175,10 +176,10 @@ export function OptionsMarketMap({ rows }: { rows: OptionsRow[] }) {
           <Card row={row} key={row.symbol} />
         ))}
       </div>
-      <details className={styles.method}>
-        <summary>
+      <Disclosure className={styles.method} title={<>
           计算口径与数据边界 <span>接近阈值 ±{thresholds.join(" / ")}%</span>
-        </summary>
+        </>}>
+
         <p>
           距离 =（现价 − 关键价位）÷ 关键价位。±{thresholds.join(" / ")}%
           仅为位置展示阈值，尚未经过收益校准；接近 Flip 不等于 GEX
@@ -205,7 +206,7 @@ export function OptionsMarketMap({ rows }: { rows: OptionsRow[] }) {
             采集 {row.meta?.fetched_at ?? "未留档"}
           </p>
         ))}
-      </details>
+      </Disclosure>
     </div>
   );
 }

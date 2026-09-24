@@ -1,5 +1,7 @@
 "use client";
 
+import { Disclosure } from "@/components/Disclosure";
+
 import type { DailyReview } from "@/lib/review/types";
 import { SIGNAL_LABELS, STRENGTH_LABELS } from "@/lib/review/followup";
 import type { WatchEvent } from "@/lib/review/tomorrow";
@@ -23,14 +25,14 @@ function Changes({ events, title }: { events: WatchEvent[]; title: string }) {
         <p className={styles.empty}>暂无达到筛选条件的新变化</p>
       )}
       {events.map((e) => (
-        <details className={styles.event} key={e.id}>
-          <summary>
+        <Disclosure className={styles.event} key={e.id} title={<>
             <span>{e.title}</span>
-            <span className={styles.more}>查看依据 +</span>
-          </summary>
+            <span className={styles.more}>查看依据</span>
+          </>}>
+
           <p>{e.evidence}</p>
           <a href={`#${e.source}`}>回到原始数据 ↗</a>
-        </details>
+        </Disclosure>
       ))}
     </div>
   );
@@ -89,10 +91,10 @@ export function TomorrowMap({ review }: { review: DailyReview }) {
         )}
       </div>
       {review.followup && (
-        <details className={styles.details}>
-          <summary>
+        <Disclosure className={styles.details} title={<>
             信号与模型持仓的每日跟踪 · {review.followup.rows.length} 条
-          </summary>
+          </>}>
+
           <p>
             入场评分固定保存。RPS
             每日观察单独记录；“待复核”表示缺少持续有效的确认，不能据此认定信号仍然有效。持仓仅指对应周期模型账户。
@@ -152,11 +154,11 @@ export function TomorrowMap({ review }: { review: DailyReview }) {
           {review.followup.warnings.map((w) => (
             <p key={w}>{w}</p>
           ))}
-        </details>
+        </Disclosure>
       )}
       {!!map.observations.length && (
-        <details className={styles.details}>
-          <summary>上一份观察清单，后来发生了什么</summary>
+        <Disclosure className={styles.details} title={<>上一份观察清单，后来发生了什么</>}>
+
           <p>仅对照开盘前已发布的清单，记录下一交易日事实，不计算预测胜率。</p>
           {map.observations.map((o) => (
             <div className={styles.observation} key={o.eventId}>
@@ -164,10 +166,10 @@ export function TomorrowMap({ review }: { review: DailyReview }) {
               <p>{o.text}</p>
             </div>
           ))}
-        </details>
+        </Disclosure>
       )}
-      <details className={styles.details}>
-        <summary>筛选规则与发布记录 · 第 {map.revision} 版</summary>
+      <Disclosure className={styles.details} title={<>筛选规则与发布记录 · 第 {map.revision} 版</>}>
+
         <p>
           固定规则筛选、无 AI
           生成。优先关注持仓变化和市场状态，再看结构、板块与新信号；最多五项，同类最多两项。SPX
@@ -200,7 +202,7 @@ export function TomorrowMap({ review }: { review: DailyReview }) {
             </p>
           </div>
         ))}
-      </details>
+      </Disclosure>
       <p className={styles.footnote}>
         用于下一交易日的状态变化追踪。观察顺序不代表盈利概率；模型持仓与信号分别记录。
       </p>

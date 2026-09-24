@@ -1,5 +1,7 @@
 "use client";
 
+import { chartTheme } from "@/lib/ui/chartTheme";
+
 import { segments } from "@/lib/charts/segments";
 import { Badge, Button, Group, Loader, Modal, Stack, Table, Text } from "@mantine/core";
 import {
@@ -15,16 +17,16 @@ import {
 } from "lightweight-charts";
 import { useEffect, useRef, useState } from "react";
 
-const UP = "#089981";
-const DOWN = "#f23645";
-const STOP = "#f23645";
-const TRAIL = "#a855f7";
-const TARGET = "#14b8a6";
-const BUY1 = "#ff4976";
-const BUY2 = "#fbbf24";
-const VEGAS_FAST = "#0ea5e9";
-const VEGAS_SLOW = "#6366f1";
-const FILTERED = "#71717a";
+const UP = chartTheme.positive;
+const DOWN = chartTheme.negative;
+const STOP = chartTheme.negative;
+const TRAIL = chartTheme.purple;
+const TARGET = chartTheme.teal;
+const BUY1 = chartTheme.rose;
+const BUY2 = chartTheme.gold;
+const VEGAS_FAST = chartTheme.blue;
+const VEGAS_SLOW = chartTheme.purple;
+const FILTERED = chartTheme.benchmark;
 
 function dayOf(date: string) {
   return date.slice(0, 10);
@@ -242,12 +244,12 @@ export function LabSymbolChart({
     if (!data || !containerRef.current) return;
 
     const chart = createChart(containerRef.current, {
-      layout: { background: { color: "transparent" }, textColor: "#a1a1aa", fontSize: 11 },
-      grid: { vertLines: { color: "#27272a" }, horzLines: { color: "#27272a" } },
-      rightPriceScale: { borderColor: "#3f3f46", scaleMargins: { top: 0.06, bottom: 0.06 } },
+      layout: { background: { color: "transparent" }, textColor: chartTheme.muted, fontSize: 11 },
+      grid: { vertLines: { color: chartTheme.grid }, horzLines: { color: chartTheme.grid } },
+      rightPriceScale: { borderColor: chartTheme.border, scaleMargins: { top: 0.06, bottom: 0.06 } },
       // minBarSpacing 默认 0.5px，二十年 5000 根要 0.17px/根，不放开的话
       // fitContent 会被静默夹住，只显示最近十年——看着像全期，其实不是。
-      timeScale: { borderColor: "#3f3f46", rightOffset: 4, minBarSpacing: 0.05 },
+      timeScale: { borderColor: chartTheme.border, rightOffset: 4, minBarSpacing: 0.05 },
       localization: {
         timeFormatter: (t: Time) => {
           if (typeof t === "string") return t;

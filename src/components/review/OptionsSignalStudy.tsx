@@ -1,6 +1,9 @@
 "use client";
 
+import { Disclosure } from "@/components/Disclosure";
+
 import { useMemo, useState } from "react";
+import { Select } from "@mantine/core";
 import type { JournalSignal } from "@/lib/review/types";
 import {
   optionsStudy,
@@ -116,49 +119,15 @@ export function OptionsSignalStudy({
         </div>
       </header>
       <div className={styles.filters}>
-        <label>
-          参考指数
-          <select
-            value={symbol}
-            onChange={(e) => {
-              setSymbol(e.target.value as OptionSymbol);
-              setRuleKey("");
-            }}
-          >
-            {OPTION_SYMBOLS.map((s) => (
-              <option key={s}>{s}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          观察周期
-          <select
-            value={horizon}
-            onChange={(e) => setHorizon(e.target.value as StudyHorizon)}
-          >
-            <option value="t1">T+1</option>
-            <option value="t3">T+3</option>
-            <option value="t5">T+5</option>
-          </select>
-        </label>
-        <label>
-          计算口径
-          <select
-            value={report.key}
-            disabled={!report.variants.length}
-            onChange={(e) => setRuleKey(e.target.value)}
-          >
-            {report.variants.length ? (
-              report.variants.map((v) => (
-                <option key={v.key} value={v.key}>
-                  {v.label}
-                </option>
-              ))
-            ) : (
-              <option value="">等待有效留档</option>
-            )}
-          </select>
-        </label>
+        <Select label="参考指数" size="xs" value={symbol} data={[...OPTION_SYMBOLS]}
+          onChange={(value) => { if (value) { setSymbol(value as OptionSymbol); setRuleKey(""); } }} />
+        <Select label="观察周期" size="xs" value={horizon}
+          data={[{ value: "t1", label: "T+1" }, { value: "t3", label: "T+3" }, { value: "t5", label: "T+5" }]}
+          onChange={(value) => { if (value) setHorizon(value as StudyHorizon); }} />
+        <Select label="计算口径" size="xs" value={report.key || null} disabled={!report.variants.length}
+          placeholder="等待有效留档"
+          data={report.variants.map((v) => ({ value: v.key, label: v.label }))}
+          onChange={(value) => { if (value) setRuleKey(value); }} />
       </div>
       <p className={styles.audit}>
         沿用上方周期、评分版本和日期筛选。历史未留档 {excluded.unrecorded} ·
@@ -208,8 +177,8 @@ export function OptionsSignalStudy({
           </p>
         </div>
       )}
-      <details className={styles.method}>
-        <summary>如何统计，哪些记录不计入</summary>
+      <Disclosure className={styles.method} title={<>如何统计，哪些记录不计入</>}>
+
         <p>
           仅统计实时留档、评分完整且通过时间校验的信号。结构发布时间和报价时间均不得晚于信号，且必须对应交易日历中的前一交易日。宏观状态
           Unknown 不影响期权上下文独立留档。
@@ -225,7 +194,7 @@ export function OptionsSignalStudy({
         <p>
           这是标的后续价格变化，不含成交成本，也不是期权组合回测或盈利概率。相同股票与相邻交易日仍可能相关，不据此自动修改五因子权重。
         </p>
-      </details>
+      </Disclosure>
     </section>
   );
 }

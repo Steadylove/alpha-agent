@@ -17,9 +17,9 @@ export function Card({
   lift?: boolean;
 }) {
   return (
-    <Paper p="lg" className={`${lift ? "lift" : ""} ${className}`}>
+    <Paper p="lg" className={`workspace-card ${lift ? "lift" : ""} ${className}`}>
       {title ? (
-        <Group justify="space-between" mb="md">
+        <Group justify="space-between" mb="md" className="workspace-card-heading">
           {typeof title === "string" ? (
             <Title order={3} size="h6" fw={600} c="gray.1">
               {title}
@@ -47,11 +47,12 @@ export function MetricCard({
   valueColor?: string;
 }) {
   return (
-    <Card>
+    <Card className="metric-card">
       <Text size="xs" fw={500} c="dimmed" style={{ letterSpacing: "0.03em" }}>
         {label}
       </Text>
       <Text
+        className="metric-value"
         mt={10}
         size="1.75rem"
         fw={600}

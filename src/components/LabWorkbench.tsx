@@ -1,7 +1,9 @@
 "use client";
 
+import { chartTheme } from "@/lib/ui/chartTheme";
+
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Group, SegmentedControl, Stack, Table, Text } from "@mantine/core";
+import { SegmentedControl, Stack, Table, Text } from "@mantine/core";
 
 import { Card } from "@/components/Card";
 import { LabFundChart } from "@/components/LabFundChart";
@@ -31,8 +33,8 @@ type FrozenLabResult = {
   elapsedMs: number;
 };
 
-const POS = "#089981";
-const NEG = "#f23645";
+const POS = chartTheme.positive;
+const NEG = chartTheme.negative;
 const STAT_SLOTS = ["CAGR", "回撤", "MAR", "均持", "敞口", "年换手", "入场", "置换"] as const;
 
 const pct = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
@@ -84,6 +86,7 @@ export function LabWorkbench() {
       <Card>
         <Stack gap={8}>
           <SegmentedControl
+            className="timeframe-selector"
             size="sm"
             fullWidth
             value={tf}
@@ -120,7 +123,7 @@ export function LabWorkbench() {
       ) : (
         <Stack gap="md">
           <Card>
-            <Group gap="xl" wrap="nowrap">
+            <div className="stat-grid">
               <Stat label="CAGR" value={pct(result.stats.cagr)} color={tone(result.stats.cagr)} />
               <Stat label="回撤" value={`${result.stats.dd.toFixed(0)}%`} color={NEG} />
               <Stat label="MAR" value={result.stats.mar.toFixed(2)} />
@@ -129,7 +132,7 @@ export function LabWorkbench() {
               <Stat label="年换手" value={result.stats.tradesPerYear.toFixed(0)} />
               <Stat label="入场" value={String(result.stats.entries)} />
               <Stat label="置换" value={String(result.stats.rotations)} />
-            </Group>
+            </div>
           </Card>
 
           <LabFundChart
@@ -144,7 +147,7 @@ export function LabWorkbench() {
           />
 
           <Card title="分年">
-            <Table verticalSpacing={4} fz="xs">
+            <div className="table-scroll"><Table verticalSpacing={4} fz="xs">
               <Table.Thead>
                 <Table.Tr>
                   <Table.Th>年</Table.Th>
@@ -173,7 +176,7 @@ export function LabWorkbench() {
                   </Table.Tr>
                 ))}
               </Table.Tbody>
-            </Table>
+            </Table></div>
           </Card>
         </Stack>
       )}
@@ -194,7 +197,7 @@ function LabSkeleton() {
   return (
     <Stack gap="md">
       <Card>
-        <Group gap="xl" wrap="nowrap">
+        <div className="stat-grid">
           {STAT_SLOTS.map((label) => (
             <Stack key={label} gap={8} w={64}>
               <Text size="xs" c="dimmed">
@@ -203,7 +206,7 @@ function LabSkeleton() {
               <Bone h={28} />
             </Stack>
           ))}
-        </Group>
+        </div>
       </Card>
 
       <Card title="净值">
