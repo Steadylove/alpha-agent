@@ -1,4 +1,5 @@
 import type { DailyBar } from "@/lib/types/market";
+import { fetchYahooDailyBars } from "./yahoo";
 
 const SKEW_URL = "https://cdn.cboe.com/api/global/us_indices/daily_prices/SKEW_History.csv";
 const VIX_URL = "https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv";
@@ -6,7 +7,7 @@ const VIX_URL = "https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_His
 async function fetchCsv(url: string): Promise<string[][] | null> {
   let response: Response;
   try {
-    response = await fetch(url, { next: { revalidate: 6 * 60 * 60 } });
+    response = await fetch(url, { next: { revalidate: 6 * 60 * 60 }, signal: AbortSignal.timeout(20000) });
   } catch {
     return null;
   }
@@ -39,13 +40,16 @@ function toIsoDate(raw: string): string | null {
  * 拉取波动率指数全历史日线（VIX 自 1990、VIX3M 自 2009、VIX9D 自 2011）。
  * 指数无成交量，volume 恒为 0。
  */
-export async function fetchCboeVolIndexHistory(index: CboeVolIndex): Promise<DailyBar[]> {
+export async function fetchCboeVolIndexHistory(
+  index: CboeVolIndex,
+  options: { through?: string } = {},
+): Promise<DailyBar[]> {
   const rows = await fetchCsv(cboeHistoryUrl(index));
-  if (!rows) {
+  if (!rows && !options.through) {
     throw new Error(`CBOE history request failed for ${index}`);
   }
 
-  return rows
+  const official = (rows ?? [])
     .map((cells): DailyBar | null => {
       const date = toIsoDate(cells[0] ?? "");
       const close = Number(cells[4]);
@@ -70,6 +74,27 @@ export async function fetchCboeVolIndexHistory(index: CboeVolIndex): Promise<Dai
       };
     })
     .filter((bar): bar is DailyBar => bar !== null);
+
+  // The official CSV can lag a full session despite HTTP 200. Only supplement
+  // completed dates; retain Cboe values on overlap and the fallback's provenance.
+  const through = options.through;
+  if (!through) return official;
+  const completed = official.filter((bar) => bar.date <= through);
+  if (completed.some((bar) => bar.date === through)) return completed;
+  try {
+    const fallback = await fetchYahooDailyBars(`^${index}`, { years: 2 });
+    const byDate = new Map(completed.map((bar) => [bar.date, bar]));
+    for (const bar of fallback) {
+      if (bar.date > through || byDate.has(bar.date)) continue;
+      if (![bar.open, bar.high, bar.low, bar.close].every((v) => Number.isFinite(v) && v > 0)) continue;
+      if (bar.low > Math.min(bar.open, bar.close) || bar.high < Math.max(bar.open, bar.close)) continue;
+      byDate.set(bar.date, { ...bar, symbol: index, volume: 0 });
+    }
+    return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+  } catch (error) {
+    if (completed.length) return completed; // Caller still checks the required date.
+    throw new Error(`CBOE/Yahoo history unavailable for ${index}: ${error instanceof Error ? error.message : error}`);
+  }
 }
 
 export async function fetchLatestSkew(): Promise<number | null> {

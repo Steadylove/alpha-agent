@@ -228,7 +228,9 @@ async function refreshMacro(until: string) {
   for (const symbol of MACRO_CBOE) {
     try {
       const existing = readCsvPanel(CSV_PANEL_DIR, symbol);
-      const incoming = await fetchCboeVolIndexHistory(symbol);
+      const incoming = await fetchCboeVolIndexHistory(symbol, { through: until });
+      const last = incoming.find((bar) => bar.date === until);
+      if (last?.source === "yahoo") console.log(`[macro] ${symbol} ${until}: Yahoo 备用源补齐，Cboe 官方日线尚未到齐`);
       const merged = mergeNewBars(existing ? toBars(existing) : [], incoming, until);
       if (!existing || merged.length !== existing.dates.length) {
         writeBars(CSV_PANEL_DIR, symbol, merged);
