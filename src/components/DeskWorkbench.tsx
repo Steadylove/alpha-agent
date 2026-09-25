@@ -2,7 +2,7 @@
 
 import { chartTheme } from "@/lib/ui/chartTheme";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Group, Loader, SegmentedControl, Table, Text, UnstyledButton, TextInput } from "@mantine/core";
 
 import { Card } from "@/components/Card";
@@ -17,47 +17,14 @@ type Board = {
   elapsedMs: number;
 };
 
-const H4_CHART = {
-  index: "SMALLFUND",
-  timeframe: "4h",
-  poolId: "sf-broad",
-  stopMult: 4,
-  trailMult: 6,
-  takeProfitR: 3,
-  rpsMin: 30,
-  requireRsi: true,
-  minRsi: 30,
-  rpsExit: null,
-} as const;
-
-const H2_CHART = {
-  index: "SMALLFUND",
-  timeframe: "2h",
-  poolId: "sf-broad",
-  stopMult: 6,
-  trailMult: 8,
-  takeProfitR: null,
-  rpsMin: 0,
-  requireRsi: true,
-  minRsi: 30,
-  rpsExit: 10,
-} as const;
+export type DeskStrategies = Record<"4h" | "2h", {
+  request: { champ: "4h" | "2h-broad" };
+  rows: [string, string][];
+}>;
 
 function axisLabel(raw: string): string {
   const [day, time] = raw.split("T");
   return time ? `${day} ${time}` : day;
-}
-
-function specRows(chart: typeof H4_CHART | typeof H2_CHART): [string, string][] {
-  const rows: [string, string][] = [
-    ["止损", `${chart.stopMult} × ATR`],
-    ["吊灯", `${chart.trailMult} × ATR`],
-    ["止盈", chart.takeProfitR == null ? "无固定止盈" : `${chart.takeProfitR}R`],
-    ["RPS 门槛", chart.rpsMin > 0 ? `≥ ${chart.rpsMin}` : "不设"],
-    ["RSI", chart.requireRsi ? `≥ ${chart.minRsi}` : "不设"],
-  ];
-  if (chart.rpsExit != null) rows.push(["转弱离场", `RPS < ${chart.rpsExit}`]);
-  return rows;
 }
 
 function isLive(row: DeskBoardRow): boolean {
@@ -199,7 +166,7 @@ function TfButton({
   );
 }
 
-export function DeskWorkbench({ initialQuery = "" }: { initialQuery?: string }) {
+export function DeskWorkbench({ initialQuery = "", strategies }: { initialQuery?: string; strategies: DeskStrategies }) {
   const [data, setData] = useState<Board | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -207,7 +174,7 @@ export function DeskWorkbench({ initialQuery = "" }: { initialQuery?: string }) 
   const [chartTarget, setChartTarget] = useState<ChartTarget | null>(null);
   const [query, setQuery] = useState(initialQuery.trim().toUpperCase());
   const [scope, setScope] = useState<"live" | "all">("live");
-  const request = useMemo(() => (chartTf === "2h" ? H2_CHART : H4_CHART), [chartTf]);
+  const request = strategies[chartTf].request;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -244,16 +211,16 @@ export function DeskWorkbench({ initialQuery = "" }: { initialQuery?: string }) 
           <SpecPane
             title="4 小时"
             asOf={data ? axisLabel(data.h4.asOf) : null}
-            rows={specRows(H4_CHART)}
+            rows={strategies["4h"].rows}
           />
           <SpecPane
             title="2 小时"
             asOf={data ? axisLabel(data.h2.asOf) : null}
-            rows={specRows(H2_CHART)}
+            rows={strategies["2h"].rows}
           />
         </div>
         <Text size="xs" c="dimmed" mt="md">
-          股票池与资金账本同一份。
+          股票池与资金账本同一份。止损为初始距离，吊灯基准倍数会随浮盈收紧。
         </Text>
       </Card>
 
