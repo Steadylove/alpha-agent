@@ -10,6 +10,9 @@ import type {
 } from "./types";
 import { journalAsOf } from "./journal";
 import { buildTomorrowMap } from "./tomorrow";
+import { parseAnalysisReport } from "./analysis/model";
+import { analysisHash, prepareAnalysisInput } from "./analysis/fingerprint";
+import type { AnalysisView } from "./analysis/types";
 
 export const validReviewDate = (s: string): boolean =>
   /^\d{4}-\d{2}-\d{2}$/.test(s) &&
@@ -59,6 +62,22 @@ export async function getReviewData(requested?: string) {
     const review = await read<DailyReview>(date);
     if (review?.version !== 1 || review.date !== date)
       throw new Error("invalid review");
+    // Analysis has its own failure boundary; it never hides the original review.
+    const [journalResult, analysisResult] = await Promise.allSettled([
+      read<JournalArchive>("journal"), read<unknown>(`analysis/${date}`),
+    ]);
+    const journal = journalResult.status === "fulfilled" ? journalResult.value : null;
+    const error = journalResult.status === "rejected" ? "信号跟踪暂时无法读取，今日复盘仍可查看。" : null;
+    let analysis: AnalysisView = { report: null, status: "missing" };
+    try {
+      if (analysisResult.status === "rejected") throw new Error("analysis unavailable");
+      if (analysisResult.value != null) {
+        const report = parseAnalysisReport(analysisResult.value, date);
+        if (analysisHash(report.evidence) !== report.inputHash) throw new Error("analysis evidence changed");
+        const input = prepareAnalysisInput(review, journal);
+        analysis = { report, status: report.sourceHash === input.sourceHash && report.inputHash === input.inputHash ? "ready" : "stale" };
+      }
+    } catch { analysis = { report: null, status: "unavailable" }; }
     if (!review.tomorrow) {
       // Legacy presentation only. Never label a newly derived historical map as pre-published.
       const prior = review.previousDate
@@ -71,18 +90,12 @@ export async function getReviewData(requested?: string) {
         "reconstructed",
       );
     }
-    let journal: JournalArchive | null = null;
-    let error: string | null = null;
-    try {
-      journal = await read<JournalArchive>("journal");
-    } catch {
-      error = "信号跟踪暂时无法读取，今日复盘仍可查看。";
-    }
     return {
       review,
       dates: index.dates,
       journal: journalAsOf(journal?.signals ?? review.signals, date),
       error,
+      analysis,
     };
   } catch {
     return {

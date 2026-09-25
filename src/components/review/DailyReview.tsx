@@ -30,6 +30,8 @@ import { OptionsMarketMap } from "./OptionsMarketMap";
 import { TomorrowMap } from "./TomorrowMap";
 import { OptionsSignalStudy, FrozenSignalOptions } from "./OptionsSignalStudy";
 import { MarketStatePanel, contextLabel } from "./MarketStatePanel";
+import { AnalystNote } from "./AnalystNote";
+import type { AnalysisView } from "@/lib/review/analysis/types";
 
 const number = (v: number | null | undefined, digits = 2) =>
   v == null
@@ -842,11 +844,13 @@ export function DailyReview({
   dates,
   journal,
   error,
+  analysis = { report: null, status: "missing" },
 }: {
   review: Review | null;
   dates: string[];
   journal: JournalSignal[];
   error: string | null;
+  analysis?: AnalysisView;
 }) {
   return (
     <div className={styles.review}>
@@ -885,6 +889,7 @@ export function DailyReview({
               ["accounts", "账户"],
               ["journal", "事后验证"],
               ["tomorrow", "明日关注"],
+              ["analysis", "AI 解读"],
             ].map(([id, text]) => (
               <a key={id} href={`#${id}`}>
                 {text}
@@ -963,6 +968,14 @@ export function DailyReview({
             subtitle="从今日变化中，提取下一交易日值得继续观察的事。"
           >
             <TomorrowMap review={r} />
+          </Section>
+          <Section
+            id="analysis"
+            n="08"
+            title="AI Analyst Note"
+            subtitle="每日复盘后的独立解读，保留当次分析与数据依据。"
+          >
+            <AnalystNote analysis={analysis} />
           </Section>
           <Disclosure className={styles.method} title={<>
               <CircleHelp size={16} />

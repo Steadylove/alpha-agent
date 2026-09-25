@@ -43,6 +43,7 @@ function run(failCommand = "", macroWorker = false, failures = 99) {
       "npx",
       "sha256sum",
       "node",
+      "alpha-review-cards.sh",
     ]) {
       writeFileSync(
         path.join(bin, cmd),
@@ -117,6 +118,20 @@ it("辅助任务失败不阻止账本和筛选推送", () => {
   expect(result.failed, result.error).toBe(false);
   expect(result.calls.some((c) => c.startsWith("curl "))).toBe(true);
   expect(result.calls).toContain("npm run screener:push");
+});
+it("AI 分析在原推送之后独立运行，失败不改变原任务结果", () => {
+  const result = run("npm run review:analysis", true);
+  expect(result.failed, result.error).toBe(false);
+  const analysis = result.calls.indexOf("npm run review:analysis");
+  expect(analysis).toBeGreaterThan(result.calls.indexOf("npm run screener:push"));
+  expect(analysis).toBeGreaterThan(result.calls.findIndex((c) => c.endsWith("/market-http/review-macro.mjs")));
+  expect(result.calls.filter((c) => c === "npm run review:analysis")).toHaveLength(1);
+  expect(result.calls.filter((c) => c.startsWith("curl "))).toHaveLength(1);
+});
+it("期权数据不完整仍尝试分析已归档复盘，保留原健康检查失败状态", () => {
+  const result = run("python3 scripts/fetch-gex-snapshot.py");
+  expect(result.failed).toBe(true);
+  expect(result.calls).toContain("npm run review:analysis");
 });
 it("选股日更脚本不引用 Prisma，避免 VPS npm ci 后缺 generated client", () => {
   const src = readFileSync(

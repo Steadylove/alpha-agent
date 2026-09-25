@@ -115,6 +115,7 @@ jobs:
             "root@${HOST}:/var/lib/alpha-agent/desk/" .review-desk/
 
       - name: Build daily review and signal journal
+        id: review_build
         run: npm run review:build
         env:
           LIVE_BOOKS_PATH: ${{ github.workspace }}/.review-desk/live-books.json
@@ -147,3 +148,20 @@ jobs:
         run: |
           ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes "root@${HOST}" \
             "bash /var/lib/alpha-agent/bin/alpha-review-cards.sh"
+
+      - name: Analyze saved daily review with DeepSeek
+        id: review_analysis
+        if: ${{ !cancelled() && steps.review_build.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 4
+        run: npm run review:analysis
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_REVIEW_MODEL: ${{ vars.DEEPSEEK_REVIEW_MODEL || 'deepseek-v4-pro' }}
+
+      - name: Publish independent analysis snapshots
+        if: ${{ !cancelled() && steps.review_analysis.outcome == 'success' }}
+        continue-on-error: true
+        run: |
+          rsync -a -e "ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes" \
+            "$MARKET_DATA_DIR/snapshots/daily-review/analysis/" "root@${HOST}:/var/lib/alpha-agent/market/snapshots/daily-review/analysis/"

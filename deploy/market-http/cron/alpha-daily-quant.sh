@@ -152,6 +152,10 @@ else
 fi
 soft screener env SCREENER_SKIP_AI=true npm run screener:push
 
+# Reads this session's saved review even when optional inputs (e.g. GEX) are partial.
+# Keep model latency/failure outside the original data and delivery path.
+soft review-analysis env -u VERCEL MARKET_DATA_BASE_URL= npm run review:analysis
+
 if [ "$failed" -ne 0 ]; then
   log "结束：数据步骤重试后仍不完整，详情见 health-gex / health-review 与任务日志"
   exit 1

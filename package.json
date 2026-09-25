@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "review:analysis": "npx --yes tsx scripts/build-review-analysis.ts",
     "review:cards": "npx --yes tsx scripts/push-review-cards.ts",
     "review:cards:bundle": "node scripts/bundle-review-cards.mjs",
     "flow:refresh": "npx --yes tsx scripts/refresh-flow-research.ts",
