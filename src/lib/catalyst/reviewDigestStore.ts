@@ -1,28 +1,60 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { snapshotDir, readSnapshot } from "@/lib/vps/snapshot";
 import { marketBaseUrl } from "@/lib/backtest/marketStore";
 import { fetchMarketText } from "@/lib/backtest/marketRemote";
 import { writeJsonAtomic } from "@/lib/files/atomicJson";
+import { lastSettledNyDate } from "@/lib/backtest/mergeBars";
 import type { DailyReview, ReviewIndex } from "@/lib/review/types";
 import type { CatalystReport } from "./types";
 import { validDay } from "./normalize";
-import { buildCatalystReviewDigest, parseCatalystReviewDigest, type CatalystReviewView } from "./reviewDigest";
+import { buildCatalystReviewDigest, parseCatalystReviewDigest, type CatalystReviewDigest, type CatalystReviewView } from "./reviewDigest";
 
 type Publication = { status: "saved" | "existing" | "waiting" | "unavailable"; date: string };
 const json = (file: string): unknown => JSON.parse(readFileSync(file, "utf8"));
+function currentSettledDate(report: CatalystReport): boolean {
+  const cutoff = lastSettledNyDate(new Date(Date.parse(report.generatedAt) - 20 * 60_000));
+  const days = report.sessions;
+  return days.length > 0 && days.every((day, i) => validDay(day) && (!i || day > days[i - 1])) &&
+    days.at(-1)! > cutoff && days.filter(day => day <= cutoff).at(-1) === report.asOf;
+}
+function sameContent(previous: CatalystReviewDigest, next: CatalystReviewDigest): boolean {
+  const content = (digest: CatalystReviewDigest) => ({ status: digest.status, today: digest.today, upcoming: digest.upcoming,
+    warnings: digest.warnings, sourceCoverage: digest.sourceCoverage ?? next.sourceCoverage });
+  return JSON.stringify(content(previous)) === JSON.stringify(content(next));
+}
+function losesCoverage(previous: CatalystReviewDigest, next: CatalystReviewDigest): boolean {
+  if (next.status === "unavailable" || previous.status === "ready" && next.status !== "ready" ||
+      (previous.today.length || previous.upcoming.length) && !next.today.length && !next.upcoming.length && next.status !== "ready") return true;
+  const rank = { ok: 2, partial: 1, unavailable: 0, disabled: 0 };
+  return (previous.sourceCoverage ?? []).some(source => rank[source.state] > rank[next.sourceCoverage?.find(row => row.id === source.id)?.state ?? "unavailable"]);
+}
+/** Preserve exact previous bytes before publishing a replacement; retries verify an existing archive. */
+function archiveEdition(directory: string, date: string, previous: CatalystReviewDigest, bytes: Buffer): void {
+  const hash = createHash("sha256").update(bytes).digest("hex");
+  const folder = path.join(directory, "catalyst", "review", "history", date);
+  const file = path.join(folder, `${previous.capturedAt.replace(/[:.]/g, "-")}-${hash.slice(0, 16)}.json`);
+  mkdirSync(folder, { recursive: true });
+  try { writeFileSync(file, bytes, { flag: "wx" }); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST" || !readFileSync(file).equals(bytes)) throw error;
+  }
+}
 
 /** Called under the collector lock. Owns only catalyst/review; never edits a review or its analysis. */
-export function publishCatalystReviewDigest(report: CatalystReport, directory = snapshotDir()): Publication {
+export function publishCatalystReviewDigest(report: CatalystReport, directory = snapshotDir(), options: { refresh?: boolean } = {}): Publication {
   const date = report.asOf;
   if (!validDay(date)) return { status: "waiting", date };
   try {
     const file = path.join(directory, "catalyst", "review", `${date}.json`);
+    let previous: CatalystReviewDigest | null = null, original: Buffer | null = null;
     if (existsSync(file)) {
-      const previous = parseCatalystReviewDigest(json(file), date, new Date(report.generatedAt));
+      original = readFileSync(file);
+      previous = parseCatalystReviewDigest(JSON.parse(original.toString("utf8")), date, new Date(report.generatedAt));
       // An informative supplement is immutable, independent of later event edits and archive pruning.
       // Empty failed/partial attempts can recover when the same day's sources become usable.
-      if (previous.status === "ready" || previous.today.length || previous.upcoming.length)
+      if (!options.refresh && (previous.status === "ready" || previous.today.length || previous.upcoming.length))
         return { status: "existing", date };
     }
     const reviewFile = path.join(directory, "daily-review", `${date}.json`);
@@ -33,7 +65,17 @@ export function publishCatalystReviewDigest(report: CatalystReport, directory = 
     if (index?.version !== 1 || index.latest !== date || review?.version !== 1 || review.date !== date ||
       !Array.isArray(review.sectors) || !Number.isFinite(Date.parse(review.builtAt)) ||
       Date.parse(review.builtAt) > Date.parse(report.generatedAt)) return { status: "waiting", date };
-    const digest = parseCatalystReviewDigest(buildCatalystReviewDigest(report, review), date, new Date(report.generatedAt));
+    if (options.refresh && !currentSettledDate(report)) return { status: "waiting", date };
+    let digest = buildCatalystReviewDigest(report, review);
+    if (previous && (sameContent(previous, digest) || losesCoverage(previous, digest))) return { status: "existing", date };
+    if (previous && Date.parse(report.generatedAt) <= Date.parse(previous.capturedAt)) return { status: "waiting", date };
+    digest = parseCatalystReviewDigest({ ...digest,
+      reviewBuiltAt: previous?.reviewBuiltAt ?? digest.reviewBuiltAt,
+      revision: (previous?.revision ?? (previous ? 1 : 0)) + 1,
+      originalCapturedAt: previous?.originalCapturedAt ?? previous?.capturedAt ?? digest.capturedAt,
+      ...(previous ? { supersedesCapturedAt: previous.capturedAt } : {}),
+    }, date, new Date(report.generatedAt));
+    if (previous && original) archiveEdition(directory, date, previous, original);
     writeJsonAtomic(file, digest);
     return { status: "saved", date };
   } catch {

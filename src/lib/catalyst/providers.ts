@@ -1,13 +1,16 @@
 import type { CatalystUniverse, EventInput, EventType, Importance, ProviderResult, SourceHealth } from "./types";
 import { alpacaDataSymbol, marketDataSymbol } from "@/lib/data-sources/marketSymbol";
+import { collectNasdaqEarnings, collectNewYorkFedBlsCalendar } from "./publicCalendars";
 
 const DAY = 86_400_000;
+const NEWS_PAGE_LIMIT = 40;
+const SOURCE_BUDGET_MS = 240_000;
 const BLS_URL = "https://www.bls.gov/schedule/news_release/bls.ics";
 const BEA_URL = "https://www.bea.gov/news/schedule/full";
 const FED_URL = "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm";
 const MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
 type Fetch = typeof fetch;
-type Parsed = { events: EventInput[]; rejected: number; recognized: number };
+type Parsed = { events: EventInput[]; rejected: number; recognized: number; pendingDates?: number };
 type ProviderEnv = Record<string, string | undefined>;
 export type CatalystProviderDependencies = { fetch?: Fetch; env?: ProviderEnv; sleep?: (ms: number) => Promise<void> };
 
@@ -123,13 +126,14 @@ async function alpaca(universe: CatalystUniverse, now: Date, fetcher: Fetch, env
   const id = "alpaca-news", label = "Alpaca 新闻";
   const key = env.ALPACA_API_KEY || env.APCA_API_KEY_ID, secret = env.ALPACA_API_SECRET || env.APCA_API_SECRET_KEY;
   if (!key || !secret) return result(id, label, now, "disabled", "未配置 Alpaca 新闻凭据");
-  const allSymbols = symbolList(universe), selected = allSymbols.slice(0, 100);
+  const allSymbols = symbolList(universe), selected = allSymbols;
   if (!selected.length) return result(id, label, now, "disabled", "观察股票池为空，未查询新闻");
   const events = new Map<string, EventInput>();
   let token: string | null = null, skipped = 0, pages = 0;
+  const deadline = Date.now() + SOURCE_BUDGET_MS, tokens = new Set<string>();
   const cutoff = new Date(now.getTime() - 15 * 60_000); // Also works with delayed-news subscriptions.
   try {
-    for (; pages < 5; pages++) {
+    for (; pages < NEWS_PAGE_LIMIT && Date.now() < deadline; pages++) {
       const url = new URL("https://data.alpaca.markets/v1beta1/news");
       url.searchParams.set("symbols", [...new Set(selected.map(alpacaDataSymbol))].join(","));
       url.searchParams.set("start", new Date(now.getTime() - 7 * DAY).toISOString());
@@ -154,15 +158,17 @@ async function alpaca(universe: CatalystUniverse, now: Date, fetcher: Fetch, env
       }
       token = str(body.next_page_token) || null;
       if (!token) { pages++; break; }
+      if (tokens.has(token)) throw new SourceFailure("新闻分页令牌重复，覆盖尚未完成");
+      tokens.add(token);
     }
     const partial = Boolean(token) || skipped > 0 || allSymbols.length > selected.length;
-    return result(id, label, now, partial ? "partial" : "ok", `最近 7 日；截至 ${cutoff.toISOString()}（预留 15 分钟延迟）；覆盖 ${selected.length}/${allSymbols.length} 只股票、${pages} 页${token ? "；达到 5 页上限，尚有新闻未读取" : ""}${skipped ? `；${skipped} 条字段无效未采用` : ""}`, [...events.values()]);
+    return result(id, label, now, partial ? "partial" : "ok", `最近 7 日；截至 ${cutoff.toISOString()}（预留 15 分钟延迟）；覆盖当前观察池 ${selected.length}/${allSymbols.length} 只股票、${pages} 页${token ? `；达到 ${NEWS_PAGE_LIMIT} 页或 4 分钟采集预算，尚有新闻未读取` : "；已读至最后一页"}${skipped ? `；${skipped} 条字段无效未采用` : ""}`, [...events.values()]);
   } catch (error) { return result(id, label, now, events.size || pages ? "partial" : "unavailable", safeFailure(error), [...events.values()]); }
 }
 
 async function earnings(universe: CatalystUniverse, now: Date, fetcher: Fetch, env: ProviderEnv): Promise<ProviderResult> {
   const id = "fmp-earnings", label = "FMP 财报日历", key = env.FMP_API_KEY;
-  if (!key) return result(id, label, now, "disabled", "未配置 FMP 财报日历凭据");
+  if (!key) return collectNasdaqEarnings(universe, now, fetcher);
   const symbols = symbolList(universe);
   if (!symbols.length) return result(id, label, now, "disabled", "观察股票池为空，未查询财报日历");
   try {
@@ -247,6 +253,10 @@ export function parseBeaCalendar(body: string, now: Date): Parsed {
       const dateText = text(row.match(/<div\b[^>]*class=["'][^"']*release-date[^"']*["'][^>]*>([\s\S]*?)<\/div>/i)?.[1]);
       const title = text(row.match(/<td\b[^>]*class=["'][^"']*release-title[^"']*["'][^>]*>([\s\S]*?)<\/td>/i)?.[1], 300);
       const dateParts = dateText.match(/^([A-Za-z]+)\s+(\d{1,2})$/), date = dateParts ? calendarDate(Number(year), dateParts[1], Number(dateParts[2])) : null;
+      if (!date && title && /To Be Announced/i.test(text(row))) {
+        parsed.pendingDates = (parsed.pendingDates ?? 0) + 1;
+        continue; // The official source has not assigned a date; do not fabricate one.
+      }
       if (!date || !title) { parsed.rejected++; continue; }
       if (!inWindow(date, now)) continue;
       const time = text(row.match(/<small\b[^>]*>([\s\S]*?)<\/small>/i)?.[1]).match(/^(\d{1,2}):(\d{2})\s*([AP]M)$/i);
@@ -287,8 +297,11 @@ export function parseFedCalendar(body: string, now: Date): Parsed {
 async function calendar(id: string, label: string, url: string, parser: (body: string, now: Date) => Parsed, now: Date, fetcher: Fetch): Promise<ProviderResult> {
   try {
     const parsed = parser(await request(fetcher, url, { "User-Agent": "Trend-Adaptive Catalyst Monitor", Accept: "text/calendar,text/html;q=0.9,*/*;q=0.5" }), now);
-    return result(id, label, now, parsed.rejected ? "partial" : "ok", `官方已公布日历；筛选最近 7 日至未来 90 日；仅日程，不代表结果已发布${parsed.rejected ? `；${parsed.rejected} 项时间或字段不完整` : ""}`, parsed.events);
-  } catch (error) { return result(id, label, now, "unavailable", safeFailure(error)); }
+    return result(id, label, now, parsed.rejected || parsed.pendingDates ? "partial" : "ok", `官方已公布日期覆盖 ${parsed.events.length} 条；筛选最近 7 日至未来 90 日；仅日程，不代表结果已发布${parsed.pendingDates ? `；另有 ${parsed.pendingDates} 项官方日期待定（To Be Announced），未编造日程` : ""}${parsed.rejected ? `；${parsed.rejected} 项时间或字段不完整` : ""}`, parsed.events);
+  } catch (error) {
+    if (id === "bls-calendar") return collectNewYorkFedBlsCalendar(now, fetcher, safeFailure(error));
+    return result(id, label, now, "unavailable", safeFailure(error));
+  }
 }
 
 export function parseSecSubmissions(body: unknown, symbol: string, cik: string, universe: CatalystUniverse, now: Date): Parsed {
@@ -326,9 +339,10 @@ async function sec(universe: CatalystUniverse, now: Date, fetcher: Fetch, env: P
   const selected = [...universe.symbols].sort((a, b) => {
     const rank = (x: typeof a) => x.relations.some(r => r.kind === "portfolio") ? 0 : x.relations.some(r => r.kind === "signal") ? 1 : 2;
     return rank(a) - rank(b);
-  }).filter(x => /^[A-Z][A-Z0-9.\-]{0,14}$/.test(x.symbol)).slice(0, 10);
+  }).filter(x => /^[A-Z][A-Z0-9.\-]{0,14}$/.test(x.symbol));
   if (!selected.length) return result(id, label, now, "disabled", "观察股票池为空，未查询 SEC");
-  const events: EventInput[] = []; let completed = 0, failed = 0, unmapped = 0, rejected = 0;
+  const events: EventInput[] = []; let completed = 0, failed = 0, unmapped = 0, rejected = 0, stopped = "";
+  const deadline = Date.now() + SOURCE_BUDGET_MS;
   try {
     const tickers = obj(await json(fetcher, "https://www.sec.gov/files/company_tickers.json", { "User-Agent": ua, Accept: "application/json" }));
     if (!tickers) throw new SourceFailure("SEC 股票映射格式无效");
@@ -338,17 +352,30 @@ async function sec(universe: CatalystUniverse, now: Date, fetcher: Fetch, env: P
       if (ticker && /^\d{1,10}$/.test(cik)) map.set(ticker.replace(/-/g, "."), cik.padStart(10, "0"));
     }
     if (!map.size) throw new SourceFailure("SEC 股票映射为空");
+    const companies = new Map<string, typeof selected>();
     for (const stock of selected) {
       const cik = map.get(marketDataSymbol(stock.symbol).replace(/-/g, ".")) || map.get(stock.symbol.replace(/-/g, "."));
       if (!cik) { unmapped++; continue; }
+      const group = companies.get(cik) ?? [];
+      group.push(stock); companies.set(cik, group);
+    }
+    // Multiple listed share classes belong to one issuer/filing; keep every observed relation.
+    for (const [cik, stocks] of companies) {
+      if (Date.now() >= deadline) { stopped = "4 分钟采集预算已用完"; break; }
       await sleep(150); // Respect SEC's documented 10 requests/second ceiling.
       try {
-        const parsed = parseSecSubmissions(await json(fetcher, `https://data.sec.gov/submissions/CIK${cik}.json`, { "User-Agent": ua, Accept: "application/json" }), stock.symbol, cik, universe, now);
-        completed++; rejected += parsed.rejected; events.push(...parsed.events);
-      } catch { failed++; }
+        const parsed = parseSecSubmissions(await json(fetcher, `https://data.sec.gov/submissions/CIK${cik}.json`, { "User-Agent": ua, Accept: "application/json" }), stocks[0].symbol, cik, universe, now);
+        const symbols = stocks.map(stock => stock.symbol);
+        completed += stocks.length; rejected += parsed.rejected;
+        events.push(...parsed.events.map(event => ({ ...event, symbols, sectorIds: sectorsFor(symbols, universe), title: `${symbols.join(" / ")}${event.title.slice(stocks[0].symbol.length)}` })));
+      } catch (error) {
+        failed += stocks.length;
+        if (error instanceof SourceFailure && /HTTP (403|429)\b/.test(error.message)) { stopped = `${safeFailure(error)}，停止后续查询`; break; }
+      }
     }
-    const partial = failed > 0 || unmapped > 0 || rejected > 0 || universe.symbols.length > selected.length;
-    return result(id, label, now, completed ? partial ? "partial" : "ok" : "unavailable", `最近 7 日 8-K/6-K；优先覆盖持仓与信号；成功 ${completed}/${selected.length} 只（全池 ${universe.symbols.length} 只）${failed ? `；${failed} 只查询失败` : ""}${unmapped ? `；${unmapped} 只无 CIK 映射` : ""}${rejected ? `；${rejected} 条字段无效` : ""}`, events);
+    const remaining = selected.length - completed - failed - unmapped;
+    const partial = failed > 0 || unmapped > 0 || rejected > 0 || remaining > 0 || universe.symbols.length > selected.length;
+    return result(id, label, now, completed ? partial ? "partial" : "ok" : "unavailable", `最近 7 日 8-K/6-K；按持仓、信号、机会池顺序查询，同发行人合并请求；成功 ${completed}/${selected.length} 只（全池 ${universe.symbols.length} 只）${stopped ? `；${stopped}` : ""}${remaining ? `；${remaining} 只尚未查询` : ""}${failed ? `；${failed} 只查询失败` : ""}${unmapped ? `；${unmapped} 只无 CIK 映射` : ""}${rejected ? `；${rejected} 条字段无效` : ""}`, events);
   } catch (error) { return result(id, label, now, events.length ? "partial" : "unavailable", safeFailure(error), events); }
 }
 

@@ -29,7 +29,12 @@ describe("independent Catalyst cron", () => {
       const protectedMinute = Number(readFileSync(path.join(folder, original), "utf8").match(/OnCalendar=.* \d{2}:(\d{2}):00/)![1]);
       for (const minute of minutes) expect((protectedMinute - minute + 60) % 60).toBeGreaterThan(timeoutSeconds / 60 + 1);
     }
-    expect(readFileSync(path.join(folder, "alpha-catalyst-analysis.timer"), "utf8")).toContain("OnCalendar=*-*-* 08:55:00 Asia/Shanghai");
+    const analysis = readFileSync(path.join(folder, "alpha-catalyst-analysis.timer"), "utf8");
+    expect(analysis).toContain("OnCalendar=Tue..Sat *-*-* 10:05:00 Asia/Shanghai");
+    expect(analysis).toContain("OnCalendar=*-*-* 12:55:00 Asia/Shanghai");
+    expect(analysis).toContain("OnCalendar=Mon..Fri *-*-* 08:55:00 America/New_York");
+    expect(analysis).not.toContain("08:55:00 Asia/Shanghai");
+    expect(readFileSync(path.join(folder, "alpha-catalyst.service"), "utf8")).not.toContain("Restart=");
   });
   it("runs only the isolated bundle with deployed market, journal and live-book paths", () => {
     const { root, run } = setup(); const result = run();
@@ -50,6 +55,25 @@ describe("independent Catalyst cron", () => {
     const busy = setup(true); const failed = busy.run(["--analyze"]);
     expect(failed.status).toBe(1); expect(existsSync(path.join(busy.root, "called.json"))).toBe(false);
     expect(failed.stderr).toContain("未生成新分析");
+  });
+  it("passes explicit digest refresh only for requested runs", () => {
+    const { root, run } = setup();
+    expect(run(["--analyze", "--refresh-review-digest"]).status).toBe(0);
+    expect(JSON.parse(readFileSync(path.join(root, "called.json"), "utf8")).args).toEqual(["--analyze", "--refresh-review-digest"]);
+    expect(readFileSync(path.join(root, "flock-args.txt"), "utf8").trim()).toBe("-w 1800 9");
+    expect(run(["--refresh-review-digest"]).status).toBe(0);
+    expect(readFileSync(path.join(root, "flock-args.txt"), "utf8").trim()).toBe("-n 9");
+  });
+  it("bounds paid-analysis failure retries while keeping enough interval for the next scheduled run", () => {
+    const service = readFileSync(path.resolve("deploy/market-http/cron/alpha-catalyst-analysis.service"), "utf8");
+    expect(service).toContain("--analyze --refresh-review-digest");
+    expect(service).toContain("Restart=on-failure"); expect(service).toContain("RestartSec=300");
+    expect(service).toContain("StartLimitBurst=2"); expect(service).toContain("StartLimitIntervalSec=7200");
+    const timeout = Number(service.match(/^TimeoutStartSec=(\d+)$/m)![1]);
+    expect(2 * (timeout + 300)).toBeLessThan(7200);
+    expect(7200).toBeLessThan((12 * 60 + 55 - (10 * 60 + 5)) * 60);
+    const installer = readFileSync(path.resolve("deploy/market-http/cron/install-catalyst.sh"), "utf8");
+    expect(installer).toContain("systemctl restart alpha-catalyst.timer alpha-catalyst-analysis.timer");
   });
   it("rejects unsupported arguments before creating or calling anything", () => {
     const { root, run } = setup();

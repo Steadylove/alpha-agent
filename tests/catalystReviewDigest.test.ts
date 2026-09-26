@@ -180,6 +180,30 @@ describe("ET schedule and evidence time boundaries", () => {
 });
 
 describe("current relation and coverage guards", () => {
+  it("accepts the model-book ET wall-clock axis without treating it as UTC or the host timezone", () => {
+    const input = report();
+    input.events[0].currentRelations[0].asOf = "2026-09-25T19:30";
+    input.universe.symbols[0].relations[0].asOf = "2026-09-25T19:30";
+    expect(build(input).today[0].relation).toBe("Portfolio");
+    expect(build(input).status).toBe("ready");
+    input.events[0].currentRelations[0].asOf = "2026-09-25T23:30";
+    input.universe.symbols[0].relations[0].asOf = "2026-09-25T23:30";
+    expect(build(input).today).toEqual([]);
+    expect(build(input).status).toBe("partial");
+  });
+  it("does not count retained old history as a current coverage failure and retains known incremental news", () => {
+    const old = event(2, { eventDate: "2026-09-01", publishedAt: "2026-09-01T15:00:00Z", firstSeenAt: "2026-09-01T16:00:00Z", lastSeenAt: "2026-09-01T16:00:00Z" });
+    const current = event(1, { firstSeenAt: builtAt, lastSeenAt: builtAt });
+    const digest = build(report([old, current]));
+    expect(digest.status).toBe("ready"); expect(digest.today.map(row => row.id)).toEqual([id(1)]);
+    expect(current.lastSeenAt).toBe(builtAt);
+  });
+  it("keeps truncation and stale model holdings partial even with healthy empty providers", () => {
+    const limited = report([]); limited.warnings = ["事件或反应达到本轮处理上限，当前仅展示部分覆盖。"];
+    expect(build(limited).status).toBe("partial");
+    const stale = report([]); stale.universe.symbols[0].relations[0].asOf = previous;
+    expect(build(stale).status).toBe("partial");
+  });
   it.each(["first-only", "removed", "stale-asof", "future-asof", "future-observed"] as const)("rejects invalid current portfolio evidence: %s", mode => {
     const input = report();
     if (mode === "first-only") input.events[0].currentRelations = [];
@@ -237,6 +261,14 @@ describe("date-limited reaction metrics", () => {
 });
 
 describe("archive parser validation", () => {
+  it("accepts legacy editions and rejects inconsistent revision chains", () => {
+    const original = build(); expect(parseCatalystReviewDigest(original, date, now)).toEqual(original);
+    const revised = { ...original, revision: 2, originalCapturedAt: builtAt, supersedesCapturedAt: "2026-09-26T01:30:00Z" };
+    expect(parseCatalystReviewDigest(revised, date, now).revision).toBe(2);
+    expect(() => parseCatalystReviewDigest({ ...revised, supersedesCapturedAt: capturedAt }, date, now)).toThrow();
+    expect(() => parseCatalystReviewDigest({ ...revised, originalCapturedAt: "2026-09-26T00:00:00Z" }, date, now)).toThrow();
+    expect(() => parseCatalystReviewDigest({ ...revised, revision: 1 }, date, now)).toThrow();
+  });
   it("rejects date mismatch and capture more than sixty seconds in the future", () => {
     const digest = build();
     expect(() => parseCatalystReviewDigest(digest, previous, now)).toThrow();

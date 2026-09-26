@@ -21,6 +21,10 @@ export type CatalystReviewDigest = {
   reviewDate: string;
   reviewBuiltAt: string;
   capturedAt: string;
+  revision?: number;
+  originalCapturedAt?: string;
+  supersedesCapturedAt?: string;
+  sourceCoverage?: { id: string; label: string; state: SourceHealth["state"] }[];
   status: "ready" | "partial" | "unavailable";
   today: CatalystBriefItem[];
   upcoming: CatalystBriefItem[];
@@ -56,6 +60,8 @@ const itemSchema = z.object({
 }).strict();
 const digestSchema = z.object({
   version: z.literal(1), reviewDate: daySchema, reviewBuiltAt: stampSchema, capturedAt: stampSchema,
+  revision: z.number().int().min(1).max(100000).optional(), originalCapturedAt: stampSchema.optional(), supersedesCapturedAt: stampSchema.optional(),
+  sourceCoverage: z.array(z.object({ id: z.string().min(1).max(100), label: z.string().max(200), state: z.enum(["ok", "partial", "unavailable", "disabled"]) }).strict()).max(60).optional(),
   status: z.enum(["ready", "partial", "unavailable"]), today: z.array(itemSchema).max(3), upcoming: z.array(itemSchema).max(3),
   warnings: z.array(z.string().min(1).max(1000)).max(10),
 }).strict();
@@ -65,6 +71,14 @@ export function parseCatalystReviewDigest(raw: unknown, expectedDate: string, no
   if (!validDay(expectedDate) || digest.reviewDate !== expectedDate || !Number.isFinite(now.getTime()) ||
       captured > now.getTime() + 60_000 || captured < Date.parse(digest.reviewBuiltAt) || etDay(captured) < digest.reviewDate) {
     throw new Error("Catalyst 补充日期或采集时间无效");
+  }
+  const original = stampOf(digest.originalCapturedAt), supersedes = stampOf(digest.supersedesCapturedAt);
+  if (digest.revision != null && (original == null || original < Date.parse(digest.reviewBuiltAt) || original > captured ||
+      digest.revision === 1 && (original !== captured || supersedes != null) ||
+      digest.revision > 1 && (supersedes == null || supersedes < original || supersedes >= captured)) ||
+      digest.revision == null && (original != null || supersedes != null) ||
+      digest.sourceCoverage && new Set(digest.sourceCoverage.map(source => source.id)).size !== digest.sourceCoverage.length) {
+    throw new Error("Catalyst 补充版本链无效");
   }
   const invalidUpcoming = (item: CatalystBriefItem) => item.kind !== "upcoming" || item.priceChange != null || item.rpsChange != null || item.sectorRpsChange != null ||
     item.eventDate < etDay(captured) || item.eventDate > etDay(captured + 72 * 3_600_000);
@@ -119,6 +133,14 @@ function timeLabel(event: CatalystEvent, upcoming: boolean): string {
 function sourceCurrent(source: SourceHealth | undefined, captured: number): boolean {
   return Boolean(source && ["ok", "partial"].includes(source.state) && stampOf(source.checkedAt) === captured);
 }
+/** Model-book CSV axes use an ET wall clock without an offset; other source timestamps do not. */
+function portfolioMoment(value: string): { day: string; at: number | null } | null {
+  if (validDay(value)) return { day: value, at: null };
+  const floating = /^(\d{4}-\d{2}-\d{2})T([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$/.exec(value);
+  if (floating && validDay(floating[1])) return { day: floating[1], at: etBoundary(floating[1], floating[2] + ":" + floating[3]) + Number(floating[4] ?? 0) * 1000 };
+  const at = stampOf(value);
+  return at == null ? null : { day: etDay(at), at };
+}
 function material(event: CatalystEvent, relation: CatalystBriefItem["relation"]): boolean {
   if (!(event.importance === "high" || event.importance === "medium" && ["Portfolio", "Signal"].includes(relation))) return false;
   // CEO mentions and social-media commentary alone are not corporate catalysts.
@@ -127,8 +149,9 @@ function material(event: CatalystEvent, relation: CatalystBriefItem["relation"])
 function currentRelation(event: CatalystEvent, report: CatalystReport, review: DailyReview, captured: number): CatalystBriefItem["relation"] | null {
   const acceptable = (relation: Relation): relation is Relation & { kind: keyof typeof relationNames } => {
     if (relation.kind === "opportunity" || stampOf(relation.observedAt) !== captured) return false;
-    const asOf = dayOfSource(relation.asOf);
-    if (!asOf || asOf > review.date || (stampOf(relation.asOf) ?? 0) > captured) return false;
+    const portfolio = relation.kind === "portfolio" ? portfolioMoment(relation.asOf) : null;
+    const asOf = relation.kind === "portfolio" ? portfolio?.day : dayOfSource(relation.asOf);
+    if (!asOf || asOf > review.date || (portfolio?.at ?? stampOf(relation.asOf) ?? 0) > captured) return false;
     if (relation.kind === "market") return event.scope === "market" && relation.key === "market:US" && asOf === review.date;
     if (relation.kind === "sector") {
       const sector = report.universe.sectors.find(row => relation.key === "sector:" + row.id && event.sectorIds.includes(row.id));
@@ -191,8 +214,13 @@ export function buildCatalystReviewDigest(report: CatalystReport, review: DailyR
   let invalid = 0;
   const candidates: Candidate[] = [];
   for (const event of report.events) {
-    const first = stampOf(event.firstSeenAt), updated = stampOf(event.sourceUpdatedAt), publication = stampOf(event.publishedAt);
-    if (stampOf(event.lastSeenAt) !== captured || first == null || first > captured ||
+    // Ordinary retained history outside this digest is not a collection failure.
+    const relevant = event.status === "published" && event.eventDate === review.date || event.status === "scheduled" &&
+      event.eventDate >= etDay(captured) && event.eventDate <= etDay(captured + 72 * 3_600_000);
+    if (!relevant) continue;
+    const first = stampOf(event.firstSeenAt), seen = stampOf(event.lastSeenAt), updated = stampOf(event.sourceUpdatedAt), publication = stampOf(event.publishedAt);
+    // Published facts survive incremental polls; planned events need fresh confirmation.
+    if (seen == null || seen > captured || first == null || first > seen || event.status === "scheduled" && seen !== captured ||
         event.sourceUpdatedAt != null && (updated == null || updated > captured) ||
         event.publishedAt != null && (publication == null || publication > captured) ||
         !sourceCurrent(sources.find(source => source.id === event.provider), captured) || !urlSchema.safeParse(event.sourceUrl).success) { invalid++; continue; }
@@ -213,11 +241,16 @@ export function buildCatalystReviewDigest(report: CatalystReport, review: DailyR
   const today = published.slice(0, upcoming.length ? 2 : 3).map(candidate => brief(candidate, report, review, false));
   if (upcoming[0]) today.push({ ...upcoming[0] });
   const coverage = [...report.sources, ...report.universe.health];
-  const complete = sources.length > 0 && universeCurrent && coverage.every(source => source.state === "ok" && stampOf(source.checkedAt) === captured) && invalid === 0;
+  const stalePortfolio = report.universe.symbols.some(row => row.relations.some(relation => relation.kind === "portfolio" &&
+    (portfolioMoment(relation.asOf)?.day !== review.date || (portfolioMoment(relation.asOf)?.at ?? 0) > captured)));
+  const limited = report.events.length >= 2500 || report.reactions.length >= 5000 || report.warnings.some(warning => /上限|截断|部分覆盖|字段或时间无效/.test(warning));
+  const complete = sources.length > 0 && universeCurrent && !stalePortfolio && !limited && coverage.every(source => source.state === "ok" && stampOf(source.checkedAt) === captured) && invalid === 0;
   const status = usableSources.length === 0 ? "unavailable" : complete ? "ready" : "partial";
   const warnings = status === "unavailable" ? ["本轮事件来源不可用，不能判断是否存在重要催化。"] :
     status === "partial" ? ["本轮事件或对象覆盖不完整；空列表不代表没有重要催化。"] : [];
   if (invalid > 0) warnings.push("未沿用本轮未确认、时间异常或链接无效的事件。");
+  if (limited) warnings.push("事件或反应存在处理上限或字段缺失，不能据空列表判断没有重要催化。");
+  if (stalePortfolio) warnings.push("部分模型持仓日期尚未与本次复盘对齐，关联覆盖不完整。");
   return parseCatalystReviewDigest({ version: 1, reviewDate: review.date, reviewBuiltAt: review.builtAt, capturedAt: report.generatedAt,
-    status, today, upcoming, warnings }, review.date, new Date(captured));
+    status, today, upcoming, warnings, sourceCoverage: coverage.map(({ id, label, state }) => ({ id, label, state })).sort((a, b) => compare(a.id, b.id)) }, review.date, new Date(captured));
 }

@@ -100,6 +100,8 @@ export type ReviewAccount = {
   equity: number | null;
   daily: number | null;
   monthly: number | null;
+  /** Missing monthly basis explanation; old review archives may omit it. */
+  monthlyNote?: string;
   holdings: number | null;
   cashPct: number | null;
   maxWeight: number | null;

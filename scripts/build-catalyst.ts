@@ -9,9 +9,9 @@ class CliError extends Error {}
 
 async function main() {
   const args = process.argv.slice(2);
-  if (args.some(arg => !["--analyze", "--dry-run"].includes(arg))) throw new CliError("用法：catalyst:build [--analyze] [--dry-run]");
+  if (args.some(arg => !["--analyze", "--dry-run", "--refresh-review-digest"].includes(arg))) throw new CliError("用法：catalyst:build [--analyze] [--refresh-review-digest] [--dry-run]");
   if (marketBaseUrl()) throw new CliError("请在本地行情目录运行 Catalyst，避免写入网页服务器临时磁盘");
-  const options = { analyze: args.includes("--analyze"), dryRun: args.includes("--dry-run") };
+  const options = { analyze: args.includes("--analyze"), dryRun: args.includes("--dry-run"), refreshReviewDigest: args.includes("--refresh-review-digest") };
   // Dry-run is genuinely read-only, including no lock/directory creation or model calls.
   if (options.dryRun) {
     await buildCatalystReport(options);
@@ -34,6 +34,8 @@ async function main() {
   try {
     writeFileSync(fd, String(process.pid));
     const result = await buildCatalystReport(options);
+    if ("analysisFailed" in result && result.analysisFailed) throw new CliError("事件数据已保存，本轮 AI 解读未成功；保留此前结果等待受限重试");
+    if (options.refreshReviewDigest && "reviewDigest" in result && result.reviewDigest?.status === "unavailable") throw new CliError("事件数据已保存，复盘补充发布失败；旧版已保留");
     console.log(JSON.stringify({ ok: true, dryRun: false, analyze: options.analyze, reviewDigest: "reviewDigest" in result ? result.reviewDigest : undefined }));
   } finally {
     closeSync(fd);

@@ -82,18 +82,24 @@ describe("Catalyst 自动对象关联", () => {
     expect(result.health.find((source) => source.id === "signal-live-archive")?.state).toBe("partial");
   });
 
-  it("机会池选 candidates、elite 或 rps50≥80，强者最多100只，持仓和信号优先", async () => {
-    const opportunities = Array.from({ length: 130 }, (_, i) => stock(`S${i}`, { rps50: 100 - i / 10 }));
+  it("超过250观察上限时明确部分覆盖，并优先保留持仓与信号", async () => {
+    const opportunities = Array.from({ length: 260 }, (_, i) => stock(`S${i}`, { rps50: 100 - i / 20 }));
     const holdings = Array.from({ length: 110 }, (_, i) => `H${i}`);
     const result = await loadCatalystUniverse(now, loaders({ books: async () => books(holdings), journal: async () => journal([journalSignal("SIGNAL")]),
       opportunity: async () => ({ ...emptyOpportunity(), asOf: "2026-09-25", universe: [...opportunities, stock("LOW", { rps50: 79 }), stock("ELITE", { rps50: 1, elite: true })], candidates: [stock("CANDIDATE", { rps50: 70 })] }) }));
-    expect(result.symbols).toHaveLength(200);
+    expect(result.symbols).toHaveLength(250);
     expect(result.symbols.slice(0, 110).map((row) => row.symbol)).toEqual(holdings);
     expect(result.symbols[110].symbol).toBe("SIGNAL");
     expect(result.symbols.some((row) => row.symbol === "LOW")).toBe(false);
     expect(result.symbols.some((row) => row.symbol === "ELITE")).toBe(true);
-    expect(result.health.find((source) => source.id === "opportunity")).toMatchObject({ state: "partial", count: 100 });
+    expect(result.health.find((source) => source.id === "opportunity")).toMatchObject({ state: "partial", count: 250 });
     expect(result.health.find((source) => source.id === "universe-limit")?.state).toBe("partial");
+  });
+  it("完整纳入超过原100只上限的机会观察池", async () => {
+    const opportunities = Array.from({ length: 130 }, (_, i) => stock(`S${i}`, { rps50: 90 }));
+    const result = await loadCatalystUniverse(now, loaders({ opportunity: async () => ({ ...emptyOpportunity(), asOf: "2026-09-25", universe: opportunities }) }));
+    expect(result.symbols.filter(row => row.relations.some(relation => relation.kind === "opportunity"))).toHaveLength(130);
+    expect(result.health.find(source => source.id === "opportunity")).toMatchObject({ state: "ok", count: 130 });
   });
 
   it("明确候选可低于80，低强度非候选不关联；行业未知保持未知", async () => {

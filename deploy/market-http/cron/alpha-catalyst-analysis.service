@@ -2,16 +2,20 @@
 Description=Alpha Agent independent Catalyst daily AI commentary
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=7200
+StartLimitBurst=2
 
 [Service]
 Type=oneshot
 User=root
 EnvironmentFile=-/var/lib/alpha-agent/daily-quant.env
 Environment=TZ=Asia/Shanghai
-ExecStart=/var/lib/alpha-agent/bin/alpha-catalyst.sh --analyze
+ExecStart=/var/lib/alpha-agent/bin/alpha-catalyst.sh --analyze --refresh-review-digest
 WorkingDirectory=/var/lib/alpha-agent
 Nice=10
 # At most 30 minutes waiting for the shared data lock, then 10 minutes of work.
 TimeoutStartSec=2400
+Restart=on-failure
+RestartSec=300
 StandardOutput=append:/var/lib/alpha-agent/logs/catalyst-analysis.log
 StandardError=append:/var/lib/alpha-agent/logs/catalyst-analysis.log

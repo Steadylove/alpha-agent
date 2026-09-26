@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { mergeCatalystEvents } from "@/lib/catalyst/normalize";
 import { classifyCatalystHeadline, collectCatalystSources, parseBeaCalendar, parseBlsCalendar, parseFedCalendar, parseSecSubmissions } from "@/lib/catalyst/providers";
 import type { CatalystUniverse } from "@/lib/catalyst/types";
 
@@ -30,6 +31,11 @@ function fixtureFetch(extra?: (url: URL, init?: RequestInit) => Response | undef
     if (url.hostname === "www.bls.gov") return reply(bls);
     if (url.hostname === "www.bea.gov") return reply(bea);
     if (url.hostname === "www.federalreserve.gov") return reply(fed);
+    if (url.hostname === "api.nasdaq.com") {
+      const date = url.searchParams.get("date")!;
+      const asOf = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "short", year: "numeric", month: "short", day: "numeric" }).format(new Date(`${date}T00:00:00Z`));
+      return reply({ data: { asOf, rows: null }, status: { rCode: 200 } });
+    }
     throw new Error(`Unexpected fixture URL: ${url.hostname}`);
   }) as typeof fetch;
 }
@@ -97,13 +103,13 @@ describe("SEC factual filing metadata", () => {
 });
 
 describe("bounded independent source collection", () => {
-  it("leaves unconfigured sources disabled while official calendars are available", async () => {
+  it("uses public Nasdaq when FMP is unconfigured while credential-only sources stay disabled", async () => {
     const fetcher = fixtureFetch();
     const results = await collectCatalystSources(universe, now, { fetch: fetcher, env: {}, sleep: async () => {} });
     expect(results.map(r => [r.health.id, r.health.state])).toEqual([
-      ["alpaca-news", "disabled"], ["fmp-earnings", "disabled"], ["bls-calendar", "ok"], ["bea-calendar", "ok"], ["fed-calendar", "ok"], ["sec-filings", "disabled"],
+      ["alpaca-news", "disabled"], ["nasdaq-earnings", "ok"], ["bls-calendar", "ok"], ["bea-calendar", "ok"], ["fed-calendar", "ok"], ["sec-filings", "disabled"],
     ]);
-    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(fetcher).toHaveBeenCalledTimes(11);
   });
   it("keeps an upstream failure separate and never puts a credential/error body in health", async () => {
     const fetcher = fixtureFetch(url => {
@@ -112,7 +118,7 @@ describe("bounded independent source collection", () => {
     });
     const results = await collectCatalystSources(universe, now, { fetch: fetcher, env: { FMP_API_KEY: "secret-test-key" } });
     expect(results.find(r => r.health.id === "bea-calendar")?.health.state).toBe("ok");
-    expect(results.find(r => r.health.id === "bls-calendar")?.health).toMatchObject({ state: "unavailable", count: 0, detail: "来源返回 HTTP 403" });
+    expect(results.find(r => r.health.id === "bls-calendar")?.health).toMatchObject({ state: "unavailable", count: 0, detail: expect.stringContaining("BLS 直连 HTTP 403") });
     expect(results.find(r => r.health.id === "fmp-earnings")?.health.state).toBe("unavailable");
     expect(JSON.stringify(results)).not.toMatch(/secret-content|secret-test-key/);
   });
@@ -130,7 +136,7 @@ describe("bounded independent source collection", () => {
     expect(news.events[0]).toMatchObject({ type: "Product", eventAt: "2026-09-25T20:30:00.000Z", eventDate: "2026-09-25", session: "after", sourceUpdatedAt: "2026-09-25T21:00:00.000Z", symbols: ["AMD"], sectorIds: ["technology"], excerpt: "Launch details." });
     expect(JSON.stringify(news)).not.toMatch(/sensitive|NEVER STORE/);
   });
-  it("caps pagination at five requests and marks remaining news as partial", async () => {
+  it("caps pagination at forty requests and marks remaining news as partial", async () => {
     let pages = 0;
     const fetcher = fixtureFetch(url => {
       if (url.hostname !== "data.alpaca.markets") return;
@@ -139,9 +145,39 @@ describe("bounded independent source collection", () => {
       return reply({ news: [], next_page_token: `page-${pages}` });
     });
     const news = (await collectCatalystSources(universe, now, { fetch: fetcher, env: { ALPACA_API_KEY: "key", ALPACA_API_SECRET: "secret" } }))[0];
-    expect(pages).toBe(5);
+    expect(pages).toBe(40);
     expect(news.health).toMatchObject({ state: "partial", count: 0 });
     expect(news.health.detail).toContain("尚有新闻未读取");
+  });
+  it("covers symbols beyond the former 100 limit and follows more than five pages to completion", async () => {
+    const many = { ...universe, symbols: Array.from({ length: 135 }, (_, i) => ({ ...universe.symbols[0], symbol: `A${i}` })) };
+    let pages = 0;
+    const fetcher = fixtureFetch(url => {
+      if (url.hostname !== "data.alpaca.markets") return;
+      expect(url.searchParams.get("symbols")?.split(",")).toHaveLength(135);
+      pages++;
+      return reply({ news: pages === 7 ? [{ id: 1, headline: "Companies report earnings", created_at: "2026-09-25T16:00:00Z", url: "https://news.example.net/last", symbols: many.symbols.map(row => row.symbol) }] : [], next_page_token: pages < 7 ? `page-${pages}` : null });
+    });
+    const news = (await collectCatalystSources(many, now, { fetch: fetcher, env: { ALPACA_API_KEY: "key", ALPACA_API_SECRET: "secret" } }))[0];
+    expect(pages).toBe(7);
+    expect(news.health).toMatchObject({ state: "ok", count: 1 });
+    expect(news.events[0].symbols).toHaveLength(135);
+    expect(news.events[0].symbols).toContain("A134");
+    const merged = mergeCatalystEvents([], news.events, many, now);
+    expect(merged.rejected).toBe(0);
+    expect(merged.events[0].symbols).toHaveLength(135);
+    expect(news.health.detail).toContain("135/135");
+  });
+  it("stops repeated pagination tokens without claiming full news coverage", async () => {
+    let pages = 0;
+    const fetcher = fixtureFetch(url => {
+      if (url.hostname !== "data.alpaca.markets") return;
+      pages++; return reply({ news: [], next_page_token: "repeated" });
+    });
+    const news = (await collectCatalystSources(universe, now, { fetch: fetcher, env: { ALPACA_API_KEY: "key", ALPACA_API_SECRET: "secret" } }))[0];
+    expect(pages).toBe(2);
+    expect(news.health.state).toBe("partial");
+    expect(news.health.detail).toContain("分页令牌重复");
   });
   it("maps Alpaca class-share and confirmed ticker aliases back to internal universe symbols", async () => {
     const aliases = { ...universe, symbols: ["BRK-B", "PSTG"].map(symbol => ({ ...universe.symbols[0], symbol })) };
@@ -179,7 +215,7 @@ describe("bounded independent source collection", () => {
   it("does not call SEC with placeholder contact data", async () => {
     const fetcher = fixtureFetch();
     const sec = (await collectCatalystSources(universe, now, { fetch: fetcher, env: { SEC_USER_AGENT: "alpha-agent admin@alpha-agent.local" } }))[5];
-    expect(sec.health.state).toBe("disabled"); expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(sec.health.state).toBe("disabled"); expect(fetcher).toHaveBeenCalledTimes(11);
   });
   it("reads SEC only for priority symbols with a real caller identity and reports coverage", async () => {
     const sleep = vi.fn(async () => {});
@@ -193,7 +229,7 @@ describe("bounded independent source collection", () => {
     const sec = (await collectCatalystSources(universe, now, { fetch: fetcher, env: { SEC_USER_AGENT: "Research ops@my-fund.net" }, sleep }))[5];
     expect(sec.health).toMatchObject({ state: "ok", count: 3 }); expect(sleep).toHaveBeenCalledWith(150);
   });
-  it("caps SEC coverage at ten companies and exposes partial whole-universe coverage", async () => {
+  it("queries every observed company beyond the former ten-company SEC limit", async () => {
     const many = { ...universe, symbols: Array.from({ length: 12 }, (_, i) => ({ ...universe.symbols[0], symbol: `A${i}` })) };
     let requests = 0;
     const fetcher = fixtureFetch(url => {
@@ -202,7 +238,39 @@ describe("bounded independent source collection", () => {
       requests++; return reply({ filings: { recent: { form: [], filingDate: [], accessionNumber: [] } } });
     });
     const sec = (await collectCatalystSources(many, now, { fetch: fetcher, env: { SEC_USER_AGENT: "Research ops@my-fund.net" }, sleep: async () => {} }))[5];
-    expect(requests).toBe(10); expect(sec.health.state).toBe("partial"); expect(sec.health.detail).toContain("全池 12 只");
+    expect(requests).toBe(12); expect(sec.health.state).toBe("ok"); expect(sec.health.detail).toContain("全池 12 只");
+  });
+  it("fetches an issuer once and keeps both share-class associations through event merging", async () => {
+    const many = { ...universe, symbols: ["GOOG", "GOOGL"].map(symbol => ({ ...universe.symbols[0], symbol,
+      relations: [{ ...universe.symbols[0].relations[0], kind: symbol === "GOOG" ? "portfolio" as const : "opportunity" as const, key: `stock:${symbol}` }] })) };
+    let requests = 0;
+    const fetcher = fixtureFetch(url => {
+      if (!url.hostname.endsWith("sec.gov")) return;
+      if (url.pathname.endsWith("company_tickers.json")) return reply({ a: { ticker: "GOOG", cik_str: 1652044 }, b: { ticker: "GOOGL", cik_str: 1652044 } });
+      requests++; return reply(submission);
+    });
+    const sec = (await collectCatalystSources(many, now, { fetch: fetcher, env: { SEC_USER_AGENT: "Research ops@my-fund.net" }, sleep: async () => {} }))[5];
+    const merged = mergeCatalystEvents([], sec.events, many, now);
+    expect(requests).toBe(1);
+    expect(sec.health.state).toBe("ok");
+    expect(merged.events).toHaveLength(3);
+    expect(merged.events[0].symbols).toEqual(["GOOG", "GOOGL"]);
+    expect(merged.events[0].currentRelations.map(relation => relation.kind)).toEqual(expect.arrayContaining(["portfolio", "opportunity"]));
+  });
+  it("stops SEC submissions after a rate limit without calling remaining companies", async () => {
+    const many = { ...universe, symbols: ["AMD", "NVDA", "TSLA"].map(symbol => ({ ...universe.symbols[0], symbol })) };
+    let requests = 0;
+    const fetcher = fixtureFetch(url => {
+      if (!url.hostname.endsWith("sec.gov")) return;
+      if (url.pathname.endsWith("company_tickers.json")) return reply(Object.fromEntries(many.symbols.map((stock, index) => [index, { ticker: stock.symbol, cik_str: index + 1 }])));
+      requests++; return reply("private upstream body", 429);
+    });
+    const sec = (await collectCatalystSources(many, now, { fetch: fetcher, env: { SEC_USER_AGENT: "Research ops@my-fund.net" }, sleep: async () => {} }))[5];
+    expect(requests).toBe(1);
+    expect(sec.health.state).toBe("unavailable");
+    expect(sec.health.detail).toContain("HTTP 429");
+    expect(sec.health.detail).toContain("2 只尚未查询");
+    expect(JSON.stringify(sec)).not.toContain("private upstream");
   });
   it("uses subject classifications without claiming positive or negative market impact", () => {
     expect(classifyCatalystHeadline("FDA announces trial results")).toEqual({ type: "FDA / Clinical", importance: "high" });

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { publishCatalystReviewDigest, getCatalystReviewDigest } from "@/lib/catalyst/reviewDigestStore";
@@ -9,6 +9,7 @@ import type { DailyReview } from "@/lib/review/types";
 import { getReviewData } from "@/lib/review/store";
 import { snapshotDir, snapshotFile, writeSnapshot } from "@/lib/vps/snapshot";
 import { fetchMarketText } from "@/lib/backtest/marketRemote";
+import * as atomicJson from "@/lib/files/atomicJson";
 
 vi.mock("@/lib/backtest/marketRemote", () => ({ fetchMarketText: vi.fn() }));
 const date = "2026-09-25", capturedAt = "2026-09-26T01:00:00.000Z", now = new Date(capturedAt);
@@ -22,6 +23,21 @@ const report = (): CatalystReport => ({ version: 1, generatedAt: capturedAt, asO
   sources: ["alpaca-news", "bls-calendar", "bea-calendar", "fed-calendar", "fmp-earnings", "sec-filings"].map(id => ({ id, label: id, state: "ok", checkedAt: capturedAt, count: 0, detail: "" })),
   events: [], reactions: [], summary: null, summaryStatus: "not-requested", warnings: [] });
 const sidecar = () => snapshotFile(`catalyst/review/${date}`);
+function freshReport(at = "2026-09-26T02:00:00.000Z"): CatalystReport {
+  return JSON.parse(JSON.stringify(report()).replaceAll(capturedAt, at));
+}
+function withEvent(at = capturedAt, title = "Consumer Price Index release"): CatalystReport {
+  const value = freshReport(at);
+  value.events = [{ id: "a".repeat(24), provider: "bls-calendar", externalId: "fixture", sourceName: "BLS", sourceUrl: "https://www.bls.gov/news.release/cpi.htm",
+    title, excerpt: "", type: "Macro", importance: "high", symbols: [], sectorIds: [], scope: "market", publishedAt: `${date}T13:00:00.000Z`, eventAt: `${date}T13:00:00.000Z`, eventDate: date,
+    timePrecision: "minute", session: "pre", timing: "confirmed", status: "published", sourceUpdatedAt: null, firstSeenAt: capturedAt, lastSeenAt: at, revision: 1, backfilled: false,
+    firstRelations: [], currentRelations: [{ kind: "market", key: "market:US", label: "Market", asOf: date, observedAt: at }], relatedSourceUrls: [] }];
+  return value;
+}
+const archives = () => {
+  const folder = path.join(snapshotDir(), "catalyst/review/history", date);
+  return existsSync(folder) ? readdirSync(folder).map(name => path.join(folder, name)) : [];
+};
 beforeEach(() => {
   directory = mkdtempSync(path.join(tmpdir(), "catalyst-review-"));
   vi.stubEnv("MARKET_DATA_DIR", directory); vi.stubEnv("MARKET_DATA_BASE_URL", ""); vi.stubEnv("VERCEL", "");
@@ -47,7 +63,7 @@ describe("date-keyed publication", () => {
     expect(readFileSync(sidecar(), "utf8")).toBe(original);
   });
   it.each(["unavailable", "partial"])("retries an empty %s edition, then freezes a successful empty observation", status => {
-    writeSnapshot(`catalyst/review/${date}`, { ...digest(), status, warnings: ["暂时不可用"] });
+    writeSnapshot(`catalyst/review/${date}`, { ...digest(), capturedAt: "2026-09-26T00:59:00.000Z", status, warnings: ["暂时不可用"] });
     expect(publishCatalystReviewDigest(report()).status).toBe("saved");
     expect(JSON.parse(readFileSync(sidecar(), "utf8")).status).toBe("ready");
     expect(publishCatalystReviewDigest(report()).status).toBe("existing");
@@ -67,6 +83,64 @@ describe("date-keyed publication", () => {
     writeSnapshot(`catalyst/review/${date}`, digest()); writeFileSync(sidecar(), "broken-json");
     expect(publishCatalystReviewDigest(report()).status).toBe("unavailable");
     expect(readFileSync(sidecar(), "utf8")).toBe("broken-json");
+  });
+});
+
+describe("explicit current-date supplementary editions", () => {
+  it("archives the exact prior bytes before publishing a changed edition and keeps the original review intact", () => {
+    const reviewBytes = readFileSync(snapshotFile(`daily-review/${date}`));
+    expect(publishCatalystReviewDigest(withEvent()).status).toBe("saved");
+    const original = readFileSync(sidecar());
+    const update = withEvent("2026-09-26T02:00:00.000Z", "Updated official release");
+    expect(publishCatalystReviewDigest(update).status).toBe("existing");
+    expect(publishCatalystReviewDigest(update, snapshotDir(), { refresh: true }).status).toBe("saved");
+    expect(archives()).toHaveLength(1);
+    expect(readFileSync(archives()[0]).equals(original)).toBe(true);
+    expect(JSON.parse(readFileSync(sidecar(), "utf8"))).toMatchObject({ revision: 2, originalCapturedAt: capturedAt,
+      supersedesCapturedAt: capturedAt, capturedAt: update.generatedAt, reviewBuiltAt: review().builtAt });
+    expect(readFileSync(snapshotFile(`daily-review/${date}`)).equals(reviewBytes)).toBe(true);
+  });
+  it("does not create revisions for a timestamp-only poll or downgrade a useful edition", () => {
+    publishCatalystReviewDigest(withEvent()); const original = readFileSync(sidecar());
+    const update = withEvent("2026-09-26T02:00:00.000Z");
+    expect(publishCatalystReviewDigest(update, snapshotDir(), { refresh: true }).status).toBe("existing");
+    update.sources[0].state = "unavailable";
+    expect(publishCatalystReviewDigest(update, snapshotDir(), { refresh: true }).status).toBe("existing");
+    expect(readFileSync(sidecar()).equals(original)).toBe(true); expect(archives()).toEqual([]);
+  });
+  it("does capture a repaired source even if the selected headlines are unchanged", () => {
+    const partial = withEvent(); partial.sources[0].state = "partial";
+    publishCatalystReviewDigest(partial);
+    expect(publishCatalystReviewDigest(withEvent("2026-09-26T02:00:00.000Z"), snapshotDir(), { refresh: true }).status).toBe("saved");
+    expect(JSON.parse(readFileSync(sidecar(), "utf8"))).toMatchObject({ revision: 2, status: "ready" });
+  });
+  it("refuses historical, stale-market and incomplete-calendar refreshes", () => {
+    publishCatalystReviewDigest(withEvent()); const original = readFileSync(sidecar());
+    writeSnapshot("daily-review/index", { version: 1, latest: "2026-09-28" });
+    expect(publishCatalystReviewDigest(withEvent("2026-09-26T02:00:00.000Z", "Updated"), snapshotDir(), { refresh: true }).status).toBe("waiting");
+    writeSnapshot("daily-review/index", { version: 1, latest: date });
+    const stale = withEvent("2026-09-29T02:00:00.000Z", "Updated"); stale.sessions.push("2026-09-29");
+    expect(publishCatalystReviewDigest(stale, snapshotDir(), { refresh: true }).status).toBe("waiting");
+    const noFutureCalendar = withEvent("2026-09-26T02:00:00.000Z", "Updated"); noFutureCalendar.sessions = [date];
+    expect(publishCatalystReviewDigest(noFutureCalendar, snapshotDir(), { refresh: true }).status).toBe("waiting");
+    expect(readFileSync(sidecar()).equals(original)).toBe(true); expect(archives()).toEqual([]);
+  });
+  it("preserves the prior edition if archiving fails", () => {
+    publishCatalystReviewDigest(withEvent()); const original = readFileSync(sidecar());
+    writeFileSync(path.join(snapshotDir(), "catalyst/review/history"), "not a directory");
+    expect(publishCatalystReviewDigest(withEvent("2026-09-26T02:00:00.000Z", "Updated"), snapshotDir(), { refresh: true }).status).toBe("unavailable");
+    expect(readFileSync(sidecar()).equals(original)).toBe(true);
+  });
+  it("keeps the old publication and its archive when atomic replacement fails, then retries idempotently", () => {
+    publishCatalystReviewDigest(withEvent()); const original = readFileSync(sidecar());
+    const failingWrite = vi.spyOn(atomicJson, "writeJsonAtomic").mockImplementationOnce(() => { throw new Error("disk failure"); });
+    const update = withEvent("2026-09-26T02:00:00.000Z", "Updated");
+    expect(publishCatalystReviewDigest(update, snapshotDir(), { refresh: true }).status).toBe("unavailable");
+    expect(readFileSync(sidecar()).equals(original)).toBe(true);
+    expect(archives()).toHaveLength(1); expect(readFileSync(archives()[0]).equals(original)).toBe(true);
+    failingWrite.mockRestore();
+    expect(publishCatalystReviewDigest(update, snapshotDir(), { refresh: true }).status).toBe("saved");
+    expect(archives()).toHaveLength(1);
   });
 });
 

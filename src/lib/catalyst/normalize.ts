@@ -18,7 +18,7 @@ const signal = z.object({ id: z.string().max(400), symbol, tf: z.enum(["2h", "4h
 export const eventInputSchema = z.object({
   provider: z.string().min(1).max(80), externalId: z.string().min(1).max(500), sourceName: z.string().min(1).max(150), sourceUrl: safeUrl,
   title: z.string().min(1).max(1000), excerpt: z.string().max(2500), type: z.enum(EVENT_TYPES), importance: z.enum(["high", "medium", "low"]),
-  symbols: z.array(symbol).max(100), sectorIds: z.array(z.string().max(40)).max(30), scope: z.enum(["stock", "sector", "market"]),
+  symbols: z.array(symbol).max(250), sectorIds: z.array(z.string().max(40)).max(30), scope: z.enum(["stock", "sector", "market"]),
   publishedAt: stamp.nullable(), eventAt: stamp.nullable(), eventDate: day,
   timePrecision: z.enum(["minute", "session", "date", "unknown"]), session: z.enum(["pre", "regular", "after", "closed", "unknown"]),
   timing: z.enum(["confirmed", "estimated", "unknown"]), status: z.enum(["scheduled", "published", "cancelled"]), sourceUpdatedAt: stamp.nullable(),
@@ -71,7 +71,13 @@ export function mergeCatalystEvents(previous: CatalystEvent[], incoming: EventIn
       e.publishedAt, e.eventAt, e.timePrecision, e.status, e.type]);
     const copy = grouped.get(key);
     if (!copy) grouped.set(key, e);
-    else copy.relatedSourceUrls = [...new Set([...copy.relatedSourceUrls, ...e.relatedSourceUrls])].slice(0, 30);
+    else {
+      // If collection switches sources, use the source actually re-observed most recently.
+      // Do not mark an older provider as re-confirmed merely because a copy was collected.
+      const current = e.lastSeenAt > copy.lastSeenAt ? e : copy;
+      current.relatedSourceUrls = [...new Set([...copy.relatedSourceUrls, ...e.relatedSourceUrls])].slice(0, 30);
+      grouped.set(key, current);
+    }
   }
   const all = [...grouped.values()].sort((a, b) => b.eventDate.localeCompare(a.eventDate) || eventTier(a) - eventTier(b) || a.id.localeCompare(b.id));
   return { events: all.slice(0, 2500), rejected, truncated: all.length > 2500 };

@@ -56,6 +56,13 @@ describe("compact saved Catalyst Today", () => {
     expect(html).toContain("不代表原复盘发布时已知");
     expect(html).not.toContain("2026/09/26 02:00 ET");
   });
+  it("labels a later supplementary edition and preserves its original capture context", () => {
+    const value = { ...digest(), revision: 2, originalCapturedAt: "2026-09-26T01:00:00.000Z", supersedesCapturedAt: "2026-09-26T01:00:00.000Z" };
+    const html = renderToday(view(value));
+    expect(html).toContain("第 2 版"); expect(html).toContain("原复盘与此前版本已保留");
+    expect(html).toContain("首次补充采于 2026/09/25 21:00 ET");
+    expect(renderTomorrow(view(value))).toContain("第 2 版");
+  });
   it("caps Today at three entries and avoids price metrics for its upcoming calendar item", () => {
     const value = digest();
     value.today = [item(), item({ id: "b", subject: "NVDA", title: "第二条" }), item({ id: "c", subject: "FOMC", title: "会议日程", kind: "upcoming", relation: "Market", priceChange: 999, rpsChange: 888 }), item({ id: "hidden", title: "隐藏第四条" })];

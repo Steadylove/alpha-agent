@@ -1,8 +1,10 @@
 [Unit]
-Description=Generate Catalyst commentary daily at 08:55 Beijing time
+Description=Refresh Catalyst commentary after daily data, afternoon and US premarket
 
 [Timer]
-OnCalendar=*-*-* 08:55:00 Asia/Shanghai
+OnCalendar=Tue..Sat *-*-* 10:05:00 Asia/Shanghai
+OnCalendar=*-*-* 12:55:00 Asia/Shanghai
+OnCalendar=Mon..Fri *-*-* 08:55:00 America/New_York
 Persistent=true
 AccuracySec=1min
 Unit=alpha-catalyst-analysis.service

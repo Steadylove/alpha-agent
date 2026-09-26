@@ -1,4 +1,4 @@
-import type { LiveBookCache } from "@/lib/fund/liveBooksLogic";
+import { liveBookEpoch, type LiveBookCache } from "@/lib/fund/liveBooksLogic";
 import { TWO_HOUR_VERSION } from "@/lib/backtest/twoHourVersion";
 import type { ReviewAccount, ReviewTf } from "./types";
 import { pct, positive } from "./market";
@@ -42,6 +42,24 @@ export function reviewAccounts(
       positive(today?.equity) && positive(previous?.equity)
         ? pct(today.equity, previous.equity)
         : null;
+    const monthly =
+      positive(today?.equity) && positive(monthBase?.equity)
+        ? pct(today.equity, monthBase.equity)
+        : null;
+    const since = view?.since.slice(0, 10);
+    const startsThisMonth =
+      since != null && since >= date.slice(0, 7) + "-01" && since <= date;
+    const reset = cache ? liveBookEpoch(cache, tf).resetAt : "";
+    const resetThisMonth =
+      Number.isFinite(Date.parse(reset)) &&
+      reset.slice(0, 7) === date.slice(0, 7) &&
+      reset.slice(0, 10) <= date;
+    const monthlyNote = monthly != null ? undefined
+      : !positive(today?.equity)
+        ? "对应交易日净值缺失，暂不计算月收益。"
+        : startsThisMonth
+          ? "本月" + (resetThisMonth ? "重新" : "") + "启用记账（起点 " + since + "），暂无完整月初基准。"
+          : "缺少上月末同口径净值基准，暂不计算月收益。";
     const traded = [
       ...new Set(
         view?.fills
@@ -90,10 +108,8 @@ export function reviewAccounts(
       computedAt: cache?.computedAt ?? null,
       equity: today?.equity ?? null,
       daily,
-      monthly:
-        positive(today?.equity) && positive(monthBase?.equity)
-          ? pct(today.equity, monthBase.equity)
-          : null,
+      monthly,
+      ...(monthlyNote ? { monthlyNote } : {}),
       holdings: current ? positions.length : null,
       cashPct: current ? 100 - view!.exposurePct : null,
       maxWeight: current

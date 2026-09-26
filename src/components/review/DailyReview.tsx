@@ -508,6 +508,13 @@ function Account({
           <b>{a.maxWeight == null ? "—" : `${number(a.maxWeight, 1)}%`}</b>
         </div>
       </div>
+      {a.monthly == null && (
+        <p className={styles.accountMonthlyNote}>
+          {a.monthlyNote ?? (a.equity == null
+            ? "对应交易日净值缺失，暂不计算月收益。"
+            : "缺少上月末同口径净值基准，暂不计算月收益。")}
+        </p>
+      )}
       <Sparkline points={a.curve} />
       <div className={styles.attribution}>
         <h4>今日表现来自哪里</h4>

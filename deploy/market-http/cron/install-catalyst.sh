@@ -15,4 +15,6 @@ for unit in alpha-catalyst.service alpha-catalyst.timer alpha-catalyst-analysis.
 done
 systemctl daemon-reload
 systemctl enable --now alpha-catalyst.timer alpha-catalyst-analysis.timer
+# Reloading an already active timer does not reliably replace its queued elapse.
+systemctl restart alpha-catalyst.timer alpha-catalyst-analysis.timer
 systemctl list-timers alpha-catalyst.timer alpha-catalyst-analysis.timer --no-pager

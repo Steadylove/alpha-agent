@@ -67,6 +67,16 @@ describe("Catalyst immutable first observation and revisions", () => {
     expect(merged.events).toHaveLength(1);
     expect(merged.events[0].relatedSourceUrls).toEqual(expect.arrayContaining([input().sourceUrl, copy.sourceUrl]));
   });
+  it("keeps current source confirmation when an equivalent schedule moves to a new provider", () => {
+    const schedule = input({ provider: "old-calendar", publishedAt: null, status: "scheduled", eventDate: "2026-10-01", eventAt: null, timePrecision: "date", session: "unknown", timing: "estimated" });
+    const first = mergeCatalystEvents([], [schedule], universe(), now).events;
+    const nextSource = { ...schedule, provider: "new-calendar", sourceName: "New Calendar", sourceUrl: "https://calendar.example.net/amd" };
+    const merged = mergeCatalystEvents(first, [nextSource], universe(later), later);
+    expect(merged.events).toHaveLength(1);
+    expect(merged.events[0]).toMatchObject({ provider: "new-calendar", sourceName: "New Calendar", lastSeenAt: later.toISOString() });
+    expect(merged.events[0].relatedSourceUrls).toEqual(expect.arrayContaining([schedule.sourceUrl, nextSource.sourceUrl]));
+    expect(first[0].lastSeenAt).toBe(now.toISOString());
+  });
   it("keeps different-time events separate even when their headline, stock and day coincide", () => {
     const second = input({ externalId: "news-2", sourceUrl: "https://news.example.net/amd-2", publishedAt: "2026-09-25T20:00:00.000Z", eventAt: "2026-09-25T20:00:00.000Z", session: "after" });
     expect(mergeCatalystEvents([], [input(), second], universe(), now).events).toHaveLength(2);

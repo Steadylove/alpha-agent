@@ -160,7 +160,7 @@ export function saveCatalystReport(report: CatalystReport, directory = path.join
   catch { throw new Error("Catalyst 最新快照已保存，但历史清理失败，请检查留档目录权限与磁盘空间"); }
 }
 
-export async function buildCatalystReport(options: { analyze?: boolean; dryRun?: boolean } = {}) {
+export async function buildCatalystReport(options: { analyze?: boolean; dryRun?: boolean; refreshReviewDigest?: boolean } = {}) {
   if (marketBaseUrl()) throw new Error("Catalyst 采集必须在本地行情目录运行");
   if (options.dryRun) return { dryRun: true, rpsFile: existsSync(rpsSnapshotFile()), dailyData: existsSync(csvDir("1d")), saved: existsSync(snapshotFile("catalyst/latest")) };
   const file = snapshotFile("catalyst/latest");
@@ -171,6 +171,7 @@ export async function buildCatalystReport(options: { analyze?: boolean; dryRun?:
     model: process.env.DEEPSEEK_CATALYST_MODEL || process.env.DEEPSEEK_REVIEW_MODEL },
   { universe: loadCatalystUniverse, collect: collectCatalystSources, market: loadCatalystMarket, summarize: generateCatalystSummary });
   saveCatalystReport(report);
-  const reviewDigest = publishCatalystReviewDigest(report);
-  return { generatedAt: report.generatedAt, events: report.events.length, reactions: report.reactions.length, summary: report.summaryStatus, reviewDigest, sources: report.sources.map(s => ({ id: s.id, state: s.state, count: s.count })) };
+  const reviewDigest = publishCatalystReviewDigest(report, snapshotDir(), { refresh: options.refreshReviewDigest });
+  const analysisFailed = Boolean(options.analyze && catalystEvidence(report, new Date(report.generatedAt)).events.length && report.summaryStatus !== "ready");
+  return { generatedAt: report.generatedAt, events: report.events.length, reactions: report.reactions.length, summary: report.summaryStatus, analysisFailed, reviewDigest, sources: report.sources.map(s => ({ id: s.id, state: s.state, count: s.count })) };
 }

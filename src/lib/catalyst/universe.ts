@@ -16,8 +16,8 @@ import { readSnapshot } from "@/lib/vps/snapshot";
 import type { CatalystUniverse, EventInput, Relation, SourceHealth, UniverseSignal, UniverseSymbol } from "./types";
 
 const DAY = 86_400_000;
-const MAX_OPPORTUNITIES = 100;
-const MAX_SYMBOLS = 200;
+const MAX_OPPORTUNITIES = 250;
+const MAX_SYMBOLS = 250;
 const sectorIds = new Set<string>(SECTOR_UNIVERSE.map((sector) => sector.id));
 const tickerOf = (raw: unknown): string | null => {
   if (typeof raw !== "string") return null;
@@ -156,10 +156,10 @@ export async function loadCatalystUniverse(now: Date, loaders: CatalystUniverseL
     }
     dates.push(opportunity.asOf!.slice(0, 10));
     health.push({ id: "opportunity", label: "Opportunity 机会观察池", state: opportunity.missingSymbols?.length || selected.length > MAX_OPPORTUNITIES ? "partial" : "ok", checkedAt: observedAt, count: Math.min(selected.length, MAX_OPPORTUNITIES),
-      detail: `截至 ${opportunity.asOf}；采用候选、elite 或 RPS50 ≥ 80 的标的${selected.length > MAX_OPPORTUNITIES ? `；${selected.length} 只中保留优先级最高的 100 只` : ""}${opportunity.missingSymbols?.length ? `；${opportunity.missingSymbols.length} 个源标的缺失` : ""}。` });
+      detail: `截至 ${opportunity.asOf}；采用候选、elite 或 RPS50 ≥ 80 的标的${selected.length > MAX_OPPORTUNITIES ? `；${selected.length} 只中保留优先级最高的 ${MAX_OPPORTUNITIES} 只` : ""}${opportunity.missingSymbols?.length ? `；${opportunity.missingSymbols.length} 个源标的缺失` : ""}。` });
   } else health.push({ id: "opportunity", label: "Opportunity 机会观察池", state: "unavailable", checkedAt: observedAt, count: 0, detail: "机会快照缺失、读取失败或时间无效；不代表没有候选机会。" });
   const symbols = [...universe.values()].slice(0, MAX_SYMBOLS);
-  if (universe.size > MAX_SYMBOLS) health.push({ id: "universe-limit", label: "关联对象覆盖", state: "partial", checkedAt: observedAt, count: symbols.length, detail: `${universe.size} 只关联标的中保留 200 只；优先级为模型持仓、近期真实信号、机会池。` });
+  if (universe.size > MAX_SYMBOLS) health.push({ id: "universe-limit", label: "关联对象覆盖", state: "partial", checkedAt: observedAt, count: symbols.length, detail: `${universe.size} 只关联标的中保留 ${MAX_SYMBOLS} 只；优先级为模型持仓、近期真实信号、机会池。` });
   const included = new Set(symbols.map((row) => row.symbol));
   return { asOf: dates.sort().at(-1) ?? observedAt.slice(0, 10), observedAt, symbols,
     sectors: SECTOR_UNIVERSE.map((sector) => ({ id: sector.id, name: sector.name, etf: sector.symbol, leader: Boolean(opportunityReady && opportunity.leaders?.includes(sector.id)), ...(opportunityReady ? { asOf: opportunity.asOf!.slice(0, 10) } : {}) })),

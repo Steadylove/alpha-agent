@@ -35,7 +35,7 @@ function Tag({ item }: { item: CatalystBriefItem }) {
   return <span className={styles.tag} title={relationLabels[item.relation]}>{item.relation}<span className={styles.srOnly}> · {relationLabels[item.relation]}</span></span>;
 }
 function Capture({ digest }: { digest: CatalystReviewDigest }) {
-  return <p className={styles.capture}>{digest.reviewDate} 复盘补充 · 采于 <time dateTime={digest.capturedAt}>{timestamp(digest.capturedAt)}</time>（非原发布时间）</p>;
+  return <p className={styles.capture}>{digest.reviewDate} 复盘补充{(digest.revision ?? 1) > 1 ? ` · 第 ${digest.revision} 版` : ""} · 采于 <time dateTime={digest.capturedAt}>{timestamp(digest.capturedAt)}</time>（非原发布时间）{(digest.revision ?? 1) > 1 && " · 原复盘与此前版本已保留"}</p>;
 }
 function Coverage({ digest }: { digest: CatalystReviewDigest }) {
   return <span className={digest.status === "ready" ? styles.coverage : styles.warning}>{digest.status === "ready" ? "已覆盖来源" : digest.status === "partial" ? "部分覆盖" : "覆盖不可用"}</span>;
@@ -70,6 +70,7 @@ export function CatalystToday({ catalyst = missing }: { catalyst?: CatalystRevie
     {digest && <details className={styles.details}><summary>口径与覆盖{digest.warnings.length > 0 ? ` · ${digest.warnings.length} 项提示` : ""}</summary>
       <p>Price：该交易日 T0 收盘相对前收盘变化，包含公告前波动，不代表即时影响或因果。RPS Δ：同口径强度变化；“—”表示缺少可比数据。</p>
       <p>补充资料采集晚于原复盘，不代表原复盘发布时已知。</p>
+      {digest.supersedesCapturedAt && <p>本版补充替换了采于 {timestamp(digest.supersedesCapturedAt)} 的网页摘要；旧版完整留档，首次补充采于 {timestamp(digest.originalCapturedAt!)}。</p>}
       {!!digest.warnings.length && <ul>{digest.warnings.map((warning, index) => <li key={`${index}-${warning}`}>{warning}</li>)}</ul>}
     </details>}
   </section>;
