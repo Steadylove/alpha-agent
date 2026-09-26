@@ -2,7 +2,8 @@
 Description=Collect Catalyst events every 30 minutes, including weekends
 
 [Timer]
-OnCalendar=*-*-* *:00,30:00 Asia/Shanghai
+# Offset from the existing :30 daily and macro jobs, which acquire their locks non-blockingly.
+OnCalendar=*-*-* *:07,37:00 Asia/Shanghai
 Persistent=true
 AccuracySec=1min
 Unit=alpha-catalyst.service

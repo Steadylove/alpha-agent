@@ -7,7 +7,7 @@ const io = vi.hoisted(() => ({ snapshot: vi.fn(), base: vi.fn(), remote: vi.fn()
 vi.mock("@/lib/vps/snapshot", () => ({ readSnapshot: io.snapshot }));
 vi.mock("@/lib/backtest/marketStore", async (original) => ({ ...await original<typeof import("@/lib/backtest/marketStore")>(), marketBaseUrl: io.base }));
 vi.mock("@/lib/backtest/marketRemote", async (original) => ({ ...await original<typeof import("@/lib/backtest/marketRemote")>(), fetchMarketText: io.remote }));
-import { getCatalystPage } from "@/lib/catalyst/store";
+import { CATALYST_PAGE_BYTES, getCatalystPage, projectCatalystPage } from "@/lib/catalyst/store";
 
 const now = new Date("2026-09-25T20:30:00.000Z");
 const key = "secret-test-key";
@@ -132,6 +132,34 @@ describe("Catalyst bounded model request", () => {
 });
 
 describe("Catalyst read-only store", () => {
+  it("projects large archives into a bounded page, preserving citations and original source counts without writes", () => {
+    const value = report();
+    const hugeRelation = { kind: "market" as const, key: "k".repeat(350), label: "关联".repeat(120), asOf: "2026-09-25", observedAt: now.toISOString() };
+    value.events = Array.from({ length: 1200 }, (_, i) => ({ ...event(i.toString(16).padStart(24, "0")), excerpt: "事实".repeat(1000), firstRelations: Array(20).fill(hugeRelation), currentRelations: Array(20).fill(hugeRelation) }));
+    const cited = value.events.at(-1)!;
+    cited.eventDate = "2026-08-25"; cited.publishedAt = "2026-08-25T15:00:00.000Z";
+    value.summary = { generatedAt: now.toISOString(), model: "deepseek", inputHash: "f".repeat(64), sentences: [{ text: "保留这条摘要的来源。", eventIds: [cited.id] }] }; value.summaryStatus = "ready";
+    value.sources[0].count = 1200;
+    const before = JSON.stringify(value);
+    const page = projectCatalystPage(value);
+    expect(Buffer.byteLength(JSON.stringify(page), "utf8")).toBeLessThanOrEqual(CATALYST_PAGE_BYTES);
+    expect(page.events.length).toBeLessThanOrEqual(201);
+    expect(page.events.some(row => row.id === cited.id)).toBe(true);
+    expect(page.summary).toEqual(value.summary);
+    expect(page.sources[0].count).toBe(1200);
+    expect(page.warnings.join(" ")).toContain("完整留档保留在后台");
+    expect(JSON.stringify(value)).toBe(before);
+  });
+  it("keeps the seven-session range and at most 40 future dates, with date-only boundary inclusion", () => {
+    const value = report(); value.sessions = ["2026-09-17", "2026-09-18", "2026-09-21", "2026-09-22", "2026-09-23", "2026-09-24", "2026-09-25"];
+    const tooOld = { ...event("b".repeat(24)), eventDate: "2026-09-16", publishedAt: "2026-09-16T14:00:00.000Z" };
+    const future = Array.from({ length: 60 }, (_, i) => ({ ...event(i.toString(16).padStart(24, "0")), status: "scheduled" as const, eventDate: "2026-09-28", publishedAt: null, eventAt: null, timePrecision: "date" as const }));
+    value.events = [event(), tooOld, ...future];
+    const page = projectCatalystPage(value);
+    expect(page.events.filter(row => row.status === "scheduled")).toHaveLength(40);
+    expect(page.events.some(row => row.id === tooOld.id)).toBe(false);
+    expect(page.events.some(row => row.id === "a".repeat(24))).toBe(true);
+  });
   it("reads an existing archive without any model call and marks an old collection stale", async () => {
     io.snapshot.mockResolvedValue(report());
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("unexpected network"));

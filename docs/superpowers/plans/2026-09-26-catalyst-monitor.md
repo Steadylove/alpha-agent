@@ -11,6 +11,7 @@
 ## Boundaries
 
 - Preserve all existing strategy, scoring, signal journal, model-account and review behavior.
+- Schedule the independent collector at :07/:37 each hour (Asia/Shanghai), avoiding the original :30 non-blocking daily/macro lock attempts; cap collection at 10 minutes. Daily AI remains 08:55 with a bounded lock wait.
 - Initial calendar coverage: BLS, BEA, FOMC; company news: Alpaca, SEC filings; optional FMP earnings calendar. Failed/disabled sources remain visible.
 - Store publication, planned occurrence, first discovery and revision times separately. Missing clock times stay unknown; scheduled events never become known results merely because their time passed.
 - Reactions use previous regular-session close as an explicitly labelled daily-window baseline. Intraday news can include pre-announcement movement; no minute-immediate claim. After-close publication anchors to the next session. MFE/MAE exclude T0.
@@ -47,4 +48,4 @@ Acceptance: no missing source represented as no events; no future observation us
 - `VERCEL=1 npm run build` passed (standard production mode; local live RPS regeneration needs Alpaca credentials and is outside this module).
 - Real VPS seed loaded company news, BEA/FOMC schedules and daily reaction values. BLS returned 403; FMP and SEC lack configuration and remain visibly unavailable/disabled.
 - Independent Chrome desktop/mobile smoke: events expand 12→24, changing filters resets to 12, no horizontal mobile overflow and no browser errors.
-- Release verification: Vercel deployed the module; both independent systemd timers enabled. Real snapshot contains 279 events, 2H/4H holdings are connected, and DeepSeek commentary passed validation. Public HTTP and saved-summary checks passed. Next collection: 2026-09-26 15:30 CST; next scheduled analysis: 2026-09-27 08:55 CST.
+- Release verification: Vercel deployed the module; both independent systemd timers enabled. Real snapshot contains 279 events, 2H/4H holdings are connected, and DeepSeek commentary passed validation. Public HTTP and saved-summary checks passed. Collection now runs at :07/:37 every hour (CST); verify the next actual run with `systemctl list-timers alpha-catalyst.timer`. Next scheduled analysis: 2026-09-27 08:55 CST.

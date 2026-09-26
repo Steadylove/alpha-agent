@@ -19,6 +19,18 @@ function setup(lockBusy = false) {
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
 describe("independent Catalyst cron", () => {
+  it("schedules collection at :07/:37 with time to finish before existing :30 jobs", () => {
+    const folder = path.resolve("deploy/market-http/cron");
+    const timer = readFileSync(path.join(folder, "alpha-catalyst.timer"), "utf8");
+    expect(timer).toContain("OnCalendar=*-*-* *:07,37:00 Asia/Shanghai");
+    const minutes = timer.match(/OnCalendar=\*-\*-\* \*:(\d{2}),(\d{2}):00/)!.slice(1).map(Number);
+    const timeoutSeconds = Number(readFileSync(path.join(folder, "alpha-catalyst.service"), "utf8").match(/^TimeoutStartSec=(\d+)$/m)![1]);
+    for (const original of ["alpha-daily-quant.timer", "alpha-review-macro.timer"]) {
+      const protectedMinute = Number(readFileSync(path.join(folder, original), "utf8").match(/OnCalendar=.* \d{2}:(\d{2}):00/)![1]);
+      for (const minute of minutes) expect((protectedMinute - minute + 60) % 60).toBeGreaterThan(timeoutSeconds / 60 + 1);
+    }
+    expect(readFileSync(path.join(folder, "alpha-catalyst-analysis.timer"), "utf8")).toContain("OnCalendar=*-*-* 08:55:00 Asia/Shanghai");
+  });
   it("runs only the isolated bundle with deployed market, journal and live-book paths", () => {
     const { root, run } = setup(); const result = run();
     expect(result.status, result.stderr).toBe(0);
