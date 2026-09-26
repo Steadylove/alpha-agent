@@ -27,7 +27,7 @@
 - [x] Root: `src/lib/catalyst/store.ts`, `build.ts`, `summary.ts`, `scripts/build-catalyst.ts`, `tests/catalystBuild.test.ts` — locking, bounded retention, immutable run snapshots, atomic latest publication, idempotence, independently failing sources, cited AI summary cached on evidence hash. Only CLI collects/generates.
 - [x] UI workstream: `src/app/catalyst/page.tsx`, `src/components/catalyst/CatalystMonitor.tsx`, `catalyst.module.css`, `src/components/SiteNav.tsx`, `tests/catalystUi.test.ts` — responsive independent page, 72h calendar, relevant recent events, reaction table, universe/category/importance/range filters, evidence links and freshness states. No mock production data.
 - [x] Root: `package.json`, `.env.example`, `deploy/market-http/cron/alpha-catalyst*`, `docs/catalyst-monitor.md` — standalone collector/service schedule and documented manual generation. Do not execute existing message-delivery jobs.
-- [ ] Integration: run catalyst fixtures plus existing review/strategy regressions, lint touched files, typecheck, production build, local HTTP/mobile rendering where tools allow. Probe live provider access without exposing credentials. Seed a real snapshot, verify source health and source URLs, deploy the isolated job/page and verify public HTTP.
+- [x] Integration: run catalyst fixtures plus existing review/strategy regressions, lint touched files, typecheck, production build, local HTTP/mobile rendering where tools allow. Probe live provider access without exposing credentials. Seed a real snapshot, verify source health and source URLs, deploy the isolated job/page and verify public HTTP.
 
 ## Verification commands
 
@@ -47,4 +47,4 @@ Acceptance: no missing source represented as no events; no future observation us
 - `VERCEL=1 npm run build` passed (standard production mode; local live RPS regeneration needs Alpaca credentials and is outside this module).
 - Real VPS seed loaded company news, BEA/FOMC schedules and daily reaction values. BLS returned 403; FMP and SEC lack configuration and remain visibly unavailable/disabled.
 - Independent Chrome desktop/mobile smoke: events expand 12→24, changing filters resets to 12, no horizontal mobile overflow and no browser errors.
-- Release verification: deploy the saved page and standalone timers, then check public HTTP and next timer runs.
+- Release verification: Vercel deployed the module; both independent systemd timers enabled. Real snapshot contains 279 events, 2H/4H holdings are connected, and DeepSeek commentary passed validation. Public HTTP and saved-summary checks passed. Next collection: 2026-09-26 15:30 CST; next scheduled analysis: 2026-09-27 08:55 CST.

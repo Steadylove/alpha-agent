@@ -9,7 +9,7 @@ export const CATALYST_PROMPT = `你是 Catalyst Monitor 的事件研究编辑。
 只陈述事实、相关对象和下一步可观察的变化。不预测涨跌，不给买卖/仓位/止损指令，不把先后关系写成因果，不把模型持仓说成用户实盘。
 不得自行计算百分比或填补缺失数据。新闻标题中的第三方预测只能明确归属于原来源，不能当作系统结论。
 日线反应包含公告前波动；T0及之后变化不等于即时公告效果。backfilled=true是事后补采，不能称当时已发现。
-每句话必须引用对应事件 id。输出且只输出 JSON：{"sentences":[{"text":"观察句","eventIds":["已提供的id"]}]}。不得返回Markdown、密钥或推理过程。`;
+每句话必须在eventIds数组引用对应事件 id；text正文不得书写这些内部编号。输出且只输出 JSON：{"sentences":[{"text":"观察句","eventIds":["已提供的id"]}]}。不得返回Markdown、密钥或推理过程。`;
 
 const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 
