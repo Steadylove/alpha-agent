@@ -1,0 +1,16 @@
+[Unit]
+Description=Alpha Agent independent Catalyst event collection
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=-/var/lib/alpha-agent/daily-quant.env
+Environment=TZ=Asia/Shanghai
+ExecStart=/var/lib/alpha-agent/bin/alpha-catalyst.sh
+WorkingDirectory=/var/lib/alpha-agent
+Nice=10
+TimeoutStartSec=600
+StandardOutput=append:/var/lib/alpha-agent/logs/catalyst.log
+StandardError=append:/var/lib/alpha-agent/logs/catalyst.log

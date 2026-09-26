@@ -5,6 +5,7 @@ import { Select } from "@mantine/core";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Bell,
+  CalendarDays,
   FlaskConical,
   Layers,
   LayoutDashboard,
@@ -20,6 +21,7 @@ const primaryNav = [
   { href: "/fund", label: "资金账本", icon: Wallet },
   { href: "/opportunity", label: "机会", icon: Layers },
   { href: "/flow", label: "期权流研究", icon: ScanLine },
+  { href: "/catalyst", label: "事件观察", icon: CalendarDays },
   { href: "/lab", label: "调参实验室", icon: FlaskConical },
   { href: "/push", label: "推送", icon: Bell },
 ];

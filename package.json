@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "catalyst:build": "npx --yes tsx scripts/build-catalyst.ts",
+    "catalyst:bundle": "node scripts/bundle-catalyst.mjs",
     "review:analysis": "npx --yes tsx scripts/build-review-analysis.ts",
     "review:cards": "npx --yes tsx scripts/push-review-cards.ts",
     "review:cards:bundle": "node scripts/bundle-review-cards.mjs",

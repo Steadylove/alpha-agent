@@ -1,0 +1,35 @@
+export const CATALYST_VERSION = 1 as const;
+export const EVENT_TYPES = ["Macro", "Earnings", "Guidance", "Corporate", "Product", "Regulatory", "Legal", "M&A", "Capital / Financing", "Industry", "Conference", "FDA / Clinical", "Dividend", "Buyback", "Lock-up", "Other"] as const;
+export type EventType = typeof EVENT_TYPES[number];
+export type Importance = "high" | "medium" | "low";
+export type SourceHealth = { id: string; label: string; state: "ok" | "partial" | "unavailable" | "disabled"; checkedAt: string; count: number; detail: string };
+export type EventInput = {
+  provider: string; externalId: string; sourceName: string; sourceUrl: string;
+  title: string; excerpt: string; type: EventType; importance: Importance;
+  symbols: string[]; sectorIds: string[]; scope: "stock" | "sector" | "market";
+  publishedAt: string | null; eventAt: string | null; eventDate: string;
+  timePrecision: "minute" | "session" | "date" | "unknown";
+  session: "pre" | "regular" | "after" | "closed" | "unknown";
+  timing: "confirmed" | "estimated" | "unknown";
+  status: "scheduled" | "published" | "cancelled";
+  sourceUpdatedAt: string | null;
+};
+export type Relation = { kind: "portfolio" | "signal" | "opportunity" | "sector" | "market"; key: string; label: string; tf?: "2h" | "4h"; asOf: string; observedAt: string };
+export type UniverseSymbol = { symbol: string; name: string; sectorId: string | null; industry: string | null; relations: Relation[] };
+export type UniverseSignal = { id: string; symbol: string; tf: "2h" | "4h"; event: "buy" | "sell"; signalTime: string; capturedAt: string };
+export type CatalystUniverse = { asOf: string; observedAt: string; symbols: UniverseSymbol[]; sectors: { id: string; name: string; etf: string; leader: boolean; asOf?: string }[]; signals: UniverseSignal[]; health: SourceHealth[] };
+export type CatalystEvent = EventInput & { id: string; firstSeenAt: string; lastSeenAt: string; revision: number; backfilled: boolean; firstRelations: Relation[]; currentRelations: Relation[]; relatedSourceUrls: string[] };
+export type Observation = { date: string | null; value: number | null; status: "ready" | "pending" | "missing" | "unavailable" };
+export type EventReaction = {
+  eventId: string; symbol: string; asOf: string; anchorDate: string | null;
+  baseline: { date: string; close: number } | null;
+  basis: string;
+  price: { t0: Observation; t1: Observation; t3: Observation; t5: Observation };
+  rps: { metric: "composite-daily-sp500-v1"; before: Observation; after: Observation };
+  sector: { metric: "sector-etf-20d-excess-spy-v1"; etf: string | null; before: Observation; after: Observation };
+  mfe: Observation; mae: Observation; signalsAfter: UniverseSignal[];
+};
+export type CatalystSummary = { generatedAt: string; inputHash: string; model: string; sentences: { text: string; eventIds: string[] }[] };
+export type CatalystReport = { version: 1; generatedAt: string; asOf: string; sessions: string[]; universe: CatalystUniverse; sources: SourceHealth[]; events: CatalystEvent[]; reactions: EventReaction[]; summary: CatalystSummary | null; summaryStatus: "ready" | "stale" | "unavailable" | "not-requested"; warnings: string[] };
+export type CatalystPageData = { report: CatalystReport | null; error: string | null; stale: boolean };
+export type ProviderResult = { events: EventInput[]; health: SourceHealth };

@@ -1,0 +1,11 @@
+[Unit]
+Description=Collect Catalyst events every 30 minutes, including weekends
+
+[Timer]
+OnCalendar=*-*-* *:00,30:00 Asia/Shanghai
+Persistent=true
+AccuracySec=1min
+Unit=alpha-catalyst.service
+
+[Install]
+WantedBy=timers.target

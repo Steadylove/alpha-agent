@@ -1,0 +1,48 @@
+import { afterEach, describe, expect, it } from "vitest";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
+
+const script = path.resolve("deploy/market-http/cron/alpha-catalyst.sh");
+const dirs: string[] = [];
+function setup(lockBusy = false) {
+  const root = mkdtempSync(path.join(os.tmpdir(), "catalyst-cron-")); dirs.push(root);
+  for (const dir of ["bin", "repo", "market-http"]) mkdirSync(path.join(root, dir));
+  writeFileSync(path.join(root, "daily-quant.env"), 'VERCEL=1\nMARKET_DATA_BASE_URL="https://remote.invalid"\nMARKET_DATA_DIR="/wrong"\nSIGNAL_JOURNAL_DIR="/wrong"\nLIVE_BOOKS_PATH="/wrong/live-books.json"\n');
+  writeFileSync(path.join(root, "bin/flock"), `#!/usr/bin/env bash\nprintf '%s\\n' "$*" > "$ALPHA_ROOT/flock-args.txt"\nexit ${lockBusy ? 1 : 0}\n`);
+  chmodSync(path.join(root, "bin/flock"), 0o755);
+  writeFileSync(path.join(root, "market-http/catalyst.mjs"), `import fs from 'node:fs'; fs.writeFileSync(process.env.ALPHA_ROOT+'/called.json',JSON.stringify({args:process.argv.slice(2),cwd:process.cwd(),market:process.env.MARKET_DATA_DIR,journal:process.env.SIGNAL_JOURNAL_DIR,books:process.env.LIVE_BOOKS_PATH,base:process.env.MARKET_DATA_BASE_URL,vercel:process.env.VERCEL??null,tz:process.env.TZ}));`);
+  const run = (args: string[] = []) => spawnSync("bash", [script, ...args], { encoding: "utf8", env: { ...process.env, ALPHA_ROOT: root, PATH: `${path.join(root, "bin")}:${process.env.PATH}` } });
+  return { root, run };
+}
+afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
+
+describe("independent Catalyst cron", () => {
+  it("runs only the isolated bundle with deployed market, journal and live-book paths", () => {
+    const { root, run } = setup(); const result = run();
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(readFileSync(path.join(root, "called.json"), "utf8"))).toEqual({ args: [], cwd: realpathSync(`${root}/repo`), market: `${root}/market`, journal: `${root}/desk`, books: `${root}/desk/live-books.json`, base: "", vercel: null, tz: "Asia/Shanghai" });
+    expect(readFileSync(path.join(root, "flock-args.txt"), "utf8").trim()).toBe("-n 9");
+    expect(existsSync(path.join(root, "daily-quant.lock"))).toBe(true);
+  });
+  it("skips collection while the daily data writer holds the shared lock", () => {
+    const { root, run } = setup(true); const result = run();
+    expect(result.status).toBe(0); expect(existsSync(path.join(root, "called.json"))).toBe(false);
+    expect(result.stdout).toContain("本轮采集跳过");
+  });
+  it("waits for the shared lock before analysis, passes --analyze and fails visibly on wait expiry", () => {
+    const normal = setup(); expect(normal.run(["--analyze"]).status).toBe(0);
+    expect(JSON.parse(readFileSync(path.join(normal.root, "called.json"), "utf8")).args).toEqual(["--analyze"]);
+    expect(readFileSync(path.join(normal.root, "flock-args.txt"), "utf8").trim()).toBe("-w 1800 9");
+    const busy = setup(true); const failed = busy.run(["--analyze"]);
+    expect(failed.status).toBe(1); expect(existsSync(path.join(busy.root, "called.json"))).toBe(false);
+    expect(failed.stderr).toContain("未生成新分析");
+  });
+  it("rejects unsupported arguments before creating or calling anything", () => {
+    const { root, run } = setup();
+    expect(run(["--send"]).status).toBe(2);
+    expect(existsSync(path.join(root, "called.json"))).toBe(false);
+    expect(existsSync(path.join(root, "flock-args.txt"))).toBe(false);
+  });
+});

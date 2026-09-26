@@ -1,0 +1,11 @@
+[Unit]
+Description=Generate Catalyst commentary daily at 08:55 Beijing time
+
+[Timer]
+OnCalendar=*-*-* 08:55:00 Asia/Shanghai
+Persistent=true
+AccuracySec=1min
+Unit=alpha-catalyst-analysis.service
+
+[Install]
+WantedBy=timers.target
