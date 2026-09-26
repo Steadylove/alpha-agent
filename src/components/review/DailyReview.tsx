@@ -32,6 +32,8 @@ import { OptionsSignalStudy, FrozenSignalOptions } from "./OptionsSignalStudy";
 import { MarketStatePanel, contextLabel } from "./MarketStatePanel";
 import { AnalystNote } from "./AnalystNote";
 import type { AnalysisView } from "@/lib/review/analysis/types";
+import { CatalystToday } from "./CatalystBrief";
+import type { CatalystReviewView } from "@/lib/catalyst/reviewDigest";
 
 const number = (v: number | null | undefined, digits = 2) =>
   v == null
@@ -845,12 +847,14 @@ export function DailyReview({
   journal,
   error,
   analysis = { report: null, status: "missing" },
+  catalyst = { digest: null, status: "missing" },
 }: {
   review: Review | null;
   dates: string[];
   journal: JournalSignal[];
   error: string | null;
   analysis?: AnalysisView;
+  catalyst?: CatalystReviewView;
 }) {
   return (
     <div className={styles.review}>
@@ -883,6 +887,7 @@ export function DailyReview({
           <nav className={styles.anchors} aria-label="复盘章节">
             {[
               ["market", "市场状态"],
+              ["catalyst-today", "事件线索"],
               ["options", "Options map"],
               ["sectors", "板块强度"],
               ["signals", "买点"],
@@ -897,6 +902,7 @@ export function DailyReview({
             ))}
           </nav>
           <MarketStatePanel review={r} />
+          <CatalystToday catalyst={catalyst} />
           <Section
             id="options"
             n="02"
@@ -967,7 +973,7 @@ export function DailyReview({
             title="Tomorrow map"
             subtitle="从今日变化中，提取下一交易日值得继续观察的事。"
           >
-            <TomorrowMap review={r} />
+            <TomorrowMap review={r} catalyst={catalyst} />
           </Section>
           <Section
             id="analysis"

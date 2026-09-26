@@ -15,6 +15,7 @@ import { etDay, eventTier, fingerprint, mergeCatalystEvents, parseCatalystReport
 import { calculateReaction, type ReactionInputs } from "./reaction";
 import { catalystEvidence, generateCatalystSummary } from "./summary";
 import type { CatalystEvent, CatalystReport, CatalystUniverse, ProviderResult, SourceHealth } from "./types";
+import { publishCatalystReviewDigest } from "./reviewDigestStore";
 
 const calendarSchema = z.object({ checkedAt: z.iso.datetime(), sessions: z.array(z.string().refine(validDay)).min(30), closes: z.record(z.string(), z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/)) })
   .refine(value => value.sessions.every(day => value.closes[day] != null));
@@ -170,5 +171,6 @@ export async function buildCatalystReport(options: { analyze?: boolean; dryRun?:
     model: process.env.DEEPSEEK_CATALYST_MODEL || process.env.DEEPSEEK_REVIEW_MODEL },
   { universe: loadCatalystUniverse, collect: collectCatalystSources, market: loadCatalystMarket, summarize: generateCatalystSummary });
   saveCatalystReport(report);
-  return { generatedAt: report.generatedAt, events: report.events.length, reactions: report.reactions.length, summary: report.summaryStatus, sources: report.sources.map(s => ({ id: s.id, state: s.state, count: s.count })) };
+  const reviewDigest = publishCatalystReviewDigest(report);
+  return { generatedAt: report.generatedAt, events: report.events.length, reactions: report.reactions.length, summary: report.summaryStatus, reviewDigest, sources: report.sources.map(s => ({ id: s.id, state: s.state, count: s.count })) };
 }

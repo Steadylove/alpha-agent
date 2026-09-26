@@ -33,8 +33,8 @@ async function main() {
   }
   try {
     writeFileSync(fd, String(process.pid));
-    await buildCatalystReport(options);
-    console.log(JSON.stringify({ ok: true, dryRun: false, analyze: options.analyze }));
+    const result = await buildCatalystReport(options);
+    console.log(JSON.stringify({ ok: true, dryRun: false, analyze: options.analyze, reviewDigest: "reviewDigest" in result ? result.reviewDigest : undefined }));
   } finally {
     closeSync(fd);
     unlinkSync(lockFile);

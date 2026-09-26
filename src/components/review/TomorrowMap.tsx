@@ -5,6 +5,8 @@ import { Disclosure } from "@/components/Disclosure";
 import type { DailyReview } from "@/lib/review/types";
 import { SIGNAL_LABELS, STRENGTH_LABELS } from "@/lib/review/followup";
 import type { WatchEvent } from "@/lib/review/tomorrow";
+import type { CatalystReviewView } from "@/lib/catalyst/reviewDigest";
+import { CatalystTomorrow } from "./CatalystBrief";
 import styles from "./tomorrow.module.css";
 
 const dateTime = (value: string) =>
@@ -38,10 +40,10 @@ function Changes({ events, title }: { events: WatchEvent[]; title: string }) {
   );
 }
 
-export function TomorrowMap({ review }: { review: DailyReview }) {
+export function TomorrowMap({ review, catalyst = { status: "missing", digest: null } }: { review: DailyReview; catalyst?: CatalystReviewView }) {
   const map = review.tomorrow;
   if (!map)
-    return <p className={styles.empty}>等待收盘任务生成下一交易日观察清单。</p>;
+    return <><p className={styles.empty}>等待收盘任务生成下一交易日观察清单。</p><CatalystTomorrow catalyst={catalyst} /></>;
   return (
     <div className={styles.root}>
       <div className={styles.dateline}>
@@ -90,6 +92,7 @@ export function TomorrowMap({ review }: { review: DailyReview }) {
           </p>
         )}
       </div>
+      <CatalystTomorrow catalyst={catalyst} />
       {review.followup && (
         <Disclosure className={styles.details} title={<>
             信号与模型持仓的每日跟踪 · {review.followup.rows.length} 条
