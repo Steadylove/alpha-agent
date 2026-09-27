@@ -247,7 +247,7 @@ describe("analysis output and archive validation", () => {
 
   it("requires two concise paragraphs with the essential evidence and inference boundaries", () => {
     expect(parseAnalysisOutput(output(), evidence())).toEqual(output());
-    expect(PROMPT_VERSION).toBe("review-intelligence-prompt-v3.1");
+    expect(PROMPT_VERSION).toBe("review-intelligence-prompt-v3.2");
     for (const boundary of [
       "跨模块关联分析、理解事实之间的关系", "关键变化、尚未确认的环节、对系统的意义",
       "Trend Adaptive 是唯一主交易系统", "Market State、Gamma、Breadth、Sector、Signal、Account 是主要判断依据",
