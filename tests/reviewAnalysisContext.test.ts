@@ -54,3 +54,13 @@ it("AI prose edits do not invalidate facts, while raw evidence revisions do", ()
   revision.highlights = revision.observations;
   expect(analysisHash(appendContextEvidence(evidence(), revision, now))).not.toBe(hash);
 });
+
+it("normalizes valid microsecond relay timestamps at the analysis boundary while retaining the source value", () => {
+  const raw = context();
+  raw.observations[0].flows[0].postedAt = "2026-09-25T15:15:41.234000+00:00";
+  raw.highlights = raw.observations;
+  const packet = parseAnalysisEvidence(appendContextEvidence(evidence(), raw, now));
+  const flow = packet.facts.find(row => row.id === "context.AMD.flow.0")!;
+  expect(flow.asOf).toBe("2026-09-25T15:15:41.234Z");
+  expect(String(flow.value)).toContain("2026-09-25T15:15:41.234000+00:00");
+});

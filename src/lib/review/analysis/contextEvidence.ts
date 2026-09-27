@@ -14,7 +14,9 @@ export function appendContextEvidence(evidence: AnalysisEvidence, raw: unknown, 
   const facts: AnalysisFact[] = [];
   const add = (id: string, label: string, value: AnalysisFact["value"], asOf: string | null = null,
     status: AnalysisFact["status"] = "current", note = NOTE, groups = ["context-sample"]) => {
-    facts.push({ id: `context.${id}`, section: "context", label, value, unit: "说明", asOf,
+    // Discord/Python archives can carry microseconds; keep original values in the record itself.
+    const observedAt = asOf && /(?:Z|[+-]\d{2}:\d{2})$/.test(asOf) && Number.isFinite(Date.parse(asOf)) ? new Date(asOf).toISOString() : asOf;
+    facts.push({ id: `context.${id}`, section: "context", label, value, unit: "说明", asOf: observedAt,
       basis: "auxiliary-saved-observation", status, source: `Context/${evidence.date}`, groups, note });
   };
   add("availability", "Event / Flow 辅助证据可用性", report ? "同日期 Context 原始记录可用，覆盖仍不完整" : "同日期 Context 不可用，无法判断事件与期权流共现关系", report?.asOf ?? null, report ? "current" : "missing");
