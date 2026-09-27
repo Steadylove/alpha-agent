@@ -102,6 +102,9 @@ describe("Context model evidence boundaries", () => {
     await expect(generateContextSummary(report, { ...options, fetchImpl: fetchSummary("AMD 有事件报道。", ["event:invented"]) })).rejects.toThrow();
     await expect(generateContextSummary(report, { ...options, fetchImpl: fetchSummary("事件导致期权资金买入，建议立即加仓。", [ref]) })).rejects.toThrow();
     await expect(generateContextSummary(report, { ...options, fetchImpl: fetchSummary("不能证明风险但建议立即买入AMD", [ref]) })).rejects.toThrow();
+    await expect(generateContextSummary(report, { ...options, fetchImpl: fetchSummary("AMD未发现期权流记录。", [ref]) })).rejects.toThrow();
+    await expect(generateContextSummary(report, { ...options, fetchImpl: fetchSummary("AMD同日记录到2H和4H模型持仓快照。", [ref]) })).rejects.toThrow();
+    await expect(generateContextSummary(report, { ...options, fetchImpl: fetchSummary("本次已保存的部分样本未收录相关记录，覆盖仍不完整。", [ref]) })).resolves.toMatchObject({ inputHash: contextEvidenceHash(report) });
     await expect(generateContextSummary(report, { ...options, fetchImpl: fetchSummary("事件与期权流的先后关系不能证明因果。", [ref]) })).resolves.toMatchObject({ inputHash: contextEvidenceHash(report) });
   });
   it("keeps observations usable when model is missing or fails", async () => {

@@ -54,7 +54,11 @@ Files: Context components and `/context/[symbol]`, `FlowResearchBoard.tsx`, `Cat
 ## Task 5 — Verification and rollout
 
 - [x] Run targeted Vitest suites, TypeScript, changed-file ESLint and production build; check no signal/score/trading files changed.
-- [ ] Commit only task files (exclude pre-existing `output/`), push main, deploy independent bundles and run data-only collection/analysis.
-- [ ] Verify server health, saved context and public UI; confirm original Daily Review checksum and no message-sending test invocation.
+- [x] Commit only task files (exclude pre-existing `output/`), push main, deploy independent bundles and run data-only collection/analysis.
+- [x] Verify server health, saved context and public UI; confirm original Daily Review checksum and no message-sending test invocation.
 
 Commands: `npm test -- tests/context*.test.ts tests/catalyst*.test.ts tests/option-flow*.test.ts`; `npm run typecheck`; `git diff --check`; `VERCEL=1 npm run build`.
+
+## Validation record
+
+2026-09-27: 317 related tests, TypeScript, changed-file ESLint and production build passed. Desktop/mobile smoke passed locally and on production. Server Context contains 100 bounded observations and three homepage items; DeepSeek output is saved. Original 2026-09-25 Daily Review SHA256 remained `370962d81ed5488a888b3137b96271bf533dc265f250aca3eb8d3d805210f718`. First live-output review tightened the prompt and guard to require explicit sample scope for missing Flow and distinguish portfolio snapshot dates from observation time.

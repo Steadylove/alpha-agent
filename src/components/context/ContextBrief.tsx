@@ -13,6 +13,14 @@ function FlowRead({ observation }: { observation: ContextObservation }) {
   </>;
 }
 
+function EventRead({ observation }: { observation: ContextObservation }) {
+  const pair = observation.associations.find(item => item.window === "short");
+  const event = observation.events.find(item => item.id === pair?.eventId) ?? observation.events[0];
+  return <><p>{event?.title ?? "已覆盖来源未收录相关事件，不能据此认定没有事件。"}</p>
+    {event && <small>{event.eventDate}{pair ? " · 短窗内匹配的事件" : " · 来源事件日期"}</small>}
+    {observation.events.length > 1 && <small>另有 {observation.events.length - 1} 条已收录事件</small>}</>;
+}
+
 /** Frozen supplement: rendering never collects events, invokes a model, or changes signals. */
 export function ContextBrief({ report }: { report: ContextReport }) {
   return <section id="catalyst-today" className={s.brief} aria-labelledby="context-today-title">
@@ -24,7 +32,7 @@ export function ContextBrief({ report }: { report: ContextReport }) {
     {report.highlights.length > 0 ? <ol className={s.briefList}>{report.highlights.slice(0, 3).map(observation => <li key={observation.symbol}>
       <div className={s.itemMeta}><a className={s.link} href={contextHref(observation.symbol, report.asOf)}><strong>{observation.symbol}</strong> · 查看完整 Context ↗</a><span>{observation.stateLabel}</span></div>
       <div className={s.briefTracks}>
-        <div><h3>EVENT · 现实事件</h3><p>{observation.events[0]?.title ?? "已覆盖来源未收录相关事件，不能据此认定没有事件。"}</p>{observation.events.length > 1 && <small>另有 {observation.events.length - 1} 条已收录事件</small>}</div>
+        <div><h3>EVENT · 现实事件</h3><EventRead observation={observation} /></div>
         <div><h3>OPTIONS FLOW · 异常流</h3><FlowRead observation={observation} /></div>
         <div><h3>TREND · 系统观察</h3><p>{observation.trend.label}</p><small>{observation.trend.rps ? `RPS ${contextNumber(observation.trend.rps.value)} · ${observation.trend.rps.asOf}` : "RPS 同日数据待确认"}{observation.trend.holdings.length ? " · 关联当前模型持仓快照" : ""}</small></div>
       </div>
