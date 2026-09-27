@@ -11,7 +11,7 @@ import {
 
 export const DEFAULT_ANALYSIS_MODEL = "deepseek-v4-pro";
 const DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions";
-const MAX_TOKENS = 8_000;
+const MAX_TOKENS = 16_000;
 const MAX_RESPONSE_BYTES = 1_000_000;
 const MAX_EVIDENCE_CHARS = 500_000;
 const REQUIRED_SECTIONS = ["market", "options", "sectors", "signals", "accounts", "journal", "tomorrow"] as const;
@@ -182,7 +182,7 @@ export async function generateAnalysis(
   if (!apiKey || /[\r\n]/.test(apiKey)) throw new Error("未配置有效的 DeepSeek API 密钥");
   const model = modelSchema.safeParse(options.model ?? DEFAULT_ANALYSIS_MODEL);
   if (!model.success) throw new Error("DeepSeek 模型配置无效");
-  const signal = AbortSignal.timeout(150_000);
+  const signal = AbortSignal.timeout(240_000);
   let response: Response;
   try {
     response = await (options.fetchImpl ?? fetch)(DEEPSEEK_URL, {
@@ -190,10 +190,9 @@ export async function generateAnalysis(
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
         model: model.data,
-        // This bounded evidence narration needs the token budget for final JSON, not hidden reasoning.
-        thinking: { type: "disabled" },
-        reasoning_effort: "none",
-        temperature: 0.2,
+        // Cross-module inference needs reasoning; only validated final prose leaves this function.
+        thinking: { type: "enabled" },
+        reasoning_effort: "high",
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: ANALYSIS_SYSTEM_PROMPT },

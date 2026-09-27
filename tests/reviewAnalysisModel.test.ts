@@ -64,7 +64,7 @@ const response = (content: unknown = JSON.stringify(output()), finish = "stop") 
 afterEach(() => vi.restoreAllMocks());
 
 describe("DeepSeek independent review request", () => {
-  it("reserves the bounded request budget for final JSON and returns only validated output", async () => {
+  it("uses bounded reasoning for cross-module analysis and returns only validated final output", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response());
     const timeout = vi.spyOn(AbortSignal, "timeout");
     const result = await generateAnalysis(evidence(), { apiKey: "secret-test-key", fetchImpl });
@@ -72,10 +72,11 @@ describe("DeepSeek independent review request", () => {
     const [url, init] = fetchImpl.mock.calls[0];
     expect(url).toBe("https://api.deepseek.com/v1/chat/completions");
     expect(init).toMatchObject({ method: "POST", cache: "no-store", headers: { Authorization: "Bearer secret-test-key" } });
-    expect(timeout).toHaveBeenCalledWith(150_000);
+    expect(timeout).toHaveBeenCalledWith(240_000);
     const body = JSON.parse(String(init!.body));
-    expect(body).toMatchObject({ model: "deepseek-v4-pro", thinking: { type: "disabled" }, reasoning_effort: "none", temperature: 0.2,
-      response_format: { type: "json_object" }, max_tokens: 8_000, stream: false });
+    expect(body).toMatchObject({ model: "deepseek-v4-pro", thinking: { type: "enabled" }, reasoning_effort: "high",
+      response_format: { type: "json_object" }, max_tokens: 16_000, stream: false });
+    expect(body).not.toHaveProperty("temperature");
     expect(body.messages[0].content).toBe(ANALYSIS_SYSTEM_PROMPT);
     expect(body.messages[1].content).toContain("UNTRUSTED_EVIDENCE");
     expect(body.messages[1].content).not.toContain("secret-test-key");
@@ -242,7 +243,7 @@ describe("analysis output and archive validation", () => {
     data.marketRead.text = "证据不足，无法判断。";
     data.validationPoints = [];
     expect(parseAnalysisOutput(data, evidence())).toEqual(data);
-    expect(PROMPT_VERSION).toBe("review-intelligence-prompt-v2.1");
+    expect(PROMPT_VERSION).toBe("review-intelligence-prompt-v2.2");
     expect(ANALYSIS_SYSTEM_PROMPT).toContain("Trend Adaptive System 的 Market Intelligence Analyst");
     expect(ANALYSIS_SYSTEM_PROMPT).toContain("跨模块关联分析、理解事实之间的关系");
     expect(ANALYSIS_SYSTEM_PROMPT).toContain("未归因残差");
