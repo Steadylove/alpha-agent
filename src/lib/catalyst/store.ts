@@ -31,7 +31,7 @@ export function projectCatalystPage(report: CatalystReport): CatalystReport {
   }).sort(rank).slice(0, 40);
   const required = new Set(report.summaryStatus === "ready" ? report.summary?.sentences.flatMap(sentence => sentence.eventIds) ?? [] : []);
   const selected = new Map([...recent, ...future, ...report.events.filter(event => required.has(event.id))].map(event => [event.id, event]));
-  const compactEvent = (event: CatalystEvent): CatalystEvent => ({ ...event, excerpt: event.excerpt.slice(0, 700), firstRelations: compactRelations(event.firstRelations), currentRelations: compactRelations(event.currentRelations), relatedSourceUrls: event.relatedSourceUrls.slice(0, 3) });
+  const compactEvent = (event: CatalystEvent): CatalystEvent => ({ ...event, evidenceHistory: undefined, excerpt: event.excerpt.slice(0, 700), firstRelations: compactRelations(event.firstRelations), currentRelations: compactRelations(event.currentRelations), relatedSourceUrls: event.relatedSourceUrls.slice(0, 3) });
   const events = [...selected.values()].sort(rank).map(compactEvent);
   const priorities = new Map(events.map((event, index) => [event.id, index]));
   const page: CatalystReport = { ...report, events,

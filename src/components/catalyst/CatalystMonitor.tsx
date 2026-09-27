@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowUpRight, CalendarDays, Activity, Radio, Link2 } from "lucide-react";
 import { PageHeading } from "@/components/PageHeading";
 import type { CatalystEvent, CatalystPageData, EventReaction, Importance, Observation, Relation, SourceHealth } from "@/lib/catalyst/types";
+import { contextHref } from "@/components/context/format";
 import s from "./catalyst.module.css";
 
 export type CatalystCategory = "all" | Relation["kind"];
@@ -86,7 +87,7 @@ function ObservationValue({ observation: o, unit = "%", signed = true }: { obser
 }
 function ReactionCard({ reaction: r, event }: { reaction: EventReaction; event: CatalystEvent }) {
   return <article className={s.reaction}>
-    <div className={s.reactionHeading}><div><Link href={`/desk?q=${encodeURIComponent(r.symbol)}`} className={s.symbol}>{r.symbol}<ArrowUpRight size={15} aria-hidden="true" /></Link><div className={s.eventAnchor}><SourceLink url={event.sourceUrl}>{event.title}</SourceLink></div></div><span>行情截至 {r.asOf}</span></div>
+    <div className={s.reactionHeading}><div><Link href={`/desk?q=${encodeURIComponent(r.symbol)}`} className={s.symbol}>{r.symbol}<ArrowUpRight size={15} aria-hidden="true" /></Link><div className={s.eventAnchor}><SourceLink url={event.sourceUrl}>{event.title}</SourceLink></div><Link href={contextHref(r.symbol, r.asOf)}>Event × Flow × Trend ↗</Link></div><span>行情截至 {r.asOf}</span></div>
     <div className={s.baseline}>{r.baseline ? <>基准：{r.baseline.date} 前收盘 <b>${r.baseline.close.toFixed(2)}</b></> : "前收盘基准缺失"}<span>T0 {r.anchorDate ?? "待确认"}</span></div>
     <dl className={s.priceGrid}>{(["t0", "t1", "t3", "t5"] as const).map((key, i) => <div key={key}><dt>{["T0 收盘", "T+1", "T+3", "T+5"][i]}</dt><dd><ObservationValue observation={r.price[key]} /></dd></div>)}</dl>
     <div className={s.comparisons}>

@@ -69,4 +69,6 @@ Secrets belong in `/var/lib/alpha-agent/daily-quant.env` (mode 600), never in br
 
 ## Known accounting limits
 
+The independent collector also publishes the read-only [Event × Flow × Trend Context Layer](context-layer.md). It owns separate `snapshots/context` archives and shares the existing schedules. The cron wrapper additionally sets `OPTION_FLOW_PATH=/var/lib/alpha-agent/desk/option-flow.json`. Context never changes scoring, trade rules, account state or message delivery.
+
 A 2H monthly return requires the preceding month-end equity from the same live-book epoch. The September 2026 epoch starts on September 1 and has no August 31 baseline; an older reset epoch must not be spliced into it. The website explains this missing baseline rather than inventing a return. A later month with a real baseline uses the unchanged original calculation.

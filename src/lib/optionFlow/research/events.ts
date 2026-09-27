@@ -1,13 +1,15 @@
 import { createHash } from "node:crypto";
 import { flowLean, flowSide, type FlowSide } from "../direction";
 import { isOptionSessionPosted } from "../config";
-import type { OptionFlowPost } from "../types";
+import type { FlowProvenance, OptionFlowPost } from "../types";
+import { flowTimestamp } from "../provenance";
 
 export type FlowEvent = {
   id: string; day: string; ticker: string; right: "call" | "put"; strike: number | null;
   expiry: string | null; side: FlowSide; direction: "bull" | "bear" | "unknown";
   premium: number | null; postedAt: string; ingestedAt: string; sourceUrl: string | null;
   sourceIds: string[]; rawText: string; flags: string[];
+  firstObservedAt?: string | null; updatedAt?: string | null; provenance?: FlowProvenance;
 };
 export const nyDay = (at: string) => new Intl.DateTimeFormat("en-CA", {
   timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
@@ -39,6 +41,7 @@ export function normalizeFlowEvents(posts: readonly OptionFlowPost[], sessions: 
     const earliest = [...copies].sort((a, b) => a.postedAt.localeCompare(b.postedAt))[0];
     const day = nyDay(earliest.postedAt);
     const rawText = post.rawText || post.thesis;
+    const firstObservedAt = copies.map(copy => flowTimestamp(copy.firstObservedAt)).filter((at): at is string => at !== null).sort()[0] ?? null;
     const unique = new Set<string>();
     const legs = post.legs.filter(l => /^[A-Z][A-Z0-9.-]{0,9}$/.test(l.ticker) && (l.right === "call" || l.right === "put"));
     for (const leg of legs) {
@@ -54,6 +57,7 @@ export function normalizeFlowEvents(posts: readonly OptionFlowPost[], sessions: 
         expiry: leg.expiry || null, side, direction: flowLean(leg.right, side) ?? "unknown", premium,
         postedAt: earliest.postedAt, ingestedAt: post.ingestedAt, sourceUrl: /^https:\/\/(?:x|twitter)\.com\//i.test(post.tweetUrl ?? "") ? post.tweetUrl! : null,
         sourceIds: copies.map(p => p.id), rawText,
+        firstObservedAt, updatedAt: flowTimestamp(post.updatedAt), ...(post.provenance ? { provenance: structuredClone(post.provenance) } : {}),
         flags: [...(side === "unknown" ? ["买卖方向未明"] : []), ...(sharedAmount ? ["多腿金额归属不明"] : []), ...(!leg.expiry || !leg.strike ? ["合约字段不完整"] : [])],
       });
     }

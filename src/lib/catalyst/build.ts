@@ -16,6 +16,7 @@ import { calculateReaction, type ReactionInputs } from "./reaction";
 import { catalystEvidence, generateCatalystSummary } from "./summary";
 import type { CatalystEvent, CatalystReport, CatalystUniverse, ProviderResult, SourceHealth } from "./types";
 import { publishCatalystReviewDigest } from "./reviewDigestStore";
+import { publishContextReport } from "@/lib/context/publish";
 
 const calendarSchema = z.object({ checkedAt: z.iso.datetime(), sessions: z.array(z.string().refine(validDay)).min(30), closes: z.record(z.string(), z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/)) })
   .refine(value => value.sessions.every(day => value.closes[day] != null));
@@ -172,6 +173,9 @@ export async function buildCatalystReport(options: { analyze?: boolean; dryRun?:
   { universe: loadCatalystUniverse, collect: collectCatalystSources, market: loadCatalystMarket, summarize: generateCatalystSummary });
   saveCatalystReport(report);
   const reviewDigest = publishCatalystReviewDigest(report, snapshotDir(), { refresh: options.refreshReviewDigest });
-  const analysisFailed = Boolean(options.analyze && catalystEvidence(report, new Date(report.generatedAt)).events.length && report.summaryStatus !== "ready");
-  return { generatedAt: report.generatedAt, events: report.events.length, reactions: report.reactions.length, summary: report.summaryStatus, analysisFailed, reviewDigest, sources: report.sources.map(s => ({ id: s.id, state: s.state, count: s.count })) };
+  const context = await publishContextReport(report, { analyze: options.analyze, refresh: options.refreshReviewDigest,
+    apiKey: process.env.DEEPSEEK_CONTEXT_API_KEY || process.env.DEEPSEEK_CATALYST_API_KEY || process.env.DEEPSEEK_REVIEW_API_KEY || process.env.DEEPSEEK_API_KEY,
+    model: process.env.DEEPSEEK_CONTEXT_MODEL || process.env.DEEPSEEK_CATALYST_MODEL || process.env.DEEPSEEK_REVIEW_MODEL });
+  const analysisFailed = Boolean(options.analyze && catalystEvidence(report, new Date(report.generatedAt)).events.length && report.summaryStatus !== "ready") || context.analysisFailed;
+  return { generatedAt: report.generatedAt, events: report.events.length, reactions: report.reactions.length, summary: report.summaryStatus, analysisFailed, reviewDigest, context, sources: report.sources.map(s => ({ id: s.id, state: s.state, count: s.count })) };
 }

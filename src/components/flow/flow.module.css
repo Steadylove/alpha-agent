@@ -7,6 +7,15 @@
   line-height:1.6;
   padding-bottom:40px
 }
+.contextLink {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+}
+.contextLink p {
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
 .eyebrow {
   color:var(--mint);
   font:500 10px var(--font-interface);

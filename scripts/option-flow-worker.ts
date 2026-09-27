@@ -9,6 +9,7 @@ import { parseRelayMessage } from "@/lib/optionFlow/parseDiscord";
 import { publishOptionFlow, shouldPublish, signalChannelId, signalWebhookUrl } from "@/lib/optionFlow/publish";
 import { mergeOptionFlow, readOptionFlow, withChannelCursor, writeOptionFlow } from "@/lib/optionFlow/store";
 import type { OptionFlowConfig, OptionFlowPost, OptionFlowStore } from "@/lib/optionFlow/types";
+import { completeFlowCollection, flowChannelHealth, readLocalFlowCollectionHealth, safeFlowCollectionError, writeFlowCollectionHealth, type FlowChannelHealth, type FlowCollectionHealth } from "@/lib/optionFlow/health";
 
 const INTERVAL_MS = Number(process.env.OPTION_FLOW_POLL_MS || 3000);
 /** #常规 里 X-Relay 从这天开始进频道，只补这之后的遗漏。 */
@@ -27,11 +28,12 @@ async function ingestChannel(
   publish: boolean,
   raw: Awaited<ReturnType<typeof fetchMessagesAfter>>,
   cfg: OptionFlowConfig,
+  capture: "live" | "backfill" = "live",
 ): Promise<{ store: OptionFlowStore; pulled: number; published: number }> {
   const incoming: OptionFlowPost[] = [];
   let published = 0;
   for (const message of raw) {
-    const parsed = parseRelayMessage(message);
+    const parsed = parseRelayMessage(message, new Date(), { channelId, capture });
     if (!parsed) continue;
     const post = await enrichFromChart(parsed);
     if (publish && shouldPublish(post, cfg, store.posts.concat(incoming))) {
@@ -53,56 +55,70 @@ async function ingestChannel(
   return { store: next, pulled: raw.length, published };
 }
 
-async function ingestNew(): Promise<{ pulled: number; published: number }> {
+async function ingestNew(channels: FlowChannelHealth[], expectedChannelIds: string[]): Promise<{ pulled: number; published: number }> {
   // A failed settings read must not silently relax a saved higher threshold.
   const settings = await readPushRoutes({ strict: true });
   const cfg = { ...optionFlowConfig(), minPremiumUsd: settings.optionFlowMinPremiumUsd };
   const signalId = signalChannelId();
+  expectedChannelIds.push(cfg.channelId, ...(signalId && signalId !== cfg.channelId ? [signalId] : []));
   let store = await readOptionFlow();
   let pulled = 0;
   let published = 0;
 
+  const collect = async (channelId: string, publish: boolean, mode: FlowChannelHealth["mode"], afterId?: string, since?: string) => {
+    const startedAt = new Date().toISOString();
+    let raw: Awaited<ReturnType<typeof fetchMessagesAfter>> | undefined;
+    try {
+      raw = mode === "full" ? await fetchAllMessages(channelId) : mode === "since" ? await fetchMessagesSince(channelId, since!) : await fetchMessagesAfter(channelId, afterId!);
+      const next = await ingestChannel(store, channelId, publish, raw, cfg, mode === "incremental" ? "live" : "backfill");
+      store = next.store;
+      if (next.pulled || mode === "full") await writeOptionFlow(store);
+      channels.push(flowChannelHealth({ channelId, mode, startedAt, completedAt: new Date().toISOString(), since, afterId, raw }));
+      return next;
+    } catch (error) {
+      channels.push(flowChannelHealth({ channelId, mode, startedAt, completedAt: new Date().toISOString(), since, afterId, raw, error, failed: true }));
+      throw error;
+    }
+  };
+
   if (!store.lastMessageId) {
-    const raw = await fetchAllMessages(cfg.channelId);
-    const seeded = await ingestChannel(store, cfg.channelId, false, raw, cfg);
-    store = seeded.store;
+    const seeded = await collect(cfg.channelId, false, "full");
     pulled += seeded.pulled;
-    await writeOptionFlow(store);
     log(`seed ${store.posts.length} posts, no publish`);
   } else {
     const sourceCursor = store.lastByChannel?.[cfg.channelId] || store.lastMessageId;
-    const raw = await fetchMessagesAfter(cfg.channelId, sourceCursor);
-    const next = await ingestChannel(store, cfg.channelId, true, raw, cfg);
-    store = next.store;
+    const next = await collect(cfg.channelId, true, "incremental", sourceCursor);
     pulled += next.pulled;
     published += next.published;
-    if (next.pulled) await writeOptionFlow(store);
   }
 
   if (signalId && signalId !== cfg.channelId) {
     const cursor = store.lastByChannel?.[signalId];
-    const raw = cursor
-      ? await fetchMessagesAfter(signalId, cursor)
-      : await fetchMessagesSince(signalId, SIGNAL_SINCE);
-    const next = await ingestChannel(store, signalId, true, raw, cfg);
-    store = next.store;
+    const next = await collect(signalId, true, cursor ? "incremental" : "since", cursor, cursor ? undefined : SIGNAL_SINCE);
     pulled += next.pulled;
     published += next.published;
-    if (next.pulled) await writeOptionFlow(store);
   }
 
   return { pulled, published };
 }
 
 async function loop(): Promise<void> {
+  let previousHealth: FlowCollectionHealth | null = readLocalFlowCollectionHealth();
   while (running) {
+    const startedAt = new Date().toISOString(), channels: FlowChannelHealth[] = [], expectedChannelIds: string[] = [];
+    let failure: unknown, failed = false;
     try {
-      await ingestNew();
+      await ingestNew(channels, expectedChannelIds);
       lastOk = Date.now();
       lastError = "";
     } catch (error) {
-      lastError = error instanceof Error ? error.message : "tick failed";
+      failed = true; failure = error;
+      lastError = safeFlowCollectionError(error);
       console.error(`[option-flow] ${lastError}`);
+    } finally {
+      const health = completeFlowCollection({ startedAt, checkedAt: new Date().toISOString(), expectedChannelIds, channels, failed, error: failure, previous: previousHealth });
+      try { await writeFlowCollectionHealth(health); previousHealth = health; }
+      catch { console.error("[option-flow] collection health persistence unavailable"); }
     }
     await sleep(INTERVAL_MS);
   }

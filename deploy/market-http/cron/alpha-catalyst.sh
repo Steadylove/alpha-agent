@@ -31,6 +31,7 @@ export TZ=Asia/Shanghai
 export MARKET_DATA_DIR="$ROOT/market"
 export SIGNAL_JOURNAL_DIR="$ROOT/desk"
 export LIVE_BOOKS_PATH="$ROOT/desk/live-books.json"
+export OPTION_FLOW_PATH="$ROOT/desk/option-flow.json"
 export MARKET_DATA_BASE_URL=''
 unset VERCEL
 cd "$ROOT/repo"

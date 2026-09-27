@@ -5,6 +5,7 @@ import { writeJsonAtomic } from "@/lib/files/atomicJson";
 import { deskRemoteUrl, readDeskJson, writeDeskJson } from "@/lib/fund/deskRemote";
 
 import type { OptionFlowPost, OptionFlowStore } from "./types";
+import { isFlowEvidenceLeg, legacyFlowEvidence, mergeFlowEvidence } from "./provenance";
 
 export const OPTION_FLOW_FILE = "option-flow.json";
 
@@ -22,19 +23,42 @@ function usesRemoteStore(): boolean {
 }
 
 export function optionFlowOf(raw: unknown): OptionFlowStore {
-  if (!raw || typeof raw !== "object") return emptyOptionFlow();
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { ...emptyOptionFlow(), readWarnings: { rejectedPosts: 1, sanitizedPosts: 0, invalidProvenancePosts: 0 } };
   const value = raw as Partial<OptionFlowStore>;
-  const posts = Array.isArray(value.posts)
-    ? value.posts
-        .filter((p) => p && typeof p.id === "string")
-        .map((p) => ({ ...p, imageProxyUrls: p.imageProxyUrls ?? [], imageUrls: p.imageUrls ?? [] }))
-    : [];
+  const posts: OptionFlowPost[] = [];
+  const readWarnings = { rejectedPosts: Array.isArray(value.posts) ? 0 : 1, sanitizedPosts: 0, invalidProvenancePosts: 0 };
+  for (const candidate of Array.isArray(value.posts) ? value.posts : []) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)
+      || typeof candidate.id !== "string" || !candidate.id || typeof candidate.postedAt !== "string" || !Number.isFinite(Date.parse(candidate.postedAt))) {
+      readWarnings.rejectedPosts++; continue;
+    }
+    const p = candidate as OptionFlowPost;
+    const legs = Array.isArray(p.legs) ? p.legs.filter(isFlowEvidenceLeg) : [];
+    const imageUrls = Array.isArray(p.imageUrls) ? p.imageUrls.filter(url => typeof url === "string") : [];
+    const imageProxyUrls = Array.isArray(p.imageProxyUrls) ? p.imageProxyUrls.filter(url => typeof url === "string") : [];
+    const normalized: OptionFlowPost = {
+      id: p.id, postedAt: p.postedAt, ingestedAt: typeof p.ingestedAt === "string" ? p.ingestedAt : "",
+      kind: ["flow", "noteworthy", "paid", "ad", "gex", "other"].includes(p.kind) ? p.kind : "other",
+      thesis: typeof p.thesis === "string" ? p.thesis : "", rawText: typeof p.rawText === "string" ? p.rawText : "",
+      legs, imageUrls, imageProxyUrls,
+      ...Object.fromEntries(["tweetUrl", "tweetId", "handle", "publishedAt"].filter(key => typeof p[key as keyof OptionFlowPost] === "string").map(key => [key, p[key as keyof OptionFlowPost]])),
+      firstObservedAt: p.firstObservedAt, updatedAt: p.updatedAt, provenance: p.provenance,
+    };
+    if (!Array.isArray(p.legs) || legs.length !== p.legs.length || !Array.isArray(p.imageUrls) || imageUrls.length !== p.imageUrls.length
+      || !Array.isArray(p.imageProxyUrls) || imageProxyUrls.length !== p.imageProxyUrls.length
+      || normalized.kind !== p.kind || normalized.thesis !== p.thesis || normalized.rawText !== p.rawText || normalized.ingestedAt !== p.ingestedAt) readWarnings.sanitizedPosts++;
+    const proven = legacyFlowEvidence(normalized, true);
+    if (p.provenance != null && proven.provenance !== p.provenance) readWarnings.invalidProvenancePosts++;
+    posts.push(proven);
+  }
   return {
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
     channelId: typeof value.channelId === "string" ? value.channelId : "",
     lastMessageId: typeof value.lastMessageId === "string" ? value.lastMessageId : "",
-    lastByChannel: value.lastByChannel && typeof value.lastByChannel === "object" ? value.lastByChannel : {},
+    lastByChannel: value.lastByChannel && typeof value.lastByChannel === "object" && !Array.isArray(value.lastByChannel)
+      ? Object.fromEntries(Object.entries(value.lastByChannel).filter(([, id]) => typeof id === "string")) : {},
     posts,
+    ...(Object.values(readWarnings).some(Boolean) ? { readWarnings } : {}),
   };
 }
 
@@ -61,7 +85,7 @@ export function mergeOptionFlow(previous: OptionFlowStore, incoming: OptionFlowP
   const map = new Map(previous.posts.map((post) => [post.id, post]));
   for (const post of incoming) {
     const prev = map.get(post.id);
-    map.set(post.id, { ...post, publishedAt: post.publishedAt ?? prev?.publishedAt });
+    map.set(post.id, { ...mergeFlowEvidence(prev, post, now), publishedAt: post.publishedAt ?? prev?.publishedAt });
   }
   const posts = [...map.values()].sort((a, b) => a.postedAt.localeCompare(b.postedAt) || a.id.localeCompare(b.id));
   const sameChannel = !previous.channelId || previous.channelId === channelId;

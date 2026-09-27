@@ -10,6 +10,8 @@ import type { ResearchPage } from "@/lib/optionFlow/research/store";
 import type { FlowProfile } from "@/lib/optionFlow/research/model";
 import s from "./flow.module.css";
 import { PageHeading } from "@/components/PageHeading";
+import { FlowContextLink } from "@/components/context/ContextLinks";
+import type { ContextReport } from "@/lib/context/types";
 
 const money = (n: number | null) => n == null ? "—" : n >= 1e6 ? `$${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `$${(n / 1e3).toFixed(1)}K` : `$${n.toFixed(0)}`;
 const number = (n: number | null) => n == null ? "—" : n.toFixed(1);
@@ -23,7 +25,7 @@ function Heading({ n, title, sub }: { n: string; title: string; sub: string }) {
   return <div className={s.sectionHeading}><div><span className={s.eyebrow}>{n}</span><h2>{title}</h2></div><p>{sub}</p></div>;
 }
 
-export function FlowResearchBoard({ report: r, dates, outcomes, error }: ResearchPage) {
+export function FlowResearchBoard({ report: r, dates, outcomes, error, context }: ResearchPage & { context?: ContextReport | null }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [search, setSearch] = useState("");
@@ -54,7 +56,7 @@ export function FlowResearchBoard({ report: r, dates, outcomes, error }: Researc
     } />
     {error && <div role="alert" className={s.notice}>{error}</div>}
     {!r ? <div className={s.empty}>数据就绪后，这里会呈现真实记录、强度对照与跟踪结果。<Button variant="default" size="xs" mt="md" loading={pending} onClick={() => start(() => router.refresh())}>重新读取</Button></div> : <>
-      <div className={s.meta}><span className={s.dot} /> FL0WG0D 报道样本 <span>·</span> {r.origin === "archived" ? "已归档" : "历史重建"} <span>·</span> 来源更新 {timestamp(r.sourceUpdatedAt)} <span>·</span> 美东交易日</div>
+      <div className={s.meta}><span className={s.dot} /> FL0WG0D 报道样本 <span>·</span> Partial Market Sample <span>·</span> {r.origin === "archived" ? "已归档" : "历史重建"} <span>·</span> 来源更新 {timestamp(r.sourceUpdatedAt)} <span>·</span> 美东交易日</div>
       <div className={s.metrics}>
         <div><span>独立报道记录</span><strong>{r.totals.records}<small>条</small></strong><p>{r.totals.tickers} 个标的 · 已排除 {r.totals.excluded} 条汇总 / 非研究记录</p></div>
         <div><span>样本权利金</span><strong>{money(r.totals.premium)}</strong><p>金额可归属 {r.totals.priced} / {r.totals.records} 条</p></div>
@@ -85,10 +87,11 @@ export function FlowResearchBoard({ report: r, dates, outcomes, error }: Researc
           <SegmentedControl size="xs" aria-label="期权流筛选" className="timeframe-selector" value={filter} onChange={setFilter} data={["全部", "强势改善", "强度偏弱", "重复出现"]} />
           <TextInput size="xs" className={s.search} leftSection={<Search size={15} />} aria-label="搜索标的" placeholder="搜索标的" value={search} onChange={e => setSearch(e.currentTarget.value)} />
         </div>
-        <div className={s.tableWrap}><table><thead><tr>{["标的 / 主题", "权利金", "方向", "RPS", "Δ 1D", "Δ 5D", "Δ 20D", "当日涨跌", "强度状态", "持续性 / 5D · 20D"].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>{rows.map(p => <tr key={p.ticker}>
+        <div className={s.tableWrap}><table><thead><tr>{["标的 / 主题", "权利金", "方向", "RPS", "Δ 1D", "Δ 5D", "Δ 20D", "当日涨跌", "强度状态", "持续性 / 5D · 20D", "Event Context"].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>{rows.map(p => <tr key={p.ticker}>
           <td><strong>{p.ticker}</strong><small>{p.theme}</small></td><td>{money(p.premium)}</td><td>{p.direction}</td><td><Rps p={p} /></td>
           {[p.delta1, p.delta5, p.delta20].map((v, i) => <td key={i} className={tone(v)}>{signed(v)}</td>)}<td className={tone(p.change)}>{signed(p.change, true)}</td><td><span className={p.strength === "强势改善" ? s.badgeGood : s.badge}>{p.strength}</span></td>
           <td>{p.persistence}<small>{p.days5} / 5 日 · {p.days20} / 20 日 · 连续 {p.consecutive} 日</small></td>
+          <td><FlowContextLink symbol={p.ticker} date={r.date} report={context} /></td>
         </tr>)}</tbody></table>{!rows.length && <div className={s.empty}>没有符合当前筛选条件的标的</div>}</div>
         <p className={s.footnote}>高 RPS ≥ 80；改善 = Δ5D &gt; 0。ETF / 指数单独归类。首次观察仅指近 20 个交易日内首次被本来源报道。</p>
       </section>
@@ -98,6 +101,7 @@ export function FlowResearchBoard({ report: r, dates, outcomes, error }: Researc
           <div className={s.caseTop}><span>0{i + 1}</span><span>{p.persistence}</span></div><h3>{p.ticker}<small>{money(p.premium)}</small></h3><p>{p.theme}</p>
           <dl><div><dt>RPS / Δ5D</dt><dd>{number(p.rps)} <span className={tone(p.delta5)}>{signed(p.delta5)}</span></dd></div><div><dt>盘中可用前日 RPS</dt><dd>{number(p.priorRps)}</dd></div><div><dt>方向 / 强度</dt><dd>{p.direction} · {p.strength}</dd></div></dl>
           {r.events.find(e => e.ticker === p.ticker && e.sourceUrl)?.sourceUrl && <a target="_blank" rel="noreferrer" href={r.events.find(e => e.ticker === p.ticker && e.sourceUrl)!.sourceUrl!}>查看来源 <ArrowUpRight size={13} /></a>}
+          <div className={s.contextLink}><FlowContextLink symbol={p.ticker} date={r.date} report={context} brief /></div>
         </article>)}</div>
       </section>
       <section className={s.section}>

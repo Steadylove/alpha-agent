@@ -14,6 +14,7 @@ import { parseAnalysisReport } from "./analysis/model";
 import { analysisHash, prepareAnalysisInput } from "./analysis/fingerprint";
 import type { AnalysisView } from "./analysis/types";
 import { getCatalystReviewDigest } from "@/lib/catalyst/reviewDigestStore";
+import { getContextReport } from "@/lib/context/store";
 
 export const validReviewDate = (s: string): boolean =>
   /^\d{4}-\d{2}-\d{2}$/.test(s) &&
@@ -64,8 +65,8 @@ export async function getReviewData(requested?: string) {
     if (review?.version !== 1 || review.date !== date)
       throw new Error("invalid review");
     // Analysis has its own failure boundary; it never hides the original review.
-    const [journalResult, analysisResult, catalystResult] = await Promise.allSettled([
-      read<JournalArchive>("journal"), read<unknown>(`analysis/${date}`), getCatalystReviewDigest(date),
+    const [journalResult, analysisResult, catalystResult, contextResult] = await Promise.allSettled([
+      read<JournalArchive>("journal"), read<unknown>(`analysis/${date}`), getCatalystReviewDigest(date), getContextReport(date),
     ]);
     const journal = journalResult.status === "fulfilled" ? journalResult.value : null;
     const error = journalResult.status === "rejected" ? "信号跟踪暂时无法读取，今日复盘仍可查看。" : null;
@@ -98,6 +99,8 @@ export async function getReviewData(requested?: string) {
       error,
       analysis,
       catalyst: catalystResult.status === "fulfilled" ? catalystResult.value : { status: "unavailable" as const, digest: null },
+      context: contextResult.status === "fulfilled" && contextResult.value
+        ? { ...contextResult.value, observations: contextResult.value.highlights } : null,
     };
   } catch {
     return {

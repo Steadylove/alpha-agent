@@ -34,6 +34,8 @@ import { AnalystNote } from "./AnalystNote";
 import type { AnalysisView } from "@/lib/review/analysis/types";
 import { CatalystToday } from "./CatalystBrief";
 import type { CatalystReviewView } from "@/lib/catalyst/reviewDigest";
+import { ContextBrief } from "@/components/context/ContextBrief";
+import type { ContextReport } from "@/lib/context/types";
 
 const number = (v: number | null | undefined, digits = 2) =>
   v == null
@@ -855,6 +857,7 @@ export function DailyReview({
   error,
   analysis = { report: null, status: "missing" },
   catalyst = { digest: null, status: "missing" },
+  context = null,
 }: {
   review: Review | null;
   dates: string[];
@@ -862,6 +865,7 @@ export function DailyReview({
   error: string | null;
   analysis?: AnalysisView;
   catalyst?: CatalystReviewView;
+  context?: ContextReport | null;
 }) {
   return (
     <div className={styles.review}>
@@ -909,7 +913,7 @@ export function DailyReview({
             ))}
           </nav>
           <MarketStatePanel review={r} />
-          <CatalystToday catalyst={catalyst} />
+          {context?.asOf === r.date ? <ContextBrief report={context} /> : <CatalystToday catalyst={catalyst} />}
           <Section
             id="options"
             n="02"

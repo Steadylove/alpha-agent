@@ -18,7 +18,11 @@ export type Relation = { kind: "portfolio" | "signal" | "opportunity" | "sector"
 export type UniverseSymbol = { symbol: string; name: string; sectorId: string | null; industry: string | null; relations: Relation[] };
 export type UniverseSignal = { id: string; symbol: string; tf: "2h" | "4h"; event: "buy" | "sell"; signalTime: string; capturedAt: string };
 export type CatalystUniverse = { asOf: string; observedAt: string; symbols: UniverseSymbol[]; sectors: { id: string; name: string; etf: string; leader: boolean; asOf?: string }[]; signals: UniverseSignal[]; health: SourceHealth[] };
-export type CatalystEvent = EventInput & { id: string; firstSeenAt: string; lastSeenAt: string; revision: number; backfilled: boolean; firstRelations: Relation[]; currentRelations: Relation[]; relatedSourceUrls: string[] };
+export type CatalystEvent = EventInput & { id: string; firstSeenAt: string; lastSeenAt: string; revision: number; backfilled: boolean; firstRelations: Relation[]; currentRelations: Relation[]; relatedSourceUrls: string[];
+  evidenceUpdatedAt?: string | null;
+  evidenceHistory?: { revision: number; evidenceHash: string; recordedAt: string | null; evidence: EventInput }[];
+  evidenceHistoryTruncated?: boolean;
+};
 export type Observation = { date: string | null; value: number | null; status: "ready" | "pending" | "missing" | "unavailable" };
 export type EventReaction = {
   eventId: string; symbol: string; asOf: string; anchorDate: string | null;

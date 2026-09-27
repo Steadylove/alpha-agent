@@ -1,5 +1,6 @@
 import { extractCard } from "./extract";
 import type { OptionFlowPost } from "./types";
+import { capturedFlowEvidence } from "./provenance";
 
 export type DiscordEmbedLike = {
   title?: string | null;
@@ -52,7 +53,7 @@ export function isRelayPost(message: DiscordMessageLike): boolean {
   return (message.embeds ?? []).some((e) => /x\.com|twitter\.com/i.test(e.url ?? ""));
 }
 
-export function parseRelayMessage(message: DiscordMessageLike, now = new Date()): OptionFlowPost | null {
+export function parseRelayMessage(message: DiscordMessageLike, now = new Date(), options: { channelId?: string; capture?: "live" | "backfill" } = {}): OptionFlowPost | null {
   if (!isRelayPost(message)) return null;
   const embed = (message.embeds ?? [])[0];
   const rawText = relayText(message);
@@ -65,7 +66,7 @@ export function parseRelayMessage(message: DiscordMessageLike, now = new Date())
     .flatMap((e) => [e.image?.proxy_url, e.thumbnail?.proxy_url])
     .filter((url): url is string => Boolean(url));
   const tweet = tweetOf(embed?.url);
-  return {
+  return capturedFlowEvidence({
     id: message.id,
     postedAt: message.timestamp || now.toISOString(),
     ingestedAt: now.toISOString(),
@@ -77,7 +78,7 @@ export function parseRelayMessage(message: DiscordMessageLike, now = new Date())
     imageUrls: [...new Set(images)],
     imageProxyUrls: [...new Set(proxies)],
     rawText,
-  };
+  }, now, { ...options, relayAt: message.timestamp ?? null });
 }
 
 export function ignoredField(name?: string | null): boolean {

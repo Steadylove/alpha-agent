@@ -23,7 +23,10 @@ export const eventInputSchema = z.object({
   timePrecision: z.enum(["minute", "session", "date", "unknown"]), session: z.enum(["pre", "regular", "after", "closed", "unknown"]),
   timing: z.enum(["confirmed", "estimated", "unknown"]), status: z.enum(["scheduled", "published", "cancelled"]), sourceUpdatedAt: stamp.nullable(),
 });
-const eventSchema = eventInputSchema.extend({ id: z.string().regex(/^[a-f0-9]{24}$/), firstSeenAt: stamp, lastSeenAt: stamp, revision: z.number().int().positive(), backfilled: z.boolean(), firstRelations: z.array(relation).max(500), currentRelations: z.array(relation).max(500), relatedSourceUrls: z.array(safeUrl).max(30) });
+const eventSchema = eventInputSchema.extend({ id: z.string().regex(/^[a-f0-9]{24}$/), firstSeenAt: stamp, lastSeenAt: stamp, revision: z.number().int().positive(), backfilled: z.boolean(), firstRelations: z.array(relation).max(500), currentRelations: z.array(relation).max(500), relatedSourceUrls: z.array(safeUrl).max(30),
+  evidenceUpdatedAt: stamp.nullable().optional(), evidenceHistoryTruncated: z.boolean().optional(),
+  evidenceHistory: z.array(z.object({ revision: z.number().int().positive(), evidenceHash: z.string().regex(/^[a-f0-9]{64}$/), recordedAt: stamp.nullable(), evidence: eventInputSchema })).max(5).optional(),
+});
 const observation = z.object({ date: day.nullable(), value: z.number().finite().nullable(), status: z.enum(["ready", "pending", "missing", "unavailable"]) }).refine(v => (v.status === "ready") === (v.value !== null) && (v.status !== "ready" || v.date !== null));
 export const summarySchema = z.object({ generatedAt: stamp, inputHash: z.string().regex(/^[a-f0-9]{64}$/), model: z.string().max(100), sentences: z.array(z.object({ text: z.string().min(1).max(240), eventIds: z.array(z.string()).min(1).max(6) })).min(1).max(3) });
 const reportSchema = z.object({
@@ -60,7 +63,13 @@ export function mergeCatalystEvents(previous: CatalystEvent[], incoming: EventIn
     const currentRelations = associateEvent(e, universe);
     if (!old && !currentRelations.length) continue;
     const changed = old && fingerprint(eventInputSchema.parse(old)) !== fingerprint(e);
+    const previousAt = old?.evidenceUpdatedAt ?? (old?.revision === 1 ? old.firstSeenAt : null);
+    const history = [...(old?.evidenceHistory ?? []), ...(changed && old ? [{ revision: old.revision,
+      evidenceHash: fingerprint(eventInputSchema.parse(old)), recordedAt: previousAt, evidence: eventInputSchema.parse(old) }] : [])];
     map.set(id, { ...e, id, firstSeenAt: old?.firstSeenAt ?? at, lastSeenAt: at, revision: old ? old.revision + Number(changed) : 1,
+      evidenceUpdatedAt: !old || changed ? at : previousAt,
+      evidenceHistory: history.length <= 5 ? history : [history[0], ...history.slice(-4)],
+      evidenceHistoryTruncated: old?.evidenceHistoryTruncated || history.length > 5,
       backfilled: old?.backfilled ?? (e.status === "published" && (!e.publishedAt || etDay(e.publishedAt) < etDay(now))),
       firstRelations: old?.firstRelations ?? currentRelations, currentRelations, relatedSourceUrls: [...new Set([...(old?.relatedSourceUrls ?? []), e.sourceUrl])].slice(0, 30) });
   }

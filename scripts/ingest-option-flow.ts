@@ -16,7 +16,10 @@ async function main() {
     : await fetchMessagesAfter(cfg.channelId, previous.lastMessageId);
   const incoming: OptionFlowPost[] = [];
   for (const message of raw) {
-    const parsed = parseRelayMessage(message);
+    const parsed = parseRelayMessage(message, new Date(), {
+      channelId: cfg.channelId,
+      capture: full ? "backfill" : "live",
+    });
     if (parsed) incoming.push(await enrichFromChart(parsed));
   }
   const store = await writeOptionFlow(mergeOptionFlow(previous, incoming, cfg.channelId));

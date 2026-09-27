@@ -34,9 +34,10 @@ async function main() {
   try {
     writeFileSync(fd, String(process.pid));
     const result = await buildCatalystReport(options);
-    if ("analysisFailed" in result && result.analysisFailed) throw new CliError("事件数据已保存，本轮 AI 解读未成功；保留此前结果等待受限重试");
+    if ("analysisFailed" in result && result.analysisFailed) throw new CliError("事件数据已保存，本轮事件或 Context AI 解读未成功；保留证据等待受限重试");
+    if ("context" in result && result.context?.status === "unavailable") throw new CliError("事件数据已保存，Context 证据发布失败；旧版已保留");
     if (options.refreshReviewDigest && "reviewDigest" in result && result.reviewDigest?.status === "unavailable") throw new CliError("事件数据已保存，复盘补充发布失败；旧版已保留");
-    console.log(JSON.stringify({ ok: true, dryRun: false, analyze: options.analyze, reviewDigest: "reviewDigest" in result ? result.reviewDigest : undefined }));
+    console.log(JSON.stringify({ ok: true, dryRun: false, analyze: options.analyze, reviewDigest: "reviewDigest" in result ? result.reviewDigest : undefined, context: "context" in result ? result.context : undefined }));
   } finally {
     closeSync(fd);
     unlinkSync(lockFile);
