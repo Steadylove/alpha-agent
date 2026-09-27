@@ -242,7 +242,7 @@ describe("analysis output and archive validation", () => {
     data.marketRead.text = "证据不足，无法判断。";
     data.validationPoints = [];
     expect(parseAnalysisOutput(data, evidence())).toEqual(data);
-    expect(PROMPT_VERSION).toBe("review-intelligence-prompt-v2");
+    expect(PROMPT_VERSION).toBe("review-intelligence-prompt-v2.1");
     expect(ANALYSIS_SYSTEM_PROMPT).toContain("Trend Adaptive System 的 Market Intelligence Analyst");
     expect(ANALYSIS_SYSTEM_PROMPT).toContain("跨模块关联分析、理解事实之间的关系");
     expect(ANALYSIS_SYSTEM_PROMPT).toContain("未归因残差");
@@ -270,11 +270,26 @@ describe("analysis output and archive validation", () => {
     expect(ANALYSIS_SYSTEM_PROMPT).toContain("无法判断");
   });
 
+  it("distinguishes comparative categories, auxiliary co-occurrence and directly verifiable next-session conditions", () => {
+    expect(ANALYSIS_SYSTEM_PROMPT).toContain("每段先说明证据之间的关系");
+    expect(ANALYSIS_SYSTEM_PROMPT).toContain("同一组数字不要在 A、B、D、F 反复抄写");
+    expect(ANALYSIS_SYSTEM_PROMPT).toContain("同向上涨、相对落后，不是方向冲突");
+    expect(ANALYSIS_SYSTEM_PROMPT).toContain("参与广度须由广度或小盘的同口径事实检验");
+    expect(ANALYSIS_SYSTEM_PROMPT).toContain("临床新闻与 RPS 或账户持仓测量的不是同一件事");
+    expect(ANALYSIS_SYSTEM_PROMPT).toContain("补充截至的精确日期、时间和时区");
+    expect(ANALYSIS_SYSTEM_PROMPT).toContain("样本覆盖未知时明确无法判断覆盖程度");
+    expect(ANALYSIS_SYSTEM_PROMPT).toContain("数字阈值只能使用证据已明确提供并可引用的水平");
+    expect(ANALYSIS_SYSTEM_PROMPT).toContain("不能自行设定“广度超过 50%”等门槛");
+    expect(ANALYSIS_SYSTEM_PROMPT).toContain("正文用普通中文表达状态和窗口");
+    expect(ANALYSIS_SYSTEM_PROMPT).toContain("research 写“前后三个交易日内”");
+    expect(analysisUserPrompt(evidence())).toContain("相对落后不等于方向冲突；Gamma 越位不验证参与广度");
+  });
+
   it("bounds all v2 sections and references while accepting nonempty system and auxiliary observations", () => {
     const facts = evidence();
-    facts.facts = Array.from({ length: 17 }, (_, index) => ({ ...facts.facts[0], id: `market.fact.${index}` }));
+    facts.facts = Array.from({ length: 33 }, (_, index) => ({ ...facts.facts[0], id: `market.fact.${index}` }));
     const claim = { text: "一条有依据的观察。", factIds: [facts.facts[0].id] };
-    const summary = { ...claim, factIds: facts.facts.slice(0, 16).map((f) => f.id) };
+    const summary = { ...claim, factIds: facts.facts.slice(0, 32).map((f) => f.id) };
     const sample: MarketIntelligenceOutput = { format: "market-intelligence-v2", marketRead: summary, evidenceMap: [claim],
       structureRead: summary, systemRead: [claim], eventFlowContext: [claim], synthesis: summary, validationPoints: [claim] };
     expect(parseAnalysisOutput(sample, facts)).toEqual(sample);
@@ -287,6 +302,16 @@ describe("analysis output and archive validation", () => {
       expect(() => parseAnalysisOutput({ ...sample, [section]: [{ ...claim, factIds: facts.facts.slice(0, 13).map((f) => f.id) }] }, facts)).toThrow("factIds");
       expect(() => parseAnalysisOutput({ ...sample, [section]: [{ ...claim, factIds: ["unknown"] }] }, facts)).toThrow("不存在");
     }
+  });
+
+  it("rejects invented numeric validation gates while allowing cited observations and qualitative checks", () => {
+    const note = output();
+    note.validationPoints = [{ text: "观察下一交易日上涨比例是否高于 50%。", factIds: ["market.spy.change"] }];
+    expect(() => parseAnalysisOutput(note, evidence())).toThrow("未提供的数值门槛");
+    note.validationPoints[0].text = "观察下一交易日 SPY 涨跌幅是否高于 0.4%，核对价格修复是否延续。";
+    expect(parseAnalysisOutput(note, evidence())).toEqual(note);
+    note.validationPoints[0].text = "观察下一交易日指数与小盘的相对表现是否继续分化。";
+    expect(parseAnalysisOutput(note, evidence())).toEqual(note);
   });
 
   it("deduplicates only identical context metadata and retains exact facts plus a final format reminder", () => {

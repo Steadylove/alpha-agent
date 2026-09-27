@@ -31,3 +31,5 @@
 - [ ] Publish the tested code and regenerate only the independent analyst output; confirm old review bytes unchanged, saved A–G output, deployed page and mobile layout.
 
 Validation before publication: 112 tests passed; TypeScript, changed-file ESLint and production build passed. Build retains existing Next.js tracing warnings unrelated to Part 8. Independent review corrected the scheduled failure boundary so auxiliary AI failure does not suppress Part 8.
+
+Live-data validation found microsecond relay timestamps; the analysis boundary normalizes their metadata while retaining the original source value. Live model QA also required more complete cross-module citations and stronger distinctions between relative returns, direction, Gamma and participation. Version 2.1 keeps all valid citations (bounded at 32 for summary paragraphs), requires relational prose and supplementary cutoff disclosure, and rejects explicit uncited numeric validation gates.

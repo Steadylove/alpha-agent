@@ -70,7 +70,8 @@ const legacyOutputSchema = z.object({
   limitations: z.array(claimSchema).max(2),
 }).strict();
 const intelligenceClaimSchema = claimSchema.extend({ text: text(300) });
-const intelligenceSummarySchema = intelligenceClaimSchema.extend({ factIds: z.array(id).min(1).max(16).refine(unique) });
+// A cross-module paragraph can need more citations than the legacy single-topic lead.
+const intelligenceSummarySchema = intelligenceClaimSchema.extend({ factIds: z.array(id).min(1).max(32).refine(unique) });
 const intelligenceOutputSchema = z.object({
   format: z.literal("market-intelligence-v2"),
   marketRead: intelligenceSummarySchema.extend({ text: text(500) }),
@@ -134,6 +135,16 @@ function validateCitations(output: AnalysisOutput, evidence: AnalysisEvidence): 
       ...output.context, ...output.focus, ...output.limitations];
   if (claims.some((claim) => claim.factIds.some((ref) => !known.has(ref)))) {
     throw new Error("分析引用了不存在的证据");
+  }
+  if ("format" in output) {
+    for (const claim of output.validationPoints) {
+      const values = evidence.facts.filter(fact => claim.factIds.includes(fact.id) && typeof fact.value === "number").map(fact => fact.value as number);
+      // Catch explicit invented numeric gates, without treating all numbers in prose as trading thresholds.
+      for (const match of claim.text.matchAll(/(?:高于|低于|超过|跌破|突破|站上|站稳|达到|至少|回升至|降至)\s*(\d+(?:\.\d+)?)/g)) {
+        const value = Number(match[1]), decimals = match[1].split(".")[1]?.length ?? 0;
+        if (!values.some(number => Number(number.toFixed(decimals)) === value)) throw new Error("待验证条件使用了引用证据未提供的数值门槛");
+      }
+    }
   }
 }
 
