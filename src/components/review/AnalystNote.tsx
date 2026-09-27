@@ -1,9 +1,10 @@
 import type {
   AnalysisClaim,
   AnalysisFact,
-  AnalysisOutput,
   AnalysisSection,
   AnalysisView,
+  LegacyAnalysisOutput,
+  MarketIntelligenceOutput,
 } from "@/lib/review/analysis/types";
 import styles from "./analyst.module.css";
 
@@ -15,6 +16,7 @@ const SECTION_LABELS: Record<AnalysisSection, string> = {
   accounts: "模型账户",
   journal: "信号验证",
   tomorrow: "明日关注",
+  context: "Event × Flow · 辅助观察",
 };
 const FACT_STATUS: Record<AnalysisFact["status"], string> = {
   current: "有效",
@@ -28,7 +30,7 @@ const COVERAGE_LABELS = {
   partial: "部分可用",
   unavailable: "不可用",
 };
-const GROUPS: [Exclude<keyof AnalysisOutput, "lead">, string][] = [
+const GROUPS: [Exclude<keyof LegacyAnalysisOutput, "lead">, string][] = [
   ["changes", "值得留意的变化"],
   ["divergences", "尚未一致的信号"],
   ["confirmations", "当前一致的观察"],
@@ -57,7 +59,7 @@ function Fact({ fact }: { fact: AnalysisFact }) {
   return (
     <li>
       <div className={styles.factTitle}>
-        <a href={`#${fact.section}`}>{SECTION_LABELS[fact.section]} ↗</a>
+        <a href={`#${fact.section === "context" ? "catalyst-today" : fact.section}`}>{SECTION_LABELS[fact.section]} ↗</a>
         <span>{FACT_STATUS[fact.status]}</span>
       </div>
       <p>
@@ -93,6 +95,39 @@ function Claim({ claim, facts, lead = false }: {
   );
 }
 
+function MarketIntelligence({ output, facts }: {
+  output: MarketIntelligenceOutput;
+  facts: Map<string, AnalysisFact>;
+}) {
+  const sections: [string, string, string, AnalysisClaim[]][] = [
+    ["A", "Market Read", "市场解读", [output.marketRead]],
+    ["B", "Evidence Map", "证据关系", output.evidenceMap],
+    ["C", "Structure Read", "市场结构", [output.structureRead]],
+    ["D", "System Read", "系统表现", output.systemRead],
+    ["E", "Event × Flow Context", "辅助观察", output.eventFlowContext],
+    ["F", "AI Synthesis", "综合解读", [output.synthesis]],
+    ["G", "Validation Points", "待验证事实", output.validationPoints],
+  ];
+  return (
+    <div className={styles.intelligence}>
+      {sections.map(([letter, title, label, claims]) => (
+        <section key={letter} className={styles.group} aria-labelledby={`analysis-${letter}`}>
+          <h3 id={`analysis-${letter}`}>
+            <span className={styles.sectionIndex}>{letter}</span>{" "}
+            <span className={styles.sectionEnglish}>{title}</span>{" "}
+            <span className={styles.sectionLabel}>{label}</span>
+          </h3>
+          <div className={styles.sectionBody}>
+            {claims.length > 0
+              ? claims.map((claim, index) => <Claim key={index} claim={claim} facts={facts} />)
+              : <p className={styles.noRead}>本节暂无可用解读，无法判断。</p>}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
 export function AnalystNote({ analysis }: { analysis: AnalysisView }) {
   const { report, status } = analysis;
   if (!report || status === "missing" || status === "unavailable") {
@@ -113,7 +148,7 @@ export function AnalystNote({ analysis }: { analysis: AnalysisView }) {
     ? "数据不可用"
     : limitedCoverage.length ? "部分数据可用" : "数据可用";
   return (
-    <article className={styles.root} aria-label="DeepSeek 独立复盘分析">
+    <article className={styles.root} aria-label={"format" in output ? "Market Intelligence · 市场综合解读" : "DeepSeek 独立复盘分析"}>
       <div className={styles.dateline}>
         <span>美东交易日 {report.date} · {status === "stale" ? "旧版留档" : "已保存"}</span>
         <span>DeepSeek · {report.model} · 生成于 {timestamp(report.generatedAt)}</span>
@@ -128,17 +163,23 @@ export function AnalystNote({ analysis }: { analysis: AnalysisView }) {
         <div><dt>宏观环境</dt><dd>{evidence.states.macro}</dd></div>
         <div><dt>输入完整性</dt><dd>{coverageLabel}</dd></div>
       </dl>
-      <Claim claim={output.lead} facts={facts} lead />
-      <div className={styles.groups}>
-        {GROUPS.filter(([key]) => output[key].length > 0).map(([key, title]) => (
-          <section key={key} className={styles.group}>
-            <h3>{title}</h3>
-            <div>
-              {output[key].map((claim, index) => <Claim key={index} claim={claim} facts={facts} />)}
-            </div>
-          </section>
-        ))}
-      </div>
+      {"format" in output ? (
+        <MarketIntelligence output={output} facts={facts} />
+      ) : (
+        <>
+          <Claim claim={output.lead} facts={facts} lead />
+          <div className={styles.groups}>
+            {GROUPS.filter(([key]) => output[key].length > 0).map(([key, title]) => (
+              <section key={key} className={styles.group}>
+                <h3>{title}</h3>
+                <div>
+                  {output[key].map((claim, index) => <Claim key={index} claim={claim} facts={facts} />)}
+                </div>
+              </section>
+            ))}
+          </div>
+        </>
+      )}
       <details className={styles.sourceDetails}>
         <summary>数据完整性与生成记录{limitedCoverage.length ? ` · ${limitedCoverage.length} 个模块有缺项` : ""}</summary>
         <dl className={styles.record}>
@@ -151,7 +192,7 @@ export function AnalystNote({ analysis }: { analysis: AnalysisView }) {
         <ul className={styles.coverage}>
           {evidence.coverage.map((row) => (
             <li key={row.section}>
-              <a href={`#${row.section}`}>{SECTION_LABELS[row.section]} ↗</a>
+              <a href={`#${row.section === "context" ? "catalyst-today" : row.section}`}>{SECTION_LABELS[row.section]} ↗</a>
               <span>{COVERAGE_LABELS[row.status]}</span>
               {row.issues.length > 0 && <p>{row.issues.join("；")}</p>}
             </li>

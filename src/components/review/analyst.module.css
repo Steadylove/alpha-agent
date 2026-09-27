@@ -58,6 +58,38 @@
   font-weight: 500;
   line-height: 1.9;
 }
+.intelligence {
+  margin-top: 8px;
+}
+.intelligence .group {
+  grid-template-columns: minmax(165px, 0.65fr) minmax(0, 2.4fr);
+  gap: 20px 32px;
+  padding: 25px 0;
+}
+.sectionIndex {
+  margin-right: 8px;
+  color: var(--text-muted, #99a5a0);
+  font-size: 11px;
+}
+.sectionEnglish {
+  font-size: 12px;
+}
+.sectionLabel {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-primary, #dce3df);
+  font-size: 14px;
+}
+.sectionBody {
+  min-width: 0;
+  max-width: 940px;
+}
+.noRead {
+  margin: 0;
+  color: var(--text-muted, #99a5a0);
+  font-size: 13px;
+  line-height: 1.95;
+}
 .claim + .claim {
   margin-top: 19px;
 }
@@ -188,7 +220,8 @@
   font-size: 14px;
 }
 @media (max-width: 700px) {
-  .group {
+  .group,
+  .intelligence .group {
     grid-template-columns: 1fr;
     gap: 10px;
   }

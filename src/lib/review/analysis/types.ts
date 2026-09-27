@@ -1,7 +1,7 @@
 /** Client-safe DTOs; no provider credentials or strategy internals belong here. */
 export const ANALYSIS_VERSION = "daily-analyst-v1" as const;
 export const EVIDENCE_VERSION = "analyst-evidence-v1" as const;
-export type AnalysisSection = "market" | "options" | "sectors" | "signals" | "accounts" | "journal" | "tomorrow";
+export type AnalysisSection = "market" | "options" | "sectors" | "signals" | "accounts" | "journal" | "tomorrow" | "context";
 export type AnalysisFact = {
   id: string;
   section: AnalysisSection;
@@ -24,7 +24,7 @@ export type AnalysisEvidence = {
   facts: AnalysisFact[];
 };
 export type AnalysisClaim = { text: string; factIds: string[] };
-export type AnalysisOutput = {
+export type LegacyAnalysisOutput = {
   lead: AnalysisClaim;
   changes: AnalysisClaim[];
   divergences: AnalysisClaim[];
@@ -33,6 +33,17 @@ export type AnalysisOutput = {
   focus: AnalysisClaim[];
   limitations: AnalysisClaim[];
 };
+export type MarketIntelligenceOutput = {
+  format: "market-intelligence-v2";
+  marketRead: AnalysisClaim;
+  evidenceMap: AnalysisClaim[];
+  structureRead: AnalysisClaim;
+  systemRead: AnalysisClaim[];
+  eventFlowContext: AnalysisClaim[];
+  synthesis: AnalysisClaim;
+  validationPoints: AnalysisClaim[];
+};
+export type AnalysisOutput = LegacyAnalysisOutput | MarketIntelligenceOutput;
 export type AnalysisReport = {
   version: typeof ANALYSIS_VERSION;
   date: string;

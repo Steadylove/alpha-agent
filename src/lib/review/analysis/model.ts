@@ -6,6 +6,7 @@ import {
   type AnalysisEvidence,
   type AnalysisOutput,
   type AnalysisReport,
+  type MarketIntelligenceOutput,
 } from "./types";
 
 export const DEFAULT_ANALYSIS_MODEL = "deepseek-v4-pro";
@@ -13,7 +14,8 @@ const DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions";
 const MAX_TOKENS = 8_000;
 const MAX_RESPONSE_BYTES = 1_000_000;
 const MAX_EVIDENCE_CHARS = 500_000;
-const SECTIONS = ["market", "options", "sectors", "signals", "accounts", "journal", "tomorrow"] as const;
+const REQUIRED_SECTIONS = ["market", "options", "sectors", "signals", "accounts", "journal", "tomorrow"] as const;
+const SECTIONS = [...REQUIRED_SECTIONS, "context"] as const;
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((v) => {
   const ms = Date.parse(`${v}T00:00:00Z`);
@@ -50,14 +52,15 @@ const evidenceSchema = z.object({
     section: z.enum(SECTIONS),
     status: z.enum(["available", "partial", "unavailable"]),
     issues: z.array(text(1_000)).max(30),
-  }).strict()).length(SECTIONS.length).refine((rows) => unique(rows.map((r) => r.section))),
+  }).strict()).min(REQUIRED_SECTIONS.length).max(SECTIONS.length).refine((rows) =>
+    unique(rows.map((r) => r.section)) && REQUIRED_SECTIONS.every((section) => rows.some((row) => row.section === section))),
   facts: z.array(factSchema).min(1).max(700).refine((rows) => unique(rows.map((r) => r.id))),
 }).strict();
 const claimSchema = z.object({
   text: text(240),
   factIds: z.array(id).min(1).max(12).refine(unique),
 }).strict();
-const outputSchema = z.object({
+const legacyOutputSchema = z.object({
   lead: claimSchema.extend({ text: z.string().trim().min(40).max(500), factIds: z.array(id).min(1).max(16).refine(unique) }),
   changes: z.array(claimSchema).max(2),
   divergences: z.array(claimSchema).max(0),
@@ -65,6 +68,18 @@ const outputSchema = z.object({
   context: z.array(claimSchema).max(0),
   focus: z.array(claimSchema).max(3),
   limitations: z.array(claimSchema).max(2),
+}).strict();
+const intelligenceClaimSchema = claimSchema.extend({ text: text(300) });
+const intelligenceSummarySchema = intelligenceClaimSchema.extend({ factIds: z.array(id).min(1).max(16).refine(unique) });
+const intelligenceOutputSchema = z.object({
+  format: z.literal("market-intelligence-v2"),
+  marketRead: intelligenceSummarySchema.extend({ text: text(500) }),
+  evidenceMap: z.array(intelligenceClaimSchema).max(6),
+  structureRead: intelligenceSummarySchema.extend({ text: text(400) }),
+  systemRead: z.array(intelligenceClaimSchema).max(3),
+  eventFlowContext: z.array(intelligenceClaimSchema).max(3),
+  synthesis: intelligenceSummarySchema.extend({ text: text(600) }),
+  validationPoints: z.array(intelligenceClaimSchema).max(4),
 }).strict();
 const usageSchema = z.object({
   promptTokens: z.number().int().min(0).max(10_000_000),
@@ -82,7 +97,7 @@ const reportSchema = z.object({
   promptVersion: z.string().min(1).max(100).regex(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/),
   model: modelSchema,
   evidence: evidenceSchema,
-  output: outputSchema,
+  output: z.union([legacyOutputSchema, intelligenceOutputSchema]),
   usage: usageSchema,
 }).strict();
 
@@ -92,6 +107,7 @@ const DIAGNOSTIC_FIELDS = new Set([
   "evidence", "output", "usage", "states", "market", "legacy", "macro", "coverage", "section", "status", "issues",
   "facts", "id", "label", "value", "unit", "asOf", "basis", "source", "groups", "note", "text", "factIds",
   "lead", "changes", "divergences", "confirmations", "context", "focus", "limitations", "promptTokens", "completionTokens",
+  "format", "marketRead", "evidenceMap", "structureRead", "systemRead", "eventFlowContext", "synthesis", "validationPoints",
 ]);
 function schemaFailure(label: string, error: z.ZodError): Error {
   const details = error.issues.slice(0, 4).map((issue) => {
@@ -111,16 +127,20 @@ export function parseAnalysisEvidence(value: unknown): AnalysisEvidence {
 
 function validateCitations(output: AnalysisOutput, evidence: AnalysisEvidence): void {
   const known = new Set(evidence.facts.map((fact) => fact.id));
-  const claims = [output.lead, ...output.changes, ...output.divergences, ...output.confirmations,
-    ...output.context, ...output.focus, ...output.limitations];
+  const claims = "format" in output
+    ? [output.marketRead, ...output.evidenceMap, output.structureRead, ...output.systemRead,
+      ...output.eventFlowContext, output.synthesis, ...output.validationPoints]
+    : [output.lead, ...output.changes, ...output.divergences, ...output.confirmations,
+      ...output.context, ...output.focus, ...output.limitations];
   if (claims.some((claim) => claim.factIds.some((ref) => !known.has(ref)))) {
     throw new Error("分析引用了不存在的证据");
   }
 }
 
-export function parseAnalysisOutput(value: unknown, evidence: AnalysisEvidence): AnalysisOutput {
+/** New generations must use v2; legacy outputs are accepted only through archive validation. */
+export function parseAnalysisOutput(value: unknown, evidence: AnalysisEvidence): MarketIntelligenceOutput {
   const checked = parseAnalysisEvidence(evidence);
-  const parsed = outputSchema.safeParse(value);
+  const parsed = intelligenceOutputSchema.safeParse(value);
   if (!parsed.success) throw schemaFailure("分析输出格式或长度无效", parsed.error);
   validateCitations(parsed.data, checked);
   return parsed.data;
@@ -145,7 +165,7 @@ export function parseAnalysisReport(value: unknown, expectedDate?: string): Anal
 export async function generateAnalysis(
   evidence: AnalysisEvidence,
   options: { apiKey: string; model?: string; fetchImpl?: typeof fetch },
-): Promise<{ output: AnalysisOutput; usage: AnalysisReport["usage"] }> {
+): Promise<{ output: MarketIntelligenceOutput; usage: AnalysisReport["usage"] }> {
   const checked = parseAnalysisEvidence(evidence);
   const apiKey = options.apiKey.trim();
   if (!apiKey || /[\r\n]/.test(apiKey)) throw new Error("未配置有效的 DeepSeek API 密钥");

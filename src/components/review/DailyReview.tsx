@@ -989,8 +989,8 @@ export function DailyReview({
           <Section
             id="analysis"
             n="08"
-            title="AI Analyst Note"
-            subtitle="每日复盘后的独立解读，保留当次分析与数据依据。"
+            title="Market Intelligence"
+            subtitle="串联市场结构、系统表现与辅助线索，形成有据可查的综合解读。"
           >
             <AnalystNote analysis={analysis} />
           </Section>

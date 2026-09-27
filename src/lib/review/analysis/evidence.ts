@@ -4,8 +4,9 @@ import { optionsRowForDisplay } from "../options";
 import type { DailyReview, JournalSignal } from "../types";
 import { EVIDENCE_VERSION, type AnalysisEvidence, type AnalysisFact, type AnalysisSection } from "./types";
 
-const SECTIONS: AnalysisSection[] = ["market", "options", "sectors", "signals", "accounts", "journal", "tomorrow"];
-const LIMITS: Record<AnalysisSection, number> = { market: 85, options: 60, sectors: 60, signals: 75, accounts: 65, journal: 115, tomorrow: 30 };
+type PrimarySection = Exclude<AnalysisSection, "context">;
+const SECTIONS: PrimarySection[] = ["market", "options", "sectors", "signals", "accounts", "journal", "tomorrow"];
+const LIMITS: Record<PrimarySection, number> = { market: 85, options: 60, sectors: 60, signals: 75, accounts: 65, journal: 115, tomorrow: 30 };
 const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 const mean = (values: number[]) => values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
 const key = (value: string) => encodeURIComponent(value).replaceAll("%", "_");
@@ -29,7 +30,7 @@ export function buildAnalysisEvidence(review: DailyReview, journal: JournalSigna
   const cover = (section: AnalysisSection, valid: number, total: number) => {
     coverage.set(section, valid === 0 && total > 0 ? "unavailable" : valid < total ? "partial" : "available");
   };
-  const emit = (section: AnalysisSection, prefix: string, source: string, basis: string, groups: string[], asOf: string | null = date, status: AnalysisFact["status"] = "current") =>
+  const emit = (section: PrimarySection, prefix: string, source: string, basis: string, groups: string[], asOf: string | null = date, status: AnalysisFact["status"] = "current") =>
     (name: string, label: string, raw: AnalysisFact["value"], unit = "label", note?: string, override?: AnalysisFact["status"]) => {
       if (counts[section] >= LIMITS[section] - 1) { omitted[section]++; return; }
       const value = typeof raw === "number" && !finite(raw) ? null : typeof raw === "string" ? short(raw) : raw;

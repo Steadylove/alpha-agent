@@ -3,6 +3,7 @@ import type { DailyReview, JournalArchive } from "../types";
 import { buildAnalysisEvidence } from "./evidence";
 import { journalAsOf } from "../journal";
 import { parseAnalysisEvidence } from "./model";
+import { appendContextEvidence } from "./contextEvidence";
 
 /** Stable across JSON serialization and property insertion order. */
 export function analysisHash(value: unknown): string {
@@ -21,7 +22,7 @@ export function isAnalysisDate(date: string): boolean {
     new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) === date;
 }
 
-export function prepareAnalysisInput(review: DailyReview, journal: JournalArchive | null) {
+export function prepareAnalysisInput(review: DailyReview, journal: JournalArchive | null, auxiliary?: { context: unknown; now: Date }) {
   const archiveValid = journal?.version === 1 && Array.isArray(journal.signals);
   // Later archive growth is not a revision of this day's evidence. Cut before computing counts/hashes.
   const records = journalAsOf(archiveValid ? journal.signals : review.signals, review.date)
@@ -42,6 +43,6 @@ export function prepareAnalysisInput(review: DailyReview, journal: JournalArchiv
       coverage.issues.push("信号跟踪档案缺失或未覆盖所选日期，不代表完整历史样本。");
     }
   }
-  const checked = parseAnalysisEvidence(evidence);
+  const checked = parseAnalysisEvidence(auxiliary ? appendContextEvidence(evidence, auxiliary.context, auxiliary.now) : evidence);
   return { evidence: checked, sourceHash: analysisHash(review), inputHash: analysisHash(checked) };
 }

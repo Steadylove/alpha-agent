@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { buildReviewAnalysis } from "@/lib/review/analysis/service";
 import { analysisHash, prepareAnalysisInput } from "@/lib/review/analysis/fingerprint";
-import type { AnalysisEvidence, AnalysisOutput, AnalysisReport } from "@/lib/review/analysis/types";
+import type { AnalysisEvidence, MarketIntelligenceOutput, AnalysisReport } from "@/lib/review/analysis/types";
+import { buildContextReport } from "@/lib/context/model";
 import type { DailyReview } from "@/lib/review/types";
 import { writeSnapshot, snapshotFile } from "@/lib/vps/snapshot";
 import { getReviewData } from "@/lib/review/store";
@@ -20,9 +21,10 @@ function review(): DailyReview {
       strongSectors: { today: null, yesterday: null, total: 11 } },
     sectors: [], options: [], signals: [], accounts: [], warnings: [] };
 }
-function output(evidence: AnalysisEvidence): AnalysisOutput {
-  return { lead: { text: "系统保留 Neutral 状态，现有数据不足以确认指数、板块与期权结构之间的关系。信号记录和模型账户应分别理解，缺失值不能视为零；没有成熟结果时，不评价评分有效性。后续应先核对同一交易日的数据完整性，再观察各模块是否出现可比较的变化。",
-    factIds: [evidence.facts[0].id] }, changes: [], divergences: [], confirmations: [], context: [], focus: [], limitations: [] };
+function output(evidence: AnalysisEvidence): MarketIntelligenceOutput {
+  const claim = { text: "系统保留 Neutral 状态，现有数据不足以确认指数、板块与期权结构之间的关系；缺失值不能视为零。", factIds: [evidence.facts[0].id] };
+  return { format: "market-intelligence-v2", marketRead: claim, evidenceMap: [], structureRead: claim,
+    systemRead: [], eventFlowContext: [], synthesis: claim, validationPoints: [] };
 }
 const generate = vi.fn(async (evidence: AnalysisEvidence) => ({ output: output(evidence), usage: null }));
 const now = () => new Date("2026-09-25T01:00:00Z");
@@ -119,4 +121,31 @@ it("future journal growth does not invalidate an archived day's evidence", () =>
   const original = prepareAnalysisInput(review(), archive);
   // Later records are outside the evidence window and discarded before accessing their other fields.
   expect(prepareAnalysisInput(review(), later as Parameters<typeof prepareAnalysisInput>[1]).inputHash).toBe(original.inputHash);
+});
+
+it("includes dated Context raw facts and re-generates after auxiliary changes without modifying the original review", async () => {
+  const original = readFileSync(snapshotFile(`daily-review/${date}`), "utf8");
+  await buildReviewAnalysis(options, { generate, now });
+  expect(readReport().evidence.coverage.find(row => row.section === "context")?.status).toBe("unavailable");
+  const context = buildContextReport({ catalyst: null, flows: [], flowCoverage: { state: "unavailable", checkedAt: null, detail: "missing" }, date, cutoff: "2026-09-25T00:30:00.000Z" });
+  writeSnapshot(`context/${date}`, context);
+  expect((await getReviewData(date)).analysis?.status).toBe("stale");
+  expect((await buildReviewAnalysis(options, { generate, now })).status).toBe("generated");
+  expect(readReport().evidence.facts.find(row => row.id === "context.cutoff")?.value).toBe(context.cutoff);
+  expect((await getReviewData(date)).analysis?.status).toBe("ready");
+  expect(readFileSync(snapshotFile(`daily-review/${date}`), "utf8")).toBe(original);
+});
+
+it("rejects auxiliary updates during generation and never substitutes the latest Context for an absent date", async () => {
+  const context = buildContextReport({ catalyst: null, flows: [], flowCoverage: { state: "unavailable", checkedAt: null, detail: "missing" }, date, cutoff: "2026-09-25T00:30:00.000Z" });
+  writeSnapshot("context/latest", context);
+  await buildReviewAnalysis(options, { generate, now });
+  const first = readReport();
+  expect(first.evidence.coverage.find(row => row.section === "context")?.status).toBe("unavailable");
+  generate.mockImplementationOnce(async e => {
+    writeSnapshot(`context/${date}`, context);
+    return { output: output(e), usage: null };
+  });
+  await expect(buildReviewAnalysis({ ...options, force: true }, { generate, now })).rejects.toThrow("分析期间发生更新");
+  expect(readReport()).toEqual(first);
 });

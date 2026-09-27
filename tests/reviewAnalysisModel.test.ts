@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_ANALYSIS_MODEL, generateAnalysis, parseAnalysisEvidence, parseAnalysisOutput, parseAnalysisReport } from "@/lib/review/analysis/model";
 import { ANALYSIS_SYSTEM_PROMPT, analysisUserPrompt, PROMPT_VERSION } from "@/lib/review/analysis/prompt";
-import { ANALYSIS_VERSION, EVIDENCE_VERSION, type AnalysisEvidence, type AnalysisOutput, type AnalysisReport } from "@/lib/review/analysis/types";
+import { ANALYSIS_VERSION, EVIDENCE_VERSION, type AnalysisEvidence, type AnalysisReport, type LegacyAnalysisOutput, type MarketIntelligenceOutput } from "@/lib/review/analysis/types";
 
 function evidence(): AnalysisEvidence {
   return {
@@ -20,7 +20,7 @@ function evidence(): AnalysisEvidence {
   };
 }
 
-function output(): AnalysisOutput {
+function legacyOutput(): LegacyAnalysisOutput {
   const paragraph = "现有指数证据只能说明本次观测的价格变化，不能推断资金的真实动机。系统状态沿用已经发布的判断，不另行重分类。期权快照尚缺失，所以无法交叉核对结构变化。相同市场来源的观察并不独立，应继续核查后续同口径数据，避免把缺项解读为没有风险。";
   return {
     lead: { text: paragraph.repeat(2), factIds: ["market.spy.change", "options.spx.missing"] },
@@ -30,7 +30,25 @@ function output(): AnalysisOutput {
   };
 }
 
-function report(): AnalysisReport {
+function output(): MarketIntelligenceOutput {
+  return {
+    format: "market-intelligence-v2",
+    marketRead: { text: "SPY 当日上涨 0.4%；缺少 SPX 期权快照，无法判断价格与 Gamma 结构是否一致。", factIds: ["market.spy.change", "options.spx.missing"] },
+    evidenceMap: [
+      { text: "Price：SPY 收盘上涨 0.4%。", factIds: ["market.spy.change"] },
+      { text: "Gamma：SPX 缺少当日期权快照，无法判断。", factIds: ["options.spx.missing"] },
+    ],
+    structureRead: { text: "仅有单日指数价格和期权缺失记录，无法判断同步、结构性分化或背离。", factIds: ["market.spy.change", "options.spx.missing"] },
+    systemRead: [],
+    eventFlowContext: [],
+    synthesis: { text: "价格观察为正，但 Gamma 证据缺失，尚不能建立两者的结构关系。", factIds: ["market.spy.change", "options.spx.missing"] },
+    validationPoints: [{ text: "下一交易日核查 SPX 期权快照是否补全，以重新检验价格与 Gamma 的关系。", factIds: ["options.spx.missing"] }],
+  };
+}
+
+type IntelligenceReport = AnalysisReport & { output: MarketIntelligenceOutput };
+
+function report(): IntelligenceReport {
   const facts = evidence();
   return { version: ANALYSIS_VERSION, date: facts.date, generatedAt: "2026-09-25T01:01:00.000Z",
     sourceBuiltAt: facts.sourceBuiltAt, sourceHash: "a".repeat(64), inputHash: "b".repeat(64),
@@ -108,9 +126,10 @@ describe("DeepSeek independent review request", () => {
     ["truncated output", () => response(JSON.stringify(output()), "length")],
     ["excessive content", () => response("x".repeat(30_001))],
     ["excessive envelope", () => new Response("x".repeat(1_000_001))],
-    ["missing citation", () => response(JSON.stringify({ ...output(), focus: [{ text: "未验证。", factIds: ["not-known"] }] }))],
-    ["credential echo", () => response(JSON.stringify({ ...output(), context: [{ text: "secret-test-key", factIds: ["market.spy.change"] }] }))],
-    ["escaped credential echo", () => response(JSON.stringify({ ...output(), context: [{ text: "secret-test-key", factIds: ["market.spy.change"] }] }).replace("secret-test-key", "secret\\u002dtest-key"))],
+    ["unknown citation", () => response(JSON.stringify({ ...output(), validationPoints: [{ text: "未验证。", factIds: ["not-known"] }] }))],
+    ["legacy generation", () => response(JSON.stringify(legacyOutput()))],
+    ["credential echo", () => response(JSON.stringify({ ...output(), eventFlowContext: [{ text: "secret-test-key", factIds: ["market.spy.change"] }] }))],
+    ["escaped credential echo", () => response(JSON.stringify({ ...output(), eventFlowContext: [{ text: "secret-test-key", factIds: ["market.spy.change"] }] }).replace("secret-test-key", "secret\\u002dtest-key"))],
   ])("rejects %s without persisting an unverified result", async (_name, makeResponse) => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(makeResponse());
     const error = await generateAnalysis(evidence(), { apiKey: "secret-test-key", fetchImpl }).catch((e: unknown) => e);
@@ -133,21 +152,45 @@ describe("analysis output and archive validation", () => {
     expect(parseAnalysisEvidence(evidence())).toEqual(evidence());
   });
 
+  it("accepts legacy archives with unchanged bounds, but rejects legacy output for new generations", () => {
+    const archived = { ...report(), promptVersion: "review-analysis-prompt-v1", output: legacyOutput() };
+    expect(parseAnalysisReport(archived)).toEqual(archived);
+    expect(() => parseAnalysisOutput(legacyOutput(), evidence())).toThrow("格式");
+    for (const length of [39, 501])
+      expect(() => parseAnalysisReport({ ...archived, output: { ...legacyOutput(), lead: { ...legacyOutput().lead, text: "中".repeat(length) } } })).toThrow();
+    expect(() => parseAnalysisReport({ ...archived, output: { ...legacyOutput(), changes: [{ text: "中".repeat(241), factIds: ["market.spy.change"] }] } })).toThrow();
+    expect(() => parseAnalysisReport({ ...archived, output: { ...legacyOutput(), lead: { ...legacyOutput().lead, factIds: ["unknown"] } } })).toThrow("不存在");
+    for (const section of ["divergences", "confirmations", "context"])
+      expect(() => parseAnalysisReport({ ...archived, output: { ...legacyOutput(), [section]: [legacyOutput().changes[0]] } })).toThrow();
+  });
+
+  it("allows optional context coverage while keeping all seven original sections required", () => {
+    const data = evidence();
+    data.coverage.push({ section: "context", status: "unavailable", issues: ["无辅助样本"] });
+    data.facts.push({ ...data.facts[1], id: "context.coverage", section: "context", label: "辅助覆盖", source: "context" });
+    expect(parseAnalysisEvidence(data)).toEqual(data);
+    expect(() => parseAnalysisEvidence({ ...data, coverage: data.coverage.filter((row) => row.section !== "market") })).toThrow();
+    expect(() => parseAnalysisEvidence({ ...data, coverage: [...data.coverage, data.coverage[7]] })).toThrow();
+  });
+
   it.each([
-    ["unknown citation", (r: AnalysisReport) => { r.output.lead.factIds = ["unknown"]; }],
-    ["duplicate citation", (r: AnalysisReport) => { r.output.lead.factIds = ["market.spy.change", "market.spy.change"]; }],
-    ["uncited claim", (r: AnalysisReport) => { r.output.lead.factIds = []; }],
-    ["duplicate fact IDs", (r: AnalysisReport) => { r.evidence.facts.push(r.evidence.facts[0]); }],
-    ["duplicate coverage", (r: AnalysisReport) => { r.evidence.coverage[1] = r.evidence.coverage[0]; }],
-    ["misaligned date", (r: AnalysisReport) => { r.evidence.date = "2026-09-23"; }],
-    ["misaligned source time", (r: AnalysisReport) => { r.sourceBuiltAt = "2026-09-25T00:30:00.000Z"; }],
-    ["generation before input", (r: AnalysisReport) => { r.generatedAt = "2026-09-25T00:59:00.000Z"; }],
-    ["invalid timestamp", (r: AnalysisReport) => { r.generatedAt = "2026-09-25T24:00:00.000Z"; }],
-    ["bad hash", (r: AnalysisReport) => { r.sourceHash = "short"; }],
-    ["too long lead", (r: AnalysisReport) => { r.output.lead.text = "中".repeat(501); }],
-    ["too short lead", (r: AnalysisReport) => { r.output.lead.text = "中".repeat(39); }],
-    ["too long claim", (r: AnalysisReport) => { r.output.changes[0].text = "中".repeat(241); }],
-    ["too many changes", (r: AnalysisReport) => { r.output.changes = Array(4).fill(r.output.changes[0]); }],
+    ["unknown citation", (r: IntelligenceReport) => { r.output.marketRead.factIds = ["unknown"]; }],
+    ["duplicate citation", (r: IntelligenceReport) => { r.output.marketRead.factIds = ["market.spy.change", "market.spy.change"]; }],
+    ["uncited claim", (r: IntelligenceReport) => { r.output.marketRead.factIds = []; }],
+    ["duplicate fact IDs", (r: IntelligenceReport) => { r.evidence.facts.push(r.evidence.facts[0]); }],
+    ["duplicate coverage", (r: IntelligenceReport) => { r.evidence.coverage[1] = r.evidence.coverage[0]; }],
+    ["misaligned date", (r: IntelligenceReport) => { r.evidence.date = "2026-09-23"; }],
+    ["misaligned source time", (r: IntelligenceReport) => { r.sourceBuiltAt = "2026-09-25T00:30:00.000Z"; }],
+    ["generation before input", (r: IntelligenceReport) => { r.generatedAt = "2026-09-25T00:59:00.000Z"; }],
+    ["invalid timestamp", (r: IntelligenceReport) => { r.generatedAt = "2026-09-25T24:00:00.000Z"; }],
+    ["bad hash", (r: IntelligenceReport) => { r.sourceHash = "short"; }],
+    ["too long market read", (r: IntelligenceReport) => { r.output.marketRead.text = "中".repeat(501); }],
+    ["blank market read", (r: IntelligenceReport) => { r.output.marketRead.text = " "; }],
+    ["too long structure read", (r: IntelligenceReport) => { r.output.structureRead.text = "中".repeat(401); }],
+    ["too long synthesis", (r: IntelligenceReport) => { r.output.synthesis.text = "中".repeat(601); }],
+    ["too long claim", (r: IntelligenceReport) => { r.output.evidenceMap[0].text = "中".repeat(301); }],
+    ["too many evidence dimensions", (r: IntelligenceReport) => { r.output.evidenceMap = Array(7).fill(r.output.evidenceMap[0]); }],
+    ["too many validation points", (r: IntelligenceReport) => { r.output.validationPoints = Array(5).fill(r.output.validationPoints[0]); }],
   ])("rejects %s", (_name, change) => {
     const sample = report();
     change(sample);
@@ -173,58 +216,77 @@ describe("analysis output and archive validation", () => {
     const factId = "signals.4h%3Alive%3ABRK-B%3A1790280000.score";
     data.facts[0].id = factId;
     const note = output();
-    note.lead.factIds = [factId];
-    note.changes[0].factIds = [factId];
+    for (const claim of [note.marketRead, ...note.evidenceMap, note.structureRead, note.synthesis, ...note.validationPoints])
+      claim.factIds = claim.factIds.map((ref) => ref === "market.spy.change" ? factId : ref);
     expect(parseAnalysisOutput(note, data)).toEqual(note);
     expect(() => parseAnalysisEvidence({ ...data, facts: [{ ...data.facts[0], id: "signals.bad%ZZ" }] })).toThrow();
   });
 
   it("reports bounded schema paths and codes without input values or unrecognized property names", () => {
     const data = output();
-    data.focus = [{ text: "", factIds: ["private-value secret-test-key"] }];
+    data.validationPoints = [{ text: "", factIds: ["private-value secret-test-key"] }];
     const error = (() => { try { parseAnalysisOutput(data, evidence()); } catch (e) { return e as Error; } })();
-    expect(error?.message).toContain("$.focus[0].text:too_small");
-    expect(error?.message).toContain("$.focus[0].factIds[0]:invalid_format");
+    expect(error?.message).toContain("$.validationPoints[0].text:too_small");
+    expect(error?.message).toContain("$.validationPoints[0].factIds[0]:invalid_format");
     expect(error?.message).not.toMatch(/private-value|secret-test-key/);
     const unknownKey = (() => { try { parseAnalysisOutput({ ...data, "secret-test-key": true }, evidence()); } catch (e) { return e as Error; } })();
     expect(unknownKey?.message).not.toContain("secret-test-key");
     expect(unknownKey?.message).toContain("unrecognized_keys");
-    const many = { ...output(), focus: Array.from({ length: 3 }, () => ({ text: "", factIds: [] })) };
+    const many = { ...output(), validationPoints: Array.from({ length: 3 }, () => ({ text: "", factIds: [] })) };
     const bounded = (() => { try { parseAnalysisOutput(many, evidence()); } catch (e) { return e as Error; } })();
     expect(bounded?.message.match(/\$/g)).toHaveLength(4);
   });
 
-  it("accepts a concise missing-data summary without forcing the model to pad the lead", () => {
+  it("accepts concise missing-data statements without forcing invented evidence or validation points", () => {
     const data = output();
-    data.lead.text = "目前仅有部分指数价格观察，期权快照仍然缺失，尚不足以交叉核对市场结构。系统状态沿用原有判断，等待后续同口径数据补全。";
-    expect(data.lead.text.length).toBeLessThan(180);
+    data.marketRead.text = "证据不足，无法判断。";
+    data.validationPoints = [];
     expect(parseAnalysisOutput(data, evidence())).toEqual(data);
+    expect(PROMPT_VERSION).toBe("review-intelligence-prompt-v2");
+    expect(ANALYSIS_SYSTEM_PROMPT).toContain("Trend Adaptive System 的 Market Intelligence Analyst");
+    expect(ANALYSIS_SYSTEM_PROMPT).toContain("跨模块关联分析、理解事实之间的关系");
     expect(ANALYSIS_SYSTEM_PROMPT).toContain("未归因残差");
     expect(ANALYSIS_SYSTEM_PROMPT).toContain("不重新归一化");
     expect(ANALYSIS_SYSTEM_PROMPT).toContain("入场时冻结");
     expect(ANALYSIS_SYSTEM_PROMPT).toContain("不是新增的独立证据");
-    expect(ANALYSIS_SYSTEM_PROMPT).toContain("本版必须全部为 []");
-    expect(ANALYSIS_SYSTEM_PROMPT).toContain("不要填满，不重复总览");
+    expect(ANALYSIS_SYSTEM_PROMPT).toContain("不强行填满，不重复总览");
     expect(ANALYSIS_SYSTEM_PROMPT).toContain("写给投资者");
     expect(ANALYSIS_SYSTEM_PROMPT).toContain("期权结构为估算，不能据此推断资金意图");
     expect(ANALYSIS_SYSTEM_PROMPT).toContain("对应标的、对应字段、对应时点");
     expect(ANALYSIS_SYSTEM_PROMPT).toContain("引用上限不足时缩小陈述范围");
     expect(ANALYSIS_SYSTEM_PROMPT).toContain("将状态枚举翻译成准确的中文含义");
     expect(ANALYSIS_SYSTEM_PROMPT).toContain("可比的观察窗口、对象和含义");
-    expect(ANALYSIS_SYSTEM_PROMPT).toContain("changes 0–2 项");
+    expect(ANALYSIS_SYSTEM_PROMPT).toContain("Trend Adaptive 是唯一主交易系统");
+    expect(ANALYSIS_SYSTEM_PROMPT).toContain("Market State、Gamma、Breadth、Sector、Signal、Account 是主要判断依据");
+    expect(ANALYSIS_SYSTEM_PROMPT).toContain("Price、Breadth、Volatility、Leadership、SmallCap、Gamma");
+    expect(ANALYSIS_SYSTEM_PROMPT).toContain("明确列出冲突的双方、各自证据及比较口径");
+    expect(ANALYSIS_SYSTEM_PROMPT).toContain("同步");
+    expect(ANALYSIS_SYSTEM_PROMPT).toContain("结构性分化");
+    expect(ANALYSIS_SYSTEM_PROMPT).toContain("2H/4H");
+    expect(ANALYSIS_SYSTEM_PROMPT).toContain("局部市场样本，不代表全市场资金流");
+    expect(ANALYSIS_SYSTEM_PROMPT).toContain("不证明因果");
+    expect(ANALYSIS_SYSTEM_PROMPT).toContain("不能回填到原市场状态或入场知识");
+    expect(ANALYSIS_SYSTEM_PROMPT).toContain("目标 2–4 项");
+    expect(ANALYSIS_SYSTEM_PROMPT).toContain("无法判断");
   });
 
-  it("enforces the concise release with empty reserved sections and no more than sixteen lead references", () => {
+  it("bounds all v2 sections and references while accepting nonempty system and auxiliary observations", () => {
     const facts = evidence();
     facts.facts = Array.from({ length: 17 }, (_, index) => ({ ...facts.facts[0], id: `market.fact.${index}` }));
-    const sample: AnalysisOutput = { ...output(), changes: [], limitations: [], lead: { ...output().lead, factIds: facts.facts.slice(0, 16).map((f) => f.id) } };
-    expect(parseAnalysisOutput(sample, facts)).toEqual(sample);
-    expect(() => parseAnalysisOutput({ ...sample, lead: { ...sample.lead, factIds: facts.facts.map((f) => f.id) } }, facts)).toThrow("factIds");
     const claim = { text: "一条有依据的观察。", factIds: [facts.facts[0].id] };
-    for (const section of ["divergences", "confirmations", "context"])
-      expect(() => parseAnalysisOutput({ ...sample, [section]: [claim] }, facts)).toThrow(section);
-    for (const section of ["changes", "limitations"])
-      expect(() => parseAnalysisOutput({ ...sample, [section]: [claim, claim, claim] }, facts)).toThrow(section);
+    const summary = { ...claim, factIds: facts.facts.slice(0, 16).map((f) => f.id) };
+    const sample: MarketIntelligenceOutput = { format: "market-intelligence-v2", marketRead: summary, evidenceMap: [claim],
+      structureRead: summary, systemRead: [claim], eventFlowContext: [claim], synthesis: summary, validationPoints: [claim] };
+    expect(parseAnalysisOutput(sample, facts)).toEqual(sample);
+    for (const section of ["marketRead", "structureRead", "synthesis"] as const) {
+      expect(() => parseAnalysisOutput({ ...sample, [section]: { ...summary, factIds: facts.facts.map((f) => f.id) } }, facts)).toThrow("factIds");
+      expect(() => parseAnalysisOutput({ ...sample, [section]: { ...summary, factIds: ["unknown"] } }, facts)).toThrow("不存在");
+    }
+    for (const [section, limit] of [["evidenceMap", 6], ["systemRead", 3], ["eventFlowContext", 3], ["validationPoints", 4]] as const) {
+      expect(() => parseAnalysisOutput({ ...sample, [section]: Array(limit + 1).fill(claim) }, facts)).toThrow(section);
+      expect(() => parseAnalysisOutput({ ...sample, [section]: [{ ...claim, factIds: facts.facts.slice(0, 13).map((f) => f.id) }] }, facts)).toThrow("factIds");
+      expect(() => parseAnalysisOutput({ ...sample, [section]: [{ ...claim, factIds: ["unknown"] }] }, facts)).toThrow("不存在");
+    }
   });
 
   it("deduplicates only identical context metadata and retains exact facts plus a final format reminder", () => {
@@ -245,7 +307,9 @@ describe("analysis output and archive validation", () => {
     expect(facts).toEqual(before);
     const reminder = message.split("\nEND_UNTRUSTED_EVIDENCE\n")[1];
     expect(reminder).toContain("FORMAT REMINDER");
-    expect(reminder).toContain("divergences、confirmations、context 必须是 []");
+    expect(reminder).toContain('format:"market-intelligence-v2"');
+    expect(reminder).toContain("marketRead、evidenceMap、structureRead、systemRead、eventFlowContext、synthesis、validationPoints");
+    expect(reminder).toContain("依据不足可少写或为空");
     expect(reminder).toContain("facts[].id");
     expect(reminder).toContain("不能拼造 .status");
   });

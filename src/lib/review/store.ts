@@ -76,7 +76,9 @@ export async function getReviewData(requested?: string) {
       if (analysisResult.value != null) {
         const report = parseAnalysisReport(analysisResult.value, date);
         if (analysisHash(report.evidence) !== report.inputHash) throw new Error("analysis evidence changed");
-        const input = prepareAnalysisInput(review, journal);
+        // Legacy notes predate the auxiliary packet and retain their original hash semantics.
+        const input = prepareAnalysisInput(review, journal, report.evidence.coverage.some(row => row.section === "context")
+          ? { context: contextResult.status === "fulfilled" ? contextResult.value : null, now: new Date() } : undefined);
         analysis = { report, status: report.sourceHash === input.sourceHash && report.inputHash === input.inputHash ? "ready" : "stale" };
       }
     } catch { analysis = { report: null, status: "unavailable" }; }

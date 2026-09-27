@@ -1,16 +1,20 @@
 # DeepSeek 独立复盘分析
 
-每日复盘新增第 08 模块 **AI Analyst Note**。原有七个模块、市场标签、信号评分、2H/4H 策略、账户和推送均保持原有逻辑。页面仅读取归档结果；打开或刷新页面不会请求模型。
+每日复盘第 08 模块为 **Market Intelligence**。原有七个模块、市场标签、信号评分、2H/4H 策略、账户和推送均保持原有逻辑。页面仅读取归档结果；打开或刷新页面不会请求模型。
 
 ## 生成链路
 
 1. VPS 原日更任务生成复盘并完成宏观补采与原有推送。
 2. 独立运行 `npm run review:analysis`，通过现有交易日历确认应分析的美东交易日。当天文件缺失时失败，不使用上一个交易日冒充。
-3. 代码将已归档复盘整理成有日期、单位、来源与局限的事实包。历史信号按所选日期及原复盘生成时间截断；核心策略规则、密钥和完整原始信号不发送给模型。
-4. DeepSeek 输出一段跨模块中文总览、最多两项重要变化、最多三项后续观察，以及必要的数据边界。第一版只保留这些重点，避免机械填写栏目；没有充分证据时相应部分为空。
+3. 代码将已归档复盘整理成有日期、单位、来源与局限的事实包。历史信号按所选日期及原复盘生成时间截断；核心策略规则、密钥和完整原始信号不发送给模型。同日期 Context 的最多三个优先标的作为独立辅助证据，保留原始事件、部分期权流、关联窗口、现有信号与模型持仓。不会把其他 AI 摘要作为事实再次输入。
+4. DeepSeek 按 A–G 输出 Market Read、Evidence Map、Structure Read、System Read、Event × Flow Context、AI Synthesis、Validation Points。主要目标是解释价格、广度、波动、领导结构、小盘和 Gamma 的一致与分歧，以及 2H/4H 系统所处环境。下一交易日只列 2–4 个有依据的验证条件，依据不足可以少写；不预测方向，不重新分类系统状态。
 5. 校验 JSON、长度、引用和日期后原子保存到 `snapshots/daily-review/analysis/YYYY-MM-DD.json`。重新生成时保存上一份成功版本到 `analysis/history/`。
 
 模型只解释事实，不重新定义市场状态，不发出交易指令，不把同源指标当作独立确认。期权墙位与 GEX 为模型估算；账户为模型账本；信号后续价格变化不是策略成交收益。缺项、过期和未成熟样本保留相应标记。
+
+辅助 Context 可以晚于原复盘，必须标明其截止时间，不能反推为市场状态形成或入场时已经知道的信息。来源/转发时间不是实际成交时间，事件与资金行为共现不证明因果。缺少同日期 Context 时提供可引用的“无法判断”事实，不使用 latest 或其他日期替代。辅助事实变更会使独立解读过期并在下一次运行时重新生成；仅改写 Context AI 文案不会触发。
+
+原日更任务尾部继续生成第 8 模块；现有 Catalyst 分析任务在保存新 Context 后，也会调用 `review:analysis` 补充解读。因此它沿用北京时间周二至周六 10:05、每天 12:55、美东工作日 08:55 的分析安排，普通半小时采集不会触发模型。使用既有锁和有限重试，不运行主交易任务或消息发送器。
 
 ## 配置
 
@@ -44,6 +48,7 @@ npm run review:analysis -- --date=2026-09-24 --force
 ## 页面与校验边界
 
 - 每个结论可展开所引用的事实，并跳回原始模块。
+- 新结果使用 `market-intelligence-v2` 输出和 `review-intelligence-prompt-v2` 提示词；旧版留档仍可读取和显示。
 - 市场状态、宏观标签和数据完整性分别显示，`Partial` 不替代 `Neutral`、`Mixed` 或 `Unknown`。
 - 分析缺失或损坏不影响前七个模块，也不会回退到其他日期或构建机上的旧结果。
 - 来源后来补采或更正时显示旧版提示；下次运行分析会按新证据生成。仅新增未来日期信号不会使历史分析失效。
@@ -53,6 +58,6 @@ npm run review:analysis -- --date=2026-09-24 --force
 
 ## 验证
 
-相关测试：`reviewAnalysisEvidence`、`reviewAnalysisModel`、`reviewAnalysisService`、`reviewAnalysisUi` 与 `dailyQuantCron`。覆盖数据缺失、过期、历史截断、错误引用、成功结果保护、数据变动、远程读取失败和任务隔离。调度测试全部使用桩命令，不能用运行真实整条日更任务代替测试。
+相关测试：`reviewAnalysisEvidence`、`reviewAnalysisContext`、`reviewAnalysisModel`、`reviewAnalysisService`、`reviewAnalysisUi`、`dailyQuantCron` 与 `catalystCron`。覆盖数据缺失、过期、历史截断、错误引用、成功结果保护、数据变动、远程读取失败和任务隔离。调度测试全部使用桩命令，不能用运行真实整条日更任务代替测试。
 
 提示词位于 `src/lib/review/analysis/prompt.ts`；更新行为时递增 `PROMPT_VERSION`。临时分析锁位于行情根目录 `.review-analysis.lock`，进程正常结束会清除。遇到锁异常先核对对应进程，避免并发重复付费。

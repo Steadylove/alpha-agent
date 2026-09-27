@@ -8,6 +8,7 @@ import { PROMPT_VERSION } from "./prompt";
 
 type Dependencies = {
   read: (name: string) => unknown;
+  readContext: (date: string) => unknown;
   write: (name: string, value: unknown) => void;
   generate: typeof generateAnalysis;
   now: () => Date;
@@ -15,6 +16,10 @@ type Dependencies = {
 const defaults: Dependencies = {
   read(name) {
     const file = snapshotFile(`daily-review/${name}`);
+    return existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null;
+  },
+  readContext(date) {
+    const file = snapshotFile(`context/${date}`);
     return existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null;
   },
   write: (name, value) => writeSnapshot(`daily-review/${name}`, value),
@@ -31,7 +36,9 @@ function sourceFor(date: string, deps: Dependencies) {
     throw new Error("缺少该交易日的有效复盘，分析未生成");
   let journal: JournalArchive | null = null;
   try { journal = deps.read("journal") as JournalArchive | null; } catch { /* Clearly marked incomplete in evidence. */ }
-  return prepareAnalysisInput(review, journal);
+  let context: unknown = null;
+  try { context = deps.readContext(date); } catch { /* Auxiliary outages cannot hide the primary review. */ }
+  return prepareAnalysisInput(review, journal, { context, now: deps.now() });
 }
 
 /** Data-only job. No mutations of reviews, journals, strategies or message delivery. */
