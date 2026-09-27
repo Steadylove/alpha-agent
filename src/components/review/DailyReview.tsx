@@ -990,7 +990,7 @@ export function DailyReview({
             id="analysis"
             n="08"
             title="Market Intelligence"
-            subtitle="串联市场结构、系统表现与辅助线索，形成有据可查的综合解读。"
+            subtitle="关注关键变化、尚未确认的环节与系统所处环境。"
           >
             <AnalystNote analysis={analysis} />
           </Section>

@@ -6,7 +6,7 @@ import {
   type AnalysisEvidence,
   type AnalysisOutput,
   type AnalysisReport,
-  type MarketIntelligenceOutput,
+  type ConciseIntelligenceOutput,
 } from "./types";
 
 export const DEFAULT_ANALYSIS_MODEL = "deepseek-v4-pro";
@@ -82,6 +82,11 @@ const intelligenceOutputSchema = z.object({
   synthesis: intelligenceSummarySchema.extend({ text: text(600) }),
   validationPoints: z.array(intelligenceClaimSchema).max(4),
 }).strict();
+const conciseOutputSchema = z.object({
+  format: z.literal("market-intelligence-v3"),
+  paragraphs: z.array(intelligenceSummarySchema.extend({ text: z.string().trim().min(40).max(600) })).length(2),
+}).strict().refine((output) => output.paragraphs.reduce((length, claim) => length + claim.text.length, 0) <= 1_000,
+  { path: ["paragraphs"], message: "Combined analysis exceeds length limit" });
 const usageSchema = z.object({
   promptTokens: z.number().int().min(0).max(10_000_000),
   completionTokens: z.number().int().min(0).max(10_000_000),
@@ -98,7 +103,7 @@ const reportSchema = z.object({
   promptVersion: z.string().min(1).max(100).regex(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/),
   model: modelSchema,
   evidence: evidenceSchema,
-  output: z.union([legacyOutputSchema, intelligenceOutputSchema]),
+  output: z.union([legacyOutputSchema, intelligenceOutputSchema, conciseOutputSchema]),
   usage: usageSchema,
 }).strict();
 
@@ -109,6 +114,7 @@ const DIAGNOSTIC_FIELDS = new Set([
   "facts", "id", "label", "value", "unit", "asOf", "basis", "source", "groups", "note", "text", "factIds",
   "lead", "changes", "divergences", "confirmations", "context", "focus", "limitations", "promptTokens", "completionTokens",
   "format", "marketRead", "evidenceMap", "structureRead", "systemRead", "eventFlowContext", "synthesis", "validationPoints",
+  "paragraphs",
 ]);
 function schemaFailure(label: string, error: z.ZodError): Error {
   const details = error.issues.slice(0, 4).map((issue) => {
@@ -129,18 +135,24 @@ export function parseAnalysisEvidence(value: unknown): AnalysisEvidence {
 function validateCitations(output: AnalysisOutput, evidence: AnalysisEvidence): void {
   const known = new Set(evidence.facts.map((fact) => fact.id));
   const claims = "format" in output
-    ? [output.marketRead, ...output.evidenceMap, output.structureRead, ...output.systemRead,
-      ...output.eventFlowContext, output.synthesis, ...output.validationPoints]
+    ? output.format === "market-intelligence-v3" ? output.paragraphs
+      : [output.marketRead, ...output.evidenceMap, output.structureRead, ...output.systemRead,
+        ...output.eventFlowContext, output.synthesis, ...output.validationPoints]
     : [output.lead, ...output.changes, ...output.divergences, ...output.confirmations,
       ...output.context, ...output.focus, ...output.limitations];
   if (claims.some((claim) => claim.factIds.some((ref) => !known.has(ref)))) {
     throw new Error("分析引用了不存在的证据");
   }
   if ("format" in output) {
-    for (const claim of output.validationPoints) {
+    const conditions = output.format === "market-intelligence-v3" ? output.paragraphs : output.validationPoints;
+    for (const claim of conditions) {
       const values = evidence.facts.filter(fact => claim.factIds.includes(fact.id) && typeof fact.value === "number").map(fact => fact.value as number);
       // Catch explicit invented numeric gates, without treating all numbers in prose as trading thresholds.
-      for (const match of claim.text.matchAll(/(?:高于|低于|超过|跌破|突破|站上|站稳|达到|至少|回升至|降至)\s*(\d+(?:\.\d+)?)/g)) {
+      // A timeframe label such as 2H/4H is not a numeric gate in connected prose.
+      const numericGate = output.format === "market-intelligence-v3"
+        ? /(?:高于|低于|超过|跌破|突破|站上|站稳|达到|至少|回升至|降至)\s*(-?\d+(?:\.\d+)?)(?![\d.A-Za-z])/g
+        : /(?:高于|低于|超过|跌破|突破|站上|站稳|达到|至少|回升至|降至)\s*(\d+(?:\.\d+)?)/g;
+      for (const match of claim.text.matchAll(numericGate)) {
         const value = Number(match[1]), decimals = match[1].split(".")[1]?.length ?? 0;
         if (!values.some(number => Number(number.toFixed(decimals)) === value)) throw new Error("待验证条件使用了引用证据未提供的数值门槛");
       }
@@ -148,10 +160,10 @@ function validateCitations(output: AnalysisOutput, evidence: AnalysisEvidence): 
   }
 }
 
-/** New generations must use v2; legacy outputs are accepted only through archive validation. */
-export function parseAnalysisOutput(value: unknown, evidence: AnalysisEvidence): MarketIntelligenceOutput {
+/** New generations use two concise paragraphs; prior formats remain readable in archives. */
+export function parseAnalysisOutput(value: unknown, evidence: AnalysisEvidence): ConciseIntelligenceOutput {
   const checked = parseAnalysisEvidence(evidence);
-  const parsed = intelligenceOutputSchema.safeParse(value);
+  const parsed = conciseOutputSchema.safeParse(value);
   if (!parsed.success) throw schemaFailure("分析输出格式或长度无效", parsed.error);
   validateCitations(parsed.data, checked);
   return parsed.data;
@@ -176,7 +188,7 @@ export function parseAnalysisReport(value: unknown, expectedDate?: string): Anal
 export async function generateAnalysis(
   evidence: AnalysisEvidence,
   options: { apiKey: string; model?: string; fetchImpl?: typeof fetch },
-): Promise<{ output: MarketIntelligenceOutput; usage: AnalysisReport["usage"] }> {
+): Promise<{ output: ConciseIntelligenceOutput; usage: AnalysisReport["usage"] }> {
   const checked = parseAnalysisEvidence(evidence);
   const apiKey = options.apiKey.trim();
   if (!apiKey || /[\r\n]/.test(apiKey)) throw new Error("未配置有效的 DeepSeek API 密钥");

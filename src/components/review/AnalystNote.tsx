@@ -147,24 +147,32 @@ export function AnalystNote({ analysis }: { analysis: AnalysisView }) {
   const coverageLabel = evidence.coverage.every((row) => row.status === "unavailable")
     ? "数据不可用"
     : limitedCoverage.length ? "部分数据可用" : "数据可用";
+  const concise = "format" in output && output.format === "market-intelligence-v3";
+  const states = (
+    <dl className={styles.states}>
+      <div><dt>原始市场状态</dt><dd>{evidence.states.market}</dd></div>
+      <div><dt>宏观环境</dt><dd>{evidence.states.macro}</dd></div>
+      <div><dt>输入完整性</dt><dd>{coverageLabel}</dd></div>
+    </dl>
+  );
   return (
     <article className={styles.root} aria-label={"format" in output ? "Market Intelligence · 市场综合解读" : "DeepSeek 独立复盘分析"}>
       <div className={styles.dateline}>
         <span>美东交易日 {report.date} · {status === "stale" ? "旧版留档" : "已保存"}</span>
-        <span>DeepSeek · {report.model} · 生成于 {timestamp(report.generatedAt)}</span>
+        <span>{concise ? coverageLabel : `DeepSeek · ${report.model} · 生成于 ${timestamp(report.generatedAt)}`}</span>
       </div>
       {status === "stale" && (
         <p className={styles.notice} role="status">
           复盘数据已在这份分析生成后更新。以下保留原解读，当前数据请以前面的复盘模块为准。
         </p>
       )}
-      <dl className={styles.states}>
-        <div><dt>原始市场状态</dt><dd>{evidence.states.market}</dd></div>
-        <div><dt>宏观环境</dt><dd>{evidence.states.macro}</dd></div>
-        <div><dt>输入完整性</dt><dd>{coverageLabel}</dd></div>
-      </dl>
+      {!concise && states}
       {"format" in output ? (
-        <MarketIntelligence output={output} facts={facts} />
+        output.format === "market-intelligence-v3" ? (
+          <div className={styles.concise}>
+            {output.paragraphs.map((claim, index) => <Claim key={index} claim={claim} facts={facts} />)}
+          </div>
+        ) : <MarketIntelligence output={output} facts={facts} />
       ) : (
         <>
           <Claim claim={output.lead} facts={facts} lead />
@@ -182,7 +190,9 @@ export function AnalystNote({ analysis }: { analysis: AnalysisView }) {
       )}
       <details className={styles.sourceDetails}>
         <summary>数据完整性与生成记录{limitedCoverage.length ? ` · ${limitedCoverage.length} 个模块有缺项` : ""}</summary>
+        {concise && states}
         <dl className={styles.record}>
+          {concise && <div><dt>分析模型</dt><dd>DeepSeek · {report.model}</dd></div>}
           <div><dt>分析生成</dt><dd>{timestamp(report.generatedAt)}</dd></div>
           <div><dt>采用的复盘版本</dt><dd>{timestamp(report.sourceBuiltAt)}</dd></div>
           {evidence.states.legacy !== evidence.states.market && (

@@ -43,7 +43,11 @@ export type MarketIntelligenceOutput = {
   synthesis: AnalysisClaim;
   validationPoints: AnalysisClaim[];
 };
-export type AnalysisOutput = LegacyAnalysisOutput | MarketIntelligenceOutput;
+export type ConciseIntelligenceOutput = {
+  format: "market-intelligence-v3";
+  paragraphs: AnalysisClaim[];
+};
+export type AnalysisOutput = LegacyAnalysisOutput | MarketIntelligenceOutput | ConciseIntelligenceOutput;
 export type AnalysisReport = {
   version: typeof ANALYSIS_VERSION;
   date: string;

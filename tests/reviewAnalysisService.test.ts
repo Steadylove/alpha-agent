@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { buildReviewAnalysis } from "@/lib/review/analysis/service";
 import { analysisHash, prepareAnalysisInput } from "@/lib/review/analysis/fingerprint";
-import type { AnalysisEvidence, MarketIntelligenceOutput, AnalysisReport } from "@/lib/review/analysis/types";
+import type { AnalysisEvidence, ConciseIntelligenceOutput, AnalysisReport } from "@/lib/review/analysis/types";
 import { buildContextReport } from "@/lib/context/model";
 import type { DailyReview } from "@/lib/review/types";
 import { writeSnapshot, snapshotFile } from "@/lib/vps/snapshot";
@@ -21,10 +21,12 @@ function review(): DailyReview {
       strongSectors: { today: null, yesterday: null, total: 11 } },
     sectors: [], options: [], signals: [], accounts: [], warnings: [] };
 }
-function output(evidence: AnalysisEvidence): MarketIntelligenceOutput {
+function output(evidence: AnalysisEvidence): ConciseIntelligenceOutput {
   const claim = { text: "系统保留 Neutral 状态，现有数据不足以确认指数、板块与期权结构之间的关系；缺失值不能视为零。", factIds: [evidence.facts[0].id] };
-  return { format: "market-intelligence-v2", marketRead: claim, evidenceMap: [], structureRead: claim,
-    systemRead: [], eventFlowContext: [], synthesis: claim, validationPoints: [] };
+  return { format: "market-intelligence-v3", paragraphs: [claim, {
+    text: "模型账户及信号的可比观察尚不充分，无法判断不同周期的相对表现和与当前市场结构的关系；下一步需要补齐同口径数据。",
+    factIds: [evidence.facts[0].id],
+  }] };
 }
 const generate = vi.fn(async (evidence: AnalysisEvidence) => ({ output: output(evidence), usage: null }));
 const now = () => new Date("2026-09-25T01:00:00Z");

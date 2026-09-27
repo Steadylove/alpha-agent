@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { AnalystNote } from "@/components/review/AnalystNote";
-import type { AnalysisReport, AnalysisView, LegacyAnalysisOutput, MarketIntelligenceOutput } from "@/lib/review/analysis/types";
+import type { AnalysisReport, AnalysisView, ConciseIntelligenceOutput, LegacyAnalysisOutput, MarketIntelligenceOutput } from "@/lib/review/analysis/types";
 
 function report(): AnalysisReport & { output: LegacyAnalysisOutput } {
   return {
@@ -86,7 +86,49 @@ function intelligenceReport(): AnalysisReport & { output: MarketIntelligenceOutp
 const render = (analysis: AnalysisView) => renderToStaticMarkup(createElement(AnalystNote, { analysis }));
 const analystStyles = readFileSync(new URL("../src/components/review/analyst.module.css", import.meta.url), "utf8");
 
+function conciseReport(): AnalysisReport & { output: ConciseIntelligenceOutput } {
+  return {
+    ...report(),
+    output: {
+      format: "market-intelligence-v3",
+      paragraphs: [
+        { text: "当前广度留档只能说明参与水平，缺少同口径前值，无法判断是否扩散；不能把缺失的变化证据当成参与度恶化。", factIds: ["market.breadth"] },
+        { text: "现有事实不足以比较两种周期的相对表现，无法判断系统适配程度。下一交易日先核查广度变化及同口径的账户与基准数据。", factIds: ["market.breadth"] },
+      ],
+    },
+  };
+}
+
 describe("saved review analysis display", () => {
+  it("presents current analysis as two paragraphs with folded evidence and metadata", () => {
+    const saved = conciseReport();
+    const html = render({ report: saved, status: "ready" });
+    for (const claim of saved.output.paragraphs) expect(html).toContain(claim.text);
+    expect(html.match(/查看依据 · 1 项/g)).toHaveLength(2);
+    expect(html).not.toContain("<h3");
+    expect(html).not.toContain("本节暂无可用解读");
+    expect(html).not.toMatch(/<details[^>]*\sopen(?:[\s=>])/);
+    const beforeMetadata = html.split("数据完整性与生成记录")[0];
+    expect(beforeMetadata).toContain("部分数据可用");
+    expect(beforeMetadata).not.toContain("原始市场状态");
+    expect(beforeMetadata).not.toContain("deepseek-v4-pro");
+    expect(html).toContain("原始市场状态</dt><dd>Neutral");
+    expect(html).toContain("deepseek-v4-pro");
+    expect(html).toContain("SPX 当日快照缺失");
+    expect(html).not.toContain("不应展示的未引用事实");
+  });
+
+  it("keeps stale warnings visible and escapes current model prose", () => {
+    const saved = conciseReport();
+    saved.output.paragraphs[1].text = '<script>alert("model")</script>';
+    const html = render({ report: saved, status: "stale" });
+    expect(html).toContain("旧版留档");
+    expect(html.indexOf("复盘数据已在这份分析生成后更新")).toBeLessThan(html.indexOf("<details"));
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;");
+    expect(html).toContain("历史解读不代表当时已发布的判断");
+  });
+
   it("presents all seven intelligence sections in reading order with expandable citations", () => {
     const html = render({ report: intelligenceReport(), status: "ready" });
     const headings = [...html.matchAll(/<h3 id="analysis-([A-G])">(.*?)<\/h3>/g)]

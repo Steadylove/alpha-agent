@@ -61,6 +61,18 @@
 .intelligence {
   margin-top: 8px;
 }
+.concise {
+  max-width: 980px;
+  padding: 6px 0 24px;
+}
+.concise .claim + .claim {
+  margin-top: 26px;
+}
+.concise .claim > p {
+  margin-bottom: 12px;
+  font-size: clamp(15px, 1.25vw, 17px);
+  line-height: 2;
+}
 .intelligence .group {
   grid-template-columns: minmax(165px, 0.65fr) minmax(0, 2.4fr);
   gap: 20px 32px;
