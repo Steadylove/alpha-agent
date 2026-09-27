@@ -30,7 +30,7 @@ const schema = z.object({ version: z.literal(1), ruleVersion: z.literal("context
   sampleLabel: z.literal("非完整市场样本，仅用于辅助观察"), coverage: z.object({ events: coverage, flow: coverage, signals: coverage }),
   observations: z.array(observation).max(100), highlights: z.array(observation).max(3),
   summary: z.object({ generatedAt: stamp, model: z.string().min(1).max(100), inputHash: z.string().regex(/^[a-f0-9]{64}$/),
-    sentences: z.array(z.object({ text: z.string().min(1).max(240), evidenceIds: z.array(id).min(1).max(6) })).min(1).max(3) }).nullable(),
+    sentences: z.array(z.object({ text: z.string().min(1).max(240), evidenceIds: z.array(id).min(1).max(12) })).min(1).max(3) }).nullable(),
   summaryStatus: z.enum(["ready", "stale", "unavailable", "not-requested"]), warnings: z.array(text).max(30) });
 
 /** Parses saved facts only. No regeneration, market lookup, or model call occurs on a page read. */

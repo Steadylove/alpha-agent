@@ -8,6 +8,7 @@ import { buildContextReport } from "@/lib/context/model";
 import { contextEvidenceHash, analyzeContext, generateContextSummary } from "@/lib/context/summary";
 import { publishContextReport, saveContextReport } from "@/lib/context/publish";
 import { getContextReport } from "@/lib/context/store";
+import { parseContextReport } from "@/lib/context/normalize";
 import { fetchMarketText } from "@/lib/backtest/marketRemote";
 import { snapshotDir, snapshotFile, writeSnapshot } from "@/lib/vps/snapshot";
 import type { FlowEvent } from "@/lib/optionFlow/research/events";
@@ -112,6 +113,26 @@ describe("Context model evidence boundaries", () => {
     expect((await analyzeContext(report, null, { analyze: true, model: "test", now })).summaryStatus).toBe("unavailable");
     const failed = await analyzeContext(report, null, { analyze: true, apiKey: "fixture", model: "test", now, generate: async () => { throw new Error("no"); } });
     expect(failed.observations).toEqual(report.observations); expect(failed.summary).toBeNull();
+  });
+  it("accepts extra valid candidates and nine citations without truncating evidence, retaining one sentence per stock", async () => {
+    const report = context(), first = report.observations[0];
+    first.events = Array.from({ length: 8 }, (_, i) => ({ ...first.events[0], id: `fixture-${i}` }));
+    first.flows = [{ id: "fixture-flow", sourceUrl: null, postedAt: "2026-09-25T14:00:00.000Z", firstObservedAt: null, updatedAt: null, anchorDate: date, right: "call", side: "unknown", direction: "unknown", premium: 100000, strike: 100, expiry: null, provenanceStatus: "legacy-unknown", revision: null, evidenceHash: null, flags: [] }];
+    first.timeline = [...first.events.map(event => ({ ...first.timeline[0], id: `event:${event.id}` })), { ...first.timeline[0], id: "flow:fixture-flow", track: "flow", title: "Unknown side call" }];
+    const second = structuredClone(first); second.symbol = "GS"; second.events = [{ ...first.events[0], id: "gs-fixture" }]; second.flows = []; second.timeline = [{ ...first.timeline[0], id: "event:gs-fixture" }];
+    const third = structuredClone(second); third.symbol = "JNJ"; third.events[0].id = "jnj-fixture"; third.timeline[0].id = "event:jnj-fixture";
+    report.observations = [first, second, third]; report.highlights = report.observations;
+    const sentences = [
+      { text: "AMD 有事件报道。", evidenceIds: [first.timeline[0].id] },
+      { text: "AMD 的事件与来源期权流记录在观察窗口内共现，不证明因果。", evidenceIds: first.timeline.map(item => item.id) },
+      { text: "GS 本次已保存的部分样本未收录相关期权流记录，覆盖仍不完整。", evidenceIds: [second.timeline[0].id] },
+      { text: "JNJ 有事件报道。", evidenceIds: [third.timeline[0].id] },
+    ];
+    const fetchImpl = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ sentences }) } }] })));
+    const summary = await generateContextSummary(report, { apiKey: "fixture-key", model: "fixture-model", now, fetchImpl });
+    expect(summary.sentences).toHaveLength(3); expect(summary.sentences[0].evidenceIds).toHaveLength(9);
+    expect(summary.sentences.map(row => row.text)).toEqual(sentences.slice(1).map(row => row.text));
+    expect(parseContextReport({ ...report, summary, summaryStatus: "ready" }, now).summary?.sentences).toEqual(summary.sentences);
   });
 });
 

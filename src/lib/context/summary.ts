@@ -9,12 +9,12 @@ Event 是已报道外部事实；Flow 是经 Discord/OCR 转述的部分市场�
 只出现Event或Flow不等于另一层不存在。缺失必须明确写“本次已保存的部分样本未收录相关记录，覆盖仍不完整”，禁止单独写“未发现期权流”“没有事件”。覆盖不足、窗口未成熟、采集时间未知、事后补采必须如实表述。来源/转发时间不等于实际成交时间。firstSeen/firstObserved不证明后来修订的字段当时已知。
 买卖信号只是系统捕捉记录，不等于实际成交；当前模型持仓不是投资者账户，也不证明事件发生时持有。描述持仓时只说“当前模型持仓快照”或“账本截至日期”，不能写“同日记录到持仓”“事件当时持有”。observedAt是本次读取时间，asOf是账本日期，两者不能混用。RPS只引用提供的口径与日期，不自行计算、不替换成RPS50。
 不得生成新评分、买卖/仓位/止损建议或涨跌预测，不承诺收益，不把这层描述为原策略的新因子。
-每句仅描述一个symbol，每个symbol最多一句，必须用evidenceIds引用该symbol已提供的具体证据；不同事实分别引用。用普通中文解释关联窗口：short是前后一个交易日，research是前后三个交易日，不把内部英文标签写进正文。内部编号只能放在数组，不能写进正文。不够证据时宁可只写一句。
+每句仅描述一个symbol，每个symbol最多一句，必须用evidenceIds引用该symbol已提供的具体证据；仅复制references[].id（含event:/flow:/holding:等前缀），每句1–12个引用，选择少量最重要事实；不同事实分别引用。用普通中文解释关联窗口：short是前后一个交易日，research是前后三个交易日，不把内部英文标签写进正文。内部编号只能放在数组，不能写进正文。不够证据时宁可只写一句。
 输出纯JSON：{"sentences":[{"text":"事实与可观察变化","evidenceIds":["已提供的证据id"]}]}。不要Markdown或推理过程。`;
 
 export function contextEvidence(report: ContextReport) {
   const coverage = Object.fromEntries(Object.entries(report.coverage).map(([key, value]) => [key, { state: value.state, from: value.from, through: value.through }]));
-  return { version: "context-summary-v2", asOf: report.asOf, cutoff: report.cutoff, sample: report.sampleLabel, coverage,
+  return { version: "context-summary-v3", asOf: report.asOf, cutoff: report.cutoff, sample: report.sampleLabel, coverage,
     symbols: report.highlights.slice(0, 3).map(row => ({ symbol: row.symbol, state: row.state, scope: row.stateLabel,
       events: row.events.slice(0, 5), flows: row.flows.slice(0, 5), trend: row.trend,
       associations: row.associations.slice(0, 10), warnings: row.warnings,
@@ -50,11 +50,21 @@ export async function generateContextSummary(report: ContextReport, options: { a
   const raw = await response.text();
   if (raw.length > 100_000 || raw.includes(key)) throw new Error("Context 分析响应无效");
   const envelope = z.object({ choices: z.array(z.object({ finish_reason: z.literal("stop"), message: z.object({ content: z.string() }) })).length(1) }).parse(JSON.parse(raw));
-  const output = z.object({ sentences: z.array(z.object({ text: z.string().min(1).max(240), evidenceIds: z.array(z.string().max(500)).min(1).max(6) }).strict()).min(1).max(3) }).strict().parse(JSON.parse(envelope.choices[0].message.content));
+  // Some models return one candidate per topic despite the requested three-sentence limit.
+  // Validate every candidate and retain complete citations; select bounded output afterward.
+  const output = z.object({ sentences: z.array(z.object({ text: z.string().min(1).max(240), evidenceIds: z.array(z.string().max(500)).min(1).max(12) }).strict()).min(1).max(10) }).strict().parse(JSON.parse(envelope.choices[0].message.content));
   if (JSON.stringify(output).includes(key)) throw new Error("Context 分析响应无效");
   const groups = evidence.symbols.map(row => new Set(row.references.map(item => item.id)));
   if (output.sentences.some(sentence => unsafeContextClaim(sentence.text) || new Set(sentence.evidenceIds).size !== sentence.evidenceIds.length || !groups.some(ids => sentence.evidenceIds.every(id => ids.has(id))))) throw new Error("Context 分析事实边界或引用校验失败");
-  return { ...output, generatedAt: options.now.toISOString(), model: options.model, inputHash: contextEvidenceHash(report) };
+  const selected = new Map<number, typeof output.sentences[number]>();
+  // Editorial coverage only: favor a sentence spanning more evidence tracks, then Flow context.
+  const coverage = (sentence: typeof output.sentences[number]) => new Set(sentence.evidenceIds.map(id => id.startsWith("event:") ? "event" : id.startsWith("flow:") ? "flow" : "trend")).size * 2 + Number(sentence.evidenceIds.some(id => id.startsWith("flow:")));
+  for (const sentence of output.sentences) {
+    const group = groups.findIndex(ids => sentence.evidenceIds.every(id => ids.has(id)));
+    const previous = selected.get(group);
+    if (!previous || coverage(sentence) > coverage(previous)) selected.set(group, sentence);
+  }
+  return { sentences: [...selected.entries()].sort(([a], [b]) => a - b).map(([, sentence]) => sentence).slice(0, 3), generatedAt: options.now.toISOString(), model: options.model, inputHash: contextEvidenceHash(report) };
 }
 
 export async function analyzeContext(report: ContextReport, previous: ContextSummary | null, options: { analyze?: boolean; apiKey?: string; model: string; now: Date; generate?: typeof generateContextSummary }): Promise<ContextReport> {
