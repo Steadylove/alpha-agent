@@ -127,12 +127,18 @@ describe("Context model evidence boundaries", () => {
       { text: "AMD 的事件与来源期权流记录在观察窗口内共现，不证明因果。", evidenceIds: first.timeline.map(item => item.id) },
       { text: "GS 本次已保存的部分样本未收录相关期权流记录，覆盖仍不完整。", evidenceIds: [second.timeline[0].id] },
       { text: "JNJ 有事件报道。", evidenceIds: [third.timeline[0].id] },
+      { text: "AMD同日系统记录到该期权流。", evidenceIds: [first.timeline[0].id, "flow:fixture-flow"] },
     ];
     const fetchImpl = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ sentences }) } }] })));
     const summary = await generateContextSummary(report, { apiKey: "fixture-key", model: "fixture-model", now, fetchImpl });
     expect(summary.sentences).toHaveLength(3); expect(summary.sentences[0].evidenceIds).toHaveLength(9);
-    expect(summary.sentences.map(row => row.text)).toEqual(sentences.slice(1).map(row => row.text));
+    expect(summary.sentences.map(row => row.text)).toEqual(sentences.slice(1, 4).map(row => row.text));
     expect(parseContextReport({ ...report, summary, summaryStatus: "ready" }, now).summary?.sentences).toEqual(summary.sentences);
+    // Old saved model prose is checked on read as well, without invoking the model again.
+    writeSnapshot(`context/${date}`, { ...report, summary: { ...summary, sentences: [sentences[4], sentences[2], sentences[3]] }, summaryStatus: "ready" });
+    const loaded = await getContextReport(date);
+    expect(loaded?.summaryStatus).toBe("ready");
+    expect(loaded?.summary?.sentences.map(row => row.text)).toEqual([sentences[2].text, sentences[3].text]);
   });
 });
 

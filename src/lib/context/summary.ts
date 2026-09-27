@@ -23,6 +23,19 @@ export function contextEvidence(report: ContextReport) {
 }
 export const contextEvidenceHash = (report: ContextReport) => fingerprint(contextEvidence(report));
 
+/** Legacy Flow cannot support a claim about when the system first captured it. */
+export function supportedContextTiming(report: ContextReport, sentence: ContextSummary["sentences"][number]): boolean {
+  if (!/(?:同日|当天|当日|当时|提前|首次).{0,8}(?:记录|发现|捕捉|识别)/.test(sentence.text)) return true;
+  const ids = new Set(sentence.evidenceIds);
+  return !report.observations.some(row => row.flows.some(flow => ids.has(`flow:${flow.id}`) && (flow.firstObservedAt == null || flow.updatedAt == null)));
+}
+
+export function filterContextSummary(report: ContextReport, summary: ContextSummary | null): ContextSummary | null {
+  if (!summary) return null;
+  const sentences = summary.sentences.filter(sentence => supportedContextTiming(report, sentence));
+  return sentences.length ? { ...summary, sentences } : null;
+}
+
 /** Conservative output guard; evidence references remain necessary even when prose passes. */
 export function unsafeContextClaim(text: string): boolean {
   if (/https?:\/\/|event:[a-f0-9]|flow:[a-f0-9]|signal:/.test(text)) return true;
@@ -60,16 +73,19 @@ export async function generateContextSummary(report: ContextReport, options: { a
   // Editorial coverage only: favor a sentence spanning more evidence tracks, then Flow context.
   const coverage = (sentence: typeof output.sentences[number]) => new Set(sentence.evidenceIds.map(id => id.startsWith("event:") ? "event" : id.startsWith("flow:") ? "flow" : "trend")).size * 2 + Number(sentence.evidenceIds.some(id => id.startsWith("flow:")));
   for (const sentence of output.sentences) {
+    if (!supportedContextTiming(report, sentence)) continue;
     const group = groups.findIndex(ids => sentence.evidenceIds.every(id => ids.has(id)));
     const previous = selected.get(group);
     if (!previous || coverage(sentence) > coverage(previous)) selected.set(group, sentence);
   }
+  if (!selected.size) throw new Error("Context 分析缺少可确认的时间证据");
   return { sentences: [...selected.entries()].sort(([a], [b]) => a - b).map(([, sentence]) => sentence).slice(0, 3), generatedAt: options.now.toISOString(), model: options.model, inputHash: contextEvidenceHash(report) };
 }
 
 export async function analyzeContext(report: ContextReport, previous: ContextSummary | null, options: { analyze?: boolean; apiKey?: string; model: string; now: Date; generate?: typeof generateContextSummary }): Promise<ContextReport> {
   const hash = contextEvidenceHash(report);
-  if (previous?.inputHash === hash && previous.model === options.model) return { ...report, summary: previous, summaryStatus: "ready" };
+  const supported = filterContextSummary(report, previous);
+  if (supported?.inputHash === hash && supported.model === options.model) return { ...report, summary: supported, summaryStatus: "ready" };
   if (!options.analyze || !report.highlights.some(row => row.timeline.length)) return { ...report, summary: null, summaryStatus: "not-requested" };
   if (!options.apiKey) return { ...report, summary: null, summaryStatus: "unavailable" };
   try {

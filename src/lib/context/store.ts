@@ -3,7 +3,7 @@ import { marketBaseUrl } from "@/lib/backtest/marketStore";
 import { fetchMarketText } from "@/lib/backtest/marketRemote";
 import { validDay } from "@/lib/catalyst/normalize";
 import { parseContextReport } from "./normalize";
-import { contextEvidenceHash } from "./summary";
+import { contextEvidenceHash, filterContextSummary } from "./summary";
 import type { ContextReport, ContextSymbol } from "./types";
 
 /** Read-only saved output. A missing historic date must never become today's information. */
@@ -20,6 +20,10 @@ export async function getContextReport(date?: string): Promise<ContextReport | n
     const report = parseContextReport(raw);
     if (date && report.asOf !== date) return null;
     if (report.summaryStatus === "ready" && report.summary?.inputHash !== contextEvidenceHash(report)) return { ...report, summary: null, summaryStatus: "stale" };
+    if (report.summaryStatus === "ready") {
+      const summary = filterContextSummary(report, report.summary);
+      return { ...report, summary, summaryStatus: summary ? "ready" : "unavailable" };
+    }
     return report;
   } catch { return null; }
 }
