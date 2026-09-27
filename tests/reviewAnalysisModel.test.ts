@@ -247,7 +247,7 @@ describe("analysis output and archive validation", () => {
 
   it("requires two concise paragraphs with the essential evidence and inference boundaries", () => {
     expect(parseAnalysisOutput(output(), evidence())).toEqual(output());
-    expect(PROMPT_VERSION).toBe("review-intelligence-prompt-v3.0");
+    expect(PROMPT_VERSION).toBe("review-intelligence-prompt-v3.1");
     for (const boundary of [
       "跨模块关联分析、理解事实之间的关系", "关键变化、尚未确认的环节、对系统的意义",
       "Trend Adaptive 是唯一主交易系统", "Market State、Gamma、Breadth、Sector、Signal、Account 是主要判断依据",
@@ -258,6 +258,10 @@ describe("analysis output and archive validation", () => {
       "不要求每个维度出场", "不要标题、列表、A–G 标签", "同一事实和局限只在最相关处说明一次",
       "已观测到的未确认", "缺少证据、无法判断是否确认", "不能证明某周期持续更适合当前环境",
       "没有实质增量就省略", "不要套用固定日期的示例", "paragraphs 必须恰好两项",
+      "正文不出现具体数值", "全部留在 factIds 对应的依据中", "也不改成中文数字规避",
+      "每段目标 3–4 个自然句", "不输出选择过程", "不堆个股清单", "若不影响主线就不写",
+      "真正影响结论的覆盖或归因限制合并为一个短分句", "不另起月度数据补齐或分数修复任务",
+      "变化—未确认环节—系统意义", "不是信息更密的两段报表",
     ]) expect(ANALYSIS_SYSTEM_PROMPT).toContain(boundary);
     expect(ANALYSIS_SYSTEM_PROMPT).not.toContain('"format":"market-intelligence-v2"');
   });
@@ -359,6 +363,10 @@ describe("analysis output and archive validation", () => {
     expect(reminder).toContain("paragraphs 恰好两项");
     expect(reminder).toContain("缺少证据不能写成实际未确认");
     expect(reminder).toContain("单日 2H/4H 分化不能证明持续的周期适配性");
+    expect(reminder).toContain("这些仅留在引用依据中");
+    expect(reminder).toContain("只允许 2H/4H 名称和必要的辅助日期时间");
+    expect(reminder).toContain("不要把数字清单改成定性指标清单");
+    expect(reminder).toContain("相关限制最多合并为一个短分句");
     expect(reminder).toContain("facts[].id");
     expect(reminder).toContain("不能拼造 .status");
   });
