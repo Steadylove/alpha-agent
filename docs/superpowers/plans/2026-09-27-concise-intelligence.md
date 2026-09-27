@@ -7,10 +7,12 @@
 - [x] Add a v3 two-paragraph contract, concise relational prompt and validation; distinguish missing evidence from negative evidence and daily performance from durable cycle suitability.
 - [x] Render v3 as prose with collapsed citations and metadata; retain archived layouts and visible stale/coverage status.
 - [x] Run focused regression tests, typecheck, lint and build; document the output migration.
-- [ ] Publish frontend before v3 generation, regenerate the latest saved analyst note, verify the underlying review checksum and desktop/mobile display.
+- [x] Publish frontend before v3 generation, regenerate the latest saved analyst note, verify the underlying review checksum and desktop/mobile display.
 
 Validation: 89 focused model, service, UI and evidence tests passed. TypeScript, changed-file ESLint and production build passed. The existing Next.js tracing warning is unrelated to this change.
 
 Live prose review: v3.0 fit two paragraphs but still over-repeated numeric facts and tangential missing fields. Tighten the writing prompt to v3.1 so cited facts carry detailed numbers while prose explains relationships, incomplete confirmations and system meaning.
 
 Version 3.2 further distinguishes relative small-cap lag from absence of participation, and signal formation from model-account ownership. Missing comparable signal history cannot support a failed-transmission claim; follow-up checks concern signal coverage/continuity rather than whether a sampled signal was held.
+
+Production verification: v3.2 regenerated the September 25 note as two paragraphs. The original review SHA-256 remained `370962d81ed5488a888b3137b96271bf533dc265f250aca3eb8d3d805210f718`. Desktop/mobile checks passed with two collapsed evidence groups, no A–G headings, no overflow or page errors. Final reference review replaced auxiliary signal coverage with primary `signals.detail_omitted` and added both account daily returns plus SPY return for the same-direction claim, preserving model prose, generation time and the prior archive.
