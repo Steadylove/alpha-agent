@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./load-env";
 
 import {
   DEFAULT_BACKTEST_CONFIG,

@@ -1,3 +1,4 @@
+import { loadRuntimeConfig } from "@/lib/runtimeConfig";
 import { NextResponse } from "next/server";
 
 import { recordBuy, recordCashFlow, recordSell } from "@/lib/fund/book";
@@ -18,6 +19,7 @@ const num = (v: unknown): number => {
 };
 
 export async function POST(request: Request) {
+  await loadRuntimeConfig();
   let body: Record<string, unknown> = {};
   try {
     body = (await request.json()) as Record<string, unknown>;

@@ -1,6 +1,6 @@
-import "dotenv/config";
+import "./load-env";
 
-import { getPrisma } from "@/lib/db/prisma";
+import { loadDailyBars } from "@/lib/vps/loadDailyBars";
 import { computeLogMacdSeries, type LogMacdBar } from "@/lib/scoring/logMacd";
 import { rotationRsSeries } from "@/lib/scoring/rotationRs";
 import { ROTATION_UNIVERSE } from "@/lib/scoring/rotationUniverse";
@@ -27,17 +27,11 @@ type Loaded = { symbol: string; bars: LogMacdBar[] };
 type Sample = { rs: number; forward: (number | null)[] };
 
 async function loadBars(): Promise<Loaded[]> {
-  const prisma = getPrisma();
   const loaded: Loaded[] = [];
 
+  const daily = await loadDailyBars(ROTATION_UNIVERSE.map(({ symbol }) => symbol));
   for (const { symbol } of ROTATION_UNIVERSE) {
-    const instrument = await prisma.instrument.findUnique({ where: { symbol } });
-    if (!instrument) continue;
-    const bars = await prisma.dailyBar.findMany({
-      where: { instrumentId: instrument.id },
-      orderBy: { date: "asc" },
-      select: { high: true, low: true, close: true },
-    });
+    const bars = daily.get(symbol) ?? [];
     if (bars.length < WARMUP_BARS + 60) continue;
     loaded.push({ symbol, bars });
   }
@@ -163,8 +157,6 @@ async function main() {
         `MACD 一买 ${m.toFixed(2)}% (${m - base >= 0 ? "+" : ""}${(m - base).toFixed(2)}pp)`,
     );
   }
-
-  await getPrisma().$disconnect();
 }
 
 main().catch((err) => {

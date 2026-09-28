@@ -28,7 +28,7 @@ import {
   type SmallFundPoolId,
 } from "./smallFundPools";
 /**
- * 可选的标的池。`sources` 是 IndexMembership.index 里要取的指数，多于一个即并集。
+ * 可选的标的池。`sources` 是快照成分区间里要取的指数，多于一个即并集。
  *
  * 并集不需要合并重叠区间：成分资格判定用的是 `spans.some(...)`（见 engine.inSpan），
  * 同一标的在两个指数里各有一段时天然取或，重复段无害。
@@ -47,16 +47,6 @@ export const DEFAULT_INDEX: IndexKey = "UNION";
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 
 const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)}MB`;
-
-/**
- * 一次性把面板与全部成分区间取回。
- *
- * 面板查询本来就没有 where 条件（要哪些标的是靠成分区间在本地筛的），成分表也小，
- * 所以整个快照与选哪个池无关——一份缓存服务三个池子。
- */
-export async function fetchSnapshot(): Promise<PanelSnapshot> {
-  throw new Error("已停用数据库拉面板。行情读 VPS CSV（MARKET_DATA_BASE_URL）。");
-}
 
 /** 标普/纳指实验室只认本地面板缓存，不再回落数据库。 */
 async function getSnapshot(): Promise<PanelSnapshot> {

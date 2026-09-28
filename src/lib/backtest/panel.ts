@@ -45,7 +45,7 @@ export type PackedPanel = {
   lastDate: Date;
 };
 
-/** Prisma 的 Bytes 列要求 `Uint8Array<ArrayBuffer>`，不接受 Node 的 Buffer。 */
+/** 固定使用独立 ArrayBuffer，保持已有二进制快照格式。 */
 const allocBytes = (n: number) => {
   const bytes = new Uint8Array(new ArrayBuffer(n * 4));
   return { bytes, view: new DataView(bytes.buffer) };
@@ -93,7 +93,7 @@ export function packPanel(
   };
 }
 
-/** Buffer 到 TypedArray：Prisma 返回的 Buffer 可能不是 4 字节对齐，必须拷贝。 */
+/** 快照中的字节视图可能不是 4 字节对齐，解码时必须按偏移读取。 */
 function toFloat32(buf: Uint8Array): Float32Array {
   const out = new Float32Array(buf.byteLength / 4);
   const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);

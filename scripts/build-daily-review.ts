@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./load-env";
 import { buildDailyReview } from "@/lib/review/build";
 
 const dateArg = process.argv.find((a) => a.startsWith("--date="))?.slice(7);

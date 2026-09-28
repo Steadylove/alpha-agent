@@ -1,3 +1,4 @@
+import { loadRuntimeConfig } from "@/lib/runtimeConfig";
 import { NextResponse } from "next/server";
 
 import { normalizeBookFrom } from "@/lib/fund/bookEpochLogic";
@@ -62,6 +63,7 @@ async function handle(tfRaw: unknown, fromRaw: unknown, membersRaw: unknown, slo
 }
 
 export async function GET(request: Request) {
+  await loadRuntimeConfig();
   const url = new URL(request.url);
   return handle(
     url.searchParams.get("tf"),
@@ -72,6 +74,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  await loadRuntimeConfig();
   let body: Record<string, unknown> = {};
   try {
     body = (await request.json()) as Record<string, unknown>;

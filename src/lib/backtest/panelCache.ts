@@ -5,12 +5,8 @@ import { deserialize, serialize } from "node:v8";
 /**
  * 历史面板的本地落盘缓存。
  *
- * 这批数据是不变的存量行情：整块读走、从不按条件筛选，本质是文件而非数据库内容。
- * 放在云 Postgres 里意味着每跑一次回测就重新下载完整历史——47MB × 每次调参。
- * Neon 免费档 5GB/月的出站额度按这个用法只够约 106 次，实测确实被打满并挂起。
- *
- * 落盘后本地开发的出站流量降到「首次一次」，冷启动也从 17 秒（其中 13.5 秒纯粹
- * 在等传输）降到读本地文件的量级。
+ * 完整行情与成分区间一次读取、按池在内存中筛选；复用文件避免每次调参
+ * 重复下载同一份历史。已有缓存版本和二进制结构保持兼容。
  *
  * 用 `v8.serialize` 而非自定义容器格式：它原生支持 Uint8Array 与 Date，零依赖。
  * 代价是格式不保证跨 Node 大版本稳定，因此读取失败一律当作未命中重新拉取。
@@ -19,7 +15,7 @@ import { deserialize, serialize } from "node:v8";
 /** 缓存结构变化时递增，旧文件会被当作未命中。2: 加 open 列（顶背离要实体上沿）。 */
 const VERSION = 2;
 
-/** 与 `prisma.backtestPanel` 的选取列一致。 */
+/** 历史行情快照的二进制列；保持兼容已有 v8 缓存。 */
 export type PanelRow = {
   ticker: string;
   days: Uint8Array;
@@ -30,7 +26,7 @@ export type PanelRow = {
   open: Uint8Array | null;
 };
 
-/** 与 `prisma.indexMembership` 的选取列一致，含 `index` 以便本地按池筛选。 */
+/** 时点成分资格区间，含 `index` 以便本地按池筛选。 */
 export type MemberRow = {
   ticker: string;
   index: string;
@@ -46,26 +42,6 @@ export type PanelSnapshot = {
 };
 
 export const PANEL_CACHE_PATH = path.join(/*turbopackIgnore: true*/ process.cwd(), ".cache", "backtest-panel.v8");
-
-export type PanelHydrateMode = "reuse" | "url" | "database" | "skip";
-
-/**
- * 构建时如何把面板落到 `.cache`。
- *
- * 顺序：本地文件 → `PANEL_SNAPSHOT_URL` → `DATABASE_URL`。
- * 部署环境没有前两样时必须走数据库，不能再警告完跳过——后面的 `rps:scale`
- * 会在 `VERCEL` 下拒绝回落数据库，构建必挂。
- */
-export function resolvePanelHydrate(opts: {
-  hasCache: boolean;
-  snapshotUrl: string | undefined;
-  hasDatabaseUrl: boolean;
-}): PanelHydrateMode {
-  if (opts.hasCache) return "reuse";
-  if (opts.snapshotUrl) return "url";
-  if (opts.hasDatabaseUrl) return "database";
-  return "skip";
-}
 
 /** 命中返回快照，文件不存在、版本不符或解析失败一律返回 null。 */
 export function readSnapshot(file: string): PanelSnapshot | null {

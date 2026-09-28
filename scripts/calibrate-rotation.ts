@@ -1,6 +1,6 @@
-import "dotenv/config";
+import "./load-env";
 
-import { getPrisma } from "@/lib/db/prisma";
+import { loadDailyBars } from "@/lib/vps/loadDailyBars";
 import { computeLogMacdSeries, type LogMacdBar } from "@/lib/scoring/logMacd";
 import { rotationRsSeries } from "@/lib/scoring/rotationRs";
 import { ROTATION_UNIVERSE } from "@/lib/scoring/rotationUniverse";
@@ -20,21 +20,12 @@ const WARMUP_BARS = 120;
 type Loaded = { symbol: string; bars: LogMacdBar[] };
 
 async function loadBars(): Promise<{ loaded: Loaded[]; missing: string[] }> {
-  const prisma = getPrisma();
   const loaded: Loaded[] = [];
   const missing: string[] = [];
 
+  const daily = await loadDailyBars(ROTATION_UNIVERSE.map(({ symbol }) => symbol));
   for (const { symbol } of ROTATION_UNIVERSE) {
-    const instrument = await prisma.instrument.findUnique({ where: { symbol } });
-    if (!instrument) {
-      missing.push(symbol);
-      continue;
-    }
-    const bars = await prisma.dailyBar.findMany({
-      where: { instrumentId: instrument.id },
-      orderBy: { date: "asc" },
-      select: { high: true, low: true, close: true },
-    });
+    const bars = daily.get(symbol) ?? [];
     if (bars.length < WARMUP_BARS + 60) {
       missing.push(`${symbol}(${bars.length}根)`);
       continue;
@@ -176,8 +167,6 @@ async function main() {
         `  RS>=70 占比 ${((vals.filter((v) => v >= 70).length / vals.length) * 100).toFixed(1)}%`,
     );
   }
-
-  await getPrisma().$disconnect();
 }
 
 main().catch((err) => {

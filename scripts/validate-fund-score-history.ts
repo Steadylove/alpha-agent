@@ -6,8 +6,7 @@ import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fundInputsFromSecFacts, type SecFactsFile, type SecFact } from "@/lib/data-sources/secFacts";
 import { parseCsvText } from "@/lib/backtest/csvPanel";
-import { distFrom52w } from "@/lib/jobs/fundScore";
-import { fundScoreOf } from "@/lib/scoring/fundScore";
+import { distFrom52w, fundScoreOf } from "@/lib/scoring/fundScore";
 
 function arg(name: string): string {
   const value = process.argv.find((s) => s.startsWith(`--${name}=`))?.slice(name.length + 3);

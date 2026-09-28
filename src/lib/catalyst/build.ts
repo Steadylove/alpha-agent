@@ -1,3 +1,4 @@
+import { appConfig } from "../../../app.config";
 import { existsSync, readFileSync, mkdirSync, writeFileSync, lstatSync, readdirSync, unlinkSync, rmdirSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
@@ -113,7 +114,7 @@ export async function assembleCatalystReport(previous: CatalystReport | null, op
   if (merged.rejected) report.warnings.push(`${merged.rejected} 条事件字段或时间无效，未采用。`);
   if (merged.truncated || reactions.length === 5000) report.warnings.push("事件或反应达到本轮处理上限，当前仅展示部分覆盖。" );
   const evidence = catalystEvidence(report, now), hash = fingerprint(evidence);
-  const model = options.model || "deepseek-v4-pro";
+  const model = options.model || appConfig.aiModel;
   if (previousSummary?.inputHash === hash && (!options.analyze || previousSummary.model === model)) report.summaryStatus = "ready";
   else if (options.analyze && evidence.events.length) {
     if (!options.apiKey) { report.summaryStatus = previousSummary ? "stale" : "unavailable"; report.warnings.push("DeepSeek 事件解读尚未配置，事件数据仍可阅读。"); }

@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./load-env";
 
 import {
   DEFAULT_BACKTEST_CONFIG,
@@ -12,7 +12,6 @@ import {
   loadPreparedUniverse,
   type IndexKey,
 } from "@/lib/backtest/load";
-import { getPrisma } from "@/lib/db/prisma";
 
 import { parseArgs } from "./backtest-args";
 
@@ -186,7 +185,6 @@ async function main() {
   // 只做稳定性检验时跳过整张网格，基准组由命令行给出
   if (process.argv.includes("--stability")) {
     stability(universe, { ...DEFAULT_BACKTEST_CONFIG, splitDate, ...parseArgs() });
-    await getPrisma().$disconnect();
     return;
   }
 
@@ -234,16 +232,9 @@ async function main() {
   printTable("② 按两窗口较小值排序（要求两边都站得住）", sortedConsistent.slice(0, 12));
 
   stability(universe, sortedConsistent[0].config);
-
-  await getPrisma().$disconnect();
 }
 
-main().catch(async (error) => {
+main().catch((error) => {
   console.error(error);
-  try {
-    await getPrisma().$disconnect();
-  } catch {
-    // Prisma 初始化前就失败
-  }
   process.exit(1);
 });

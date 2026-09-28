@@ -1,3 +1,4 @@
+import { loadRuntimeConfig } from "@/lib/runtimeConfig";
 import { NextResponse } from "next/server";
 
 import { runBacktest, type EquityPoint } from "@/lib/backtest/engine";
@@ -31,6 +32,7 @@ function downsample(points: readonly EquityPoint[], target = 700): EquityPoint[]
 }
 
 export async function POST(request: Request) {
+  await loadRuntimeConfig();
   let body: Record<string, unknown> = {};
   try {
     body = (await request.json()) as Record<string, unknown>;

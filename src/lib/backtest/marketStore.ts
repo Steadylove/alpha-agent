@@ -1,3 +1,4 @@
+import { appConfig } from "../../../app.config";
 /**
  * 行情落盘的根目录与打包布局。
  *
@@ -24,7 +25,7 @@ export function marketDataRoot(): string | null {
   return raw ? path.resolve(raw) : null;
 }
 
-const DEFAULT_MARKET_URL = "http://108.174.50.53:8787";
+const DEFAULT_MARKET_URL = appConfig.marketDataUrl;
 
 /** Vercel 读 VPS 静态行情。未设时生产默认指这台机。 */
 export function marketBaseUrl(): string | null {

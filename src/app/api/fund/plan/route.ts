@@ -1,3 +1,4 @@
+import { loadRuntimeConfig } from "@/lib/runtimeConfig";
 import { NextResponse } from "next/server";
 
 import { frozenDeskConfig } from "@/lib/backtest/deskScan";
@@ -22,6 +23,7 @@ import { scanSignals, trackPositions } from "@/lib/fund/track";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
+  await loadRuntimeConfig();
   const url = new URL(request.url);
   const poolId = parseSmallFundPoolId(url.searchParams.get("pool"));
   const slotPct = Number(url.searchParams.get("slotPct") ?? DEFAULT_FUND_RULES.slotPct);

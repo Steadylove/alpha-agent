@@ -1,17 +1,9 @@
 /**
- * CSV 面板的读写。与数据库路径（load.ts 的 BacktestPanel）产出同一个 `PanelBars`，
- * 下游 `prepareUniverse` 不区分数据来自哪边。
+ * CSV 面板的读写。与 v8 二进制快照产出同一个 `PanelBars`，
+ * 下游 `prepareUniverse` 使用统一的数据结构。
  *
- * 为什么另起一套而不复用 panelCache 的 v8 二进制：那套是为 653 只 × 5000 根
- * （296 万行）设计的，瓶颈在体积；这个池子只有 97 只 × 3300 根，小两个数量级，
- * 换成可读格式的成本可以忽略，而收益是能直接打开核对、不依赖 Node 版本、
- * 数据库额度耗尽时也能跑。
- *
- * 按标的分文件而非单个大表：抓取续跑天然免费（文件在就跳过，不需要 .partial
- * 暂存那一套），单只重抓不牵动其他标的。
- *
- * 精度：CSV 存 Yahoo 原始十进制，读取时解析进 Float32Array——与数据库列的
- * Float32 是同一次舍入，故两条路径的数值必然逐位相同。
+ * 按标的分文件，便于核对、续采与单只更新，不依赖 Node 序列化版本。
+ * CSV 读取时统一转换为 Float32Array，保持现有回测面板的数值精度。
  */
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";

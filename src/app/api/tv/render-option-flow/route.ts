@@ -1,3 +1,4 @@
+import { loadRuntimeConfig } from "@/lib/runtimeConfig";
 import { NextResponse } from "next/server";
 
 import { postSignalImage } from "@/lib/notifications/postSignalImage";
@@ -14,6 +15,7 @@ type Body = {
 };
 
 export async function POST(request: Request) {
+  await loadRuntimeConfig();
   const webhook = process.env.DISCORD_SIGNAL_WEBHOOK_URL || process.env.DISCORD_WEBHOOK_URL || "";
   let body: Body = {};
   try {

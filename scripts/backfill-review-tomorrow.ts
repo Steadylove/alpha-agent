@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./load-env";
 import { existsSync, mkdirSync, readFileSync, copyFileSync } from "node:fs";
 import path from "node:path";
 import { writeJsonAtomic } from "@/lib/files/atomicJson";

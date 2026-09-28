@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./load-env";
 import { existsSync, readFileSync } from "node:fs";
 import { readDeskJson } from "@/lib/fund/deskRemote";
 import { marketBaseUrl, csvDir, rpsScaleFile, rpsSnapshotFile } from "@/lib/backtest/marketStore";

@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./load-env";
 import { CSV_1H_DIR, CSV_2H_DIR } from "@/lib/backtest/csvPanel";
 import { rebuildTwoHourCsv } from "@/lib/backtest/rebuildTwoHour";
 import { marketDataRoot, writeManifest } from "@/lib/backtest/marketStore";

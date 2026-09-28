@@ -1,3 +1,4 @@
+import { loadRuntimeConfig } from "@/lib/runtimeConfig";
 import { NextResponse } from "next/server";
 
 import { peekLiveBooks, refreshLiveBooks } from "@/lib/fund/liveBooks";
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 export async function GET(request: Request) {
+  await loadRuntimeConfig();
   try {
     const params = new URL(request.url).searchParams;
     if (params.get("history") === "1") return NextResponse.json({ versions: (await listLiveBookVersions()).map(withoutObsoleteTwoHour) });
@@ -39,6 +41,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST() {
+  await loadRuntimeConfig();
   try {
     return NextResponse.json({ ok: true, ...(await refreshLiveBooks()) });
   } catch (error) {

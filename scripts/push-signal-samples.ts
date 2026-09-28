@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./load-env";
 
 import { renderSignalPng } from "@/lib/discord/signalCardImage";
 import { postDiscordImage } from "@/lib/discord/sendWebhook";

@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./load-env";
 
 import { optionFlowConfig, shouldForward } from "@/lib/optionFlow/config";
 import { fetchAllMessages, fetchMessagesAfter } from "@/lib/optionFlow/discordFetch";

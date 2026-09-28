@@ -18,6 +18,8 @@ const nextConfig: NextConfig = {
       "data/smallfund1h/**",
       "data/benchmarks/**",
       ".cache/**",
+      ".env*",
+      "**/web-secrets*.json",
       "scripts/**",
       "tests/**",
       "docs/**",

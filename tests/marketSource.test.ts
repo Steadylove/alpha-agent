@@ -1,32 +1,16 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { hasDatabase, remoteDbEnabled } from "@/lib/db/remote";
 import { smallFundSource } from "@/lib/backtest/load";
 
-describe("远程库开关", () => {
+describe("文件行情数据源", () => {
   const prev = {
-    ALLOW_DB: process.env.ALLOW_DB,
     NODE_ENV: process.env.NODE_ENV,
-    VERCEL: process.env.VERCEL,
-    DATABASE_URL: process.env.DATABASE_URL,
     SMALLFUND_SOURCE: process.env.SMALLFUND_SOURCE,
   };
 
   afterEach(() => {
-    restore("ALLOW_DB", prev.ALLOW_DB);
     restore("NODE_ENV", prev.NODE_ENV);
-    restore("VERCEL", prev.VERCEL);
-    restore("DATABASE_URL", prev.DATABASE_URL);
     restore("SMALLFUND_SOURCE", prev.SMALLFUND_SOURCE);
-  });
-
-  it("任何环境都不连库", () => {
-    process.env.ALLOW_DB = "1";
-    process.env.VERCEL = "1";
-    setEnv("NODE_ENV", "production");
-    process.env.DATABASE_URL = "postgresql://example/db";
-    expect(remoteDbEnabled()).toBe(false);
-    expect(hasDatabase()).toBe(false);
   });
 
   it("Small Fund 只读 CSV / VPS", () => {

@@ -1,5 +1,5 @@
+import "./load-env";
 /** 真实历史回放；默认只生成本地图片，--send 才发到现有 Discord 信号频道。 */
-import "dotenv/config";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -9,8 +9,7 @@ import { champOf } from "@/lib/fund/champs";
 import { riskAtrSeries } from "@/lib/scoring/rotationTrade";
 import { emaSeries } from "@/lib/scoring/series";
 import { fundInputsFromSecFacts, type SecFactsFile } from "@/lib/data-sources/secFacts";
-import { fundScoreOf } from "@/lib/scoring/fundScore";
-import { distFrom52w } from "@/lib/jobs/fundScore";
+import { distFrom52w, fundScoreOf } from "@/lib/scoring/fundScore";
 import { assessedAlertView } from "@/lib/signals/journal";
 import { signalReturnOf } from "@/lib/signals/assessment";
 import type { AlertPayload } from "@/lib/discord/tvAlertCopy";

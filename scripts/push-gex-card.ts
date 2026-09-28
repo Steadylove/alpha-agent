@@ -1,7 +1,7 @@
+import "./load-env";
+import { appConfig } from "../app.config";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-
-import { config as loadEnv } from "dotenv";
 
 import { renderGexBriefOgPng } from "../src/lib/discord/gexBriefCardOg";
 import type { GexSnapshot } from "../src/lib/discord/gexCopy";
@@ -11,18 +11,14 @@ import { renderDailyDigestPng } from "../src/lib/optionFlow/cardImage";
 import { buildDailyFlowDigest, flowDigestCaption, hasDigestContent } from "../src/lib/optionFlow/digest";
 import { optionFlowOf, readOptionFlow } from "../src/lib/optionFlow/store";
 
-const envFile = loadEnv({ override: true });
-
 function webhookUrl(): string | undefined {
   return (
-    envFile.parsed?.DISCORD_SIGNAL_WEBHOOK_URL ||
-    envFile.parsed?.DISCORD_WEBHOOK_URL ||
     process.env.DISCORD_SIGNAL_WEBHOOK_URL ||
     process.env.DISCORD_WEBHOOK_URL
   );
 }
 
-const DEFAULT_BOOK_PUSH = "https://alpha-agent-eight.vercel.app/api/jobs/push-signal-book";
+const DEFAULT_BOOK_PUSH = `${appConfig.siteUrl}/api/jobs/push-signal-book`;
 
 function origin(): string {
   return new URL(process.env.BOOK_PUSH_URL || DEFAULT_BOOK_PUSH).origin;

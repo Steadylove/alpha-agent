@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./load-env";
 import { readFileSync, readdirSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";

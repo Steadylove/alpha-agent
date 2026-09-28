@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./load-env";
 
 import {
   CSV_4H_DIR,

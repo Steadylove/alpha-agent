@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./load-env";
 import { refreshReviewMacro } from "@/lib/data-sources/reviewMacro";
 import { lastSettledSession } from "@/lib/backtest/mergeBars";
 const until =

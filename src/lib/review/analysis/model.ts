@@ -1,3 +1,4 @@
+import { appConfig } from "../../../../app.config";
 import { z } from "zod";
 import { ANALYSIS_SYSTEM_PROMPT, analysisUserPrompt } from "./prompt";
 import {
@@ -9,7 +10,7 @@ import {
   type ConciseIntelligenceOutput,
 } from "./types";
 
-export const DEFAULT_ANALYSIS_MODEL = "deepseek-v4-pro";
+export const DEFAULT_ANALYSIS_MODEL = appConfig.aiModel;
 const DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions";
 const MAX_TOKENS = 16_000;
 const MAX_RESPONSE_BYTES = 1_000_000;

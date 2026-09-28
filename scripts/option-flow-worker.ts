@@ -1,3 +1,4 @@
+import { appConfig } from "../app.config";
 import { createServer } from "node:http";
 import { setTimeout as sleep } from "node:timers/promises";
 
@@ -11,7 +12,7 @@ import { mergeOptionFlow, readOptionFlow, withChannelCursor, writeOptionFlow } f
 import type { OptionFlowConfig, OptionFlowPost, OptionFlowStore } from "@/lib/optionFlow/types";
 import { completeFlowCollection, flowChannelHealth, readLocalFlowCollectionHealth, safeFlowCollectionError, writeFlowCollectionHealth, type FlowChannelHealth, type FlowCollectionHealth } from "@/lib/optionFlow/health";
 
-const INTERVAL_MS = Number(process.env.OPTION_FLOW_POLL_MS || 3000);
+const INTERVAL_MS = Number(process.env.OPTION_FLOW_POLL_MS || appConfig.optionFlow.pollMs);
 /** #常规 里 X-Relay 从这天开始进频道，只补这之后的遗漏。 */
 const SIGNAL_SINCE = "2026-09-12T00:00:00.000Z";
 let lastOk = 0;

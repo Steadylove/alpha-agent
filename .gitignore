@@ -12,16 +12,14 @@ dist/
 # testing
 coverage/
 
-# generated
-src/generated/
-
 # misc
 .DS_Store
 *.pem
 
 # env
 .env
-.env*.local
+.env.*
+!.env.example
 
 # vercel
 .vercel
@@ -42,7 +40,7 @@ tmp/
 .tmp/
 alpha-market-*.tar.gz
 
-# 历史面板的本地落盘缓存，可由数据库重建
+# 历史面板和研究缓存，可从文件快照或行情源重建
 .cache/
 
 # 行情 CSV / 本地账本在本机或 VPS，不进仓库
@@ -58,3 +56,4 @@ deploy/market-http/fetch-gex-snapshot.py
 deploy/market-http/review-card-assets/
 **/__pycache__/
 **/telegram.config.mjs
+**/web-secrets*.json

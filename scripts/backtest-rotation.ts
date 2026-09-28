@@ -1,6 +1,6 @@
-import "dotenv/config";
+import "./load-env";
 
-import { getPrisma } from "@/lib/db/prisma";
+import { loadDailyBars } from "@/lib/vps/loadDailyBars";
 import { computeLogMacdSeries } from "@/lib/scoring/logMacd";
 import { rotationRsSeries } from "@/lib/scoring/rotationRs";
 import {
@@ -23,22 +23,16 @@ const GATES = [0, 30, 45, 60];
 type Loaded = { symbol: string; bars: TradeBar[] };
 
 async function loadBars(): Promise<Loaded[]> {
-  const prisma = getPrisma();
   const loaded: Loaded[] = [];
 
+  const daily = await loadDailyBars(ROTATION_UNIVERSE.map(({ symbol }) => symbol));
   for (const { symbol } of ROTATION_UNIVERSE) {
-    const instrument = await prisma.instrument.findUnique({ where: { symbol } });
-    if (!instrument) continue;
-    const bars = await prisma.dailyBar.findMany({
-      where: { instrumentId: instrument.id },
-      orderBy: { date: "asc" },
-      select: { date: true, high: true, low: true, close: true },
-    });
+    const bars = daily.get(symbol) ?? [];
     if (bars.length < 400) continue;
     loaded.push({
       symbol,
       bars: bars.map((b) => ({
-        date: b.date.toISOString().slice(0, 10),
+        date: b.date,
         high: b.high,
         low: b.low,
         close: b.close,
@@ -108,8 +102,6 @@ async function main() {
     console.log(summarize("  ⭐️ 二买", all.filter((t) => t.sigType === 2)));
     console.log("");
   }
-
-  await getPrisma().$disconnect();
 }
 
 main().catch((err) => {

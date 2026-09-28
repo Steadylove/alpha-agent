@@ -1,3 +1,4 @@
+import { loadRuntimeConfig } from "@/lib/runtimeConfig";
 import { SymbolContext } from "@/components/context/SymbolContext";
 import { getSymbolContext } from "@/lib/context/store";
 
@@ -11,6 +12,7 @@ export default async function ContextPage({ params, searchParams }: {
   params: Promise<{ symbol: string }>;
   searchParams: Promise<{ date?: string }>;
 }) {
+  await loadRuntimeConfig();
   const [{ symbol: rawSymbol }, { date }] = await Promise.all([params, searchParams]);
   const symbol = rawSymbol.trim().toUpperCase();
   const context = await getSymbolContext(symbol, date);

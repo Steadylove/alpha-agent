@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./load-env";
 
 import { existsSync, renameSync, rmSync } from "node:fs";
 import path from "node:path";
@@ -19,13 +19,8 @@ import { fetchYahooDailyBars } from "@/lib/data-sources/yahoo";
 /**
  * 直接从公开源重建本地面板缓存，完全不经过数据库。
  *
- * 存在的理由：这批数据原本就是从公开源抓来的——日线来自 Yahoo，时点成分区间来自
- * GitHub 上的两个 CSV 仓库。所以 Neon 出站配额打满、compute 被挂起时，
- * 不必等下个计费周期，可以照原路重建一份缓存继续调参。
- *
- * 与 backfill-sp500-panel 的关系：抓取口径（20 年窗口、MIN_BARS、失败即跳过）
- * 完全一致，区别只是终点从 Postgres 换成本地缓存文件，且不写 hasBars ——
- * 缓存里只放抓到价格的标的，这本身就等价于 hasBars = true。
+ * 日线来自 Yahoo，时点成分区间来自公开 CSV。抓取 20 年窗口并过滤短样本，
+ * 缓存中只保留有价格的标的及其成分资格区间。
  *
  * 用法:
  *   npx tsx scripts/build-panel-cache.ts
@@ -106,7 +101,7 @@ async function fetchOne(ticker: string): Promise<Outcome> {
 function assemble(panels: PanelRow[], sources: readonly Sourced[]): PanelSnapshot {
   const withBars = new Set(panels.map((p) => p.ticker));
 
-  // 缓存里只放抓到价格的标的，等价于数据库那边的 hasBars = true 过滤
+  // 只保留已抓到价格的标的所对应的成分区间
   const membership: PanelSnapshot["membership"] = [];
   for (const { index, intervals } of sources) {
     for (const iv of intervals) {

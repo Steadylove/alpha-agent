@@ -38,7 +38,7 @@ vi.mock('@/lib/discord/bookCardOg', () => ({ renderCashBookOgPng: async () => mo
 vi.mock('@/lib/discord/gexCardOg', () => ({ renderGexOgPng: async () => mocks.png }));
 vi.mock('@/lib/discord/gexBriefCardOg', () => ({ isGexBriefView: () => true, renderGexBriefOgPng: async () => mocks.png }));
 vi.mock('@/lib/discord/marketStateCardOg', () => ({ renderMarketStateOgPng: async () => mocks.png }));
-vi.mock("@/lib/jobs/fundScore", () => ({ lookupAlertFundScore: mocks.fund }));
+vi.mock("@/lib/data-sources/secFacts", () => ({ fetchSecFundInputs: mocks.fund }));
 const request = (value: unknown) => new Request('https://app.test/api', { method: 'POST', body: JSON.stringify(value) });
 const hook = "https://discord.example/hook";
 beforeEach(() => {

@@ -1,4 +1,5 @@
-import "dotenv/config";
+import "./load-env";
+import { appConfig } from "../app.config";
 
 import { sendAlphaScreenerToDiscord } from "@/lib/discord/screenerWebhook";
 import { runAlphaScreenerJob } from "@/lib/jobs/alphaScreener";
@@ -11,7 +12,7 @@ function envFlag(name: string, defaultValue: boolean): boolean {
 
 async function main() {
   const webhookUrl = process.env.DISCORD_WEBHOOK_URL || "";
-  const skipAi = envFlag("SCREENER_SKIP_AI", true);
+  const skipAi = envFlag("SCREENER_SKIP_AI", appConfig.screenerSkipAi);
   const result = await runAlphaScreenerJob({ skipAi });
 
   await sendAlphaScreenerToDiscord(webhookUrl, result);

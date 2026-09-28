@@ -1,3 +1,4 @@
+import { loadRuntimeConfig } from "@/lib/runtimeConfig";
 import { NextResponse } from "next/server";
 
 import { champOf } from "@/lib/fund/champs";
@@ -20,6 +21,7 @@ function frozenOf(id: string) {
 }
 
 export async function GET(request: Request) {
+  await loadRuntimeConfig();
   const tf = new URL(request.url).searchParams.get("tf");
   try {
     return NextResponse.json(await frozenOf(tf ?? "4h"));

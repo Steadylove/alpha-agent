@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./load-env";
 
 import {
   DEFAULT_BACKTEST_CONFIG,
@@ -13,7 +13,6 @@ import {
   loadPreparedUniverse,
   type IndexKey,
 } from "@/lib/backtest/load";
-import { getPrisma } from "@/lib/db/prisma";
 
 import { parseArgs } from "./backtest-args";
 
@@ -156,7 +155,6 @@ async function main() {
 
   if (process.argv.includes("--sweep")) {
     sweep(universe, config);
-    await getPrisma().$disconnect();
     return;
   }
 
@@ -171,16 +169,9 @@ async function main() {
         `   超额 ${pct(y.strategyPct - y.benchmarkPct).padStart(9)}   ${y.trades} 笔`,
     );
   }
-
-  await getPrisma().$disconnect();
 }
 
-main().catch(async (error) => {
+main().catch((error) => {
   console.error(error);
-  try {
-    await getPrisma().$disconnect();
-  } catch {
-    // Prisma 初始化前就失败
-  }
   process.exit(1);
 });

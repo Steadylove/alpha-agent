@@ -1,4 +1,5 @@
 import { postDiscordBotImage, postDiscordImage } from "@/lib/discord/sendWebhook";
+import { appConfig } from "../../../app.config";
 
 import { discordBotToken } from "./discordFetch";
 import { renderGexFlowPng, renderNoteworthyPng, renderSingleFlowPng } from "./cardImage";
@@ -9,7 +10,7 @@ import type { OptionFlowConfig, OptionFlowPost } from "./types";
 /** Quill 服 #常规，账本 / GEX 现在就推这里。 */
 export const DEFAULT_SIGNAL_CHANNEL_ID = "1530212207089160374";
 /** 单笔走网站 postSignalImage，和买卖卡同一条 Discord + Telegram 路径。 */
-const DEFAULT_FLOW_PUSH = "https://alpha-agent-eight.vercel.app/api/tv/render-option-flow";
+const DEFAULT_FLOW_PUSH = `${appConfig.siteUrl}/api/tv/render-option-flow`;
 
 export function signalWebhookUrl(): string {
   return (process.env.DISCORD_SIGNAL_WEBHOOK_URL || process.env.DISCORD_WEBHOOK_URL || "").trim();

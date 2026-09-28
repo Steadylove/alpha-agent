@@ -1,3 +1,4 @@
+import { loadRuntimeConfig } from "@/lib/runtimeConfig";
 import { NextResponse } from "next/server";
 
 import { CSV_4H_DIR, CSV_PANEL_DIR, hasCsvPanel } from "@/lib/backtest/csvPanel";
@@ -38,6 +39,7 @@ function payload(patch: SignalPoolPatch) {
 }
 
 export async function GET() {
+  await loadRuntimeConfig();
   try {
     return NextResponse.json(payload(await readSignalPool()));
   } catch (error) {
@@ -47,6 +49,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  await loadRuntimeConfig();
   let body: Record<string, unknown> = {};
   try {
     body = (await request.json()) as Record<string, unknown>;

@@ -1,3 +1,4 @@
+import { loadRuntimeConfig } from "@/lib/runtimeConfig";
 import { NextResponse } from "next/server";
 
 import { lastSettledSession } from "@/lib/backtest/mergeBars";
@@ -7,6 +8,7 @@ import { isLookbackTf } from "@/lib/fund/lookbackLogic";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
+  await loadRuntimeConfig();
   const tf = new URL(request.url).searchParams.get("tf");
   if (tf != null && !isLookbackTf(tf)) return NextResponse.json({ error: "周期必须是 2h 或 4h" }, { status: 400 });
   try {
@@ -20,6 +22,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  await loadRuntimeConfig();
   let body: Record<string, unknown> = {};
   try {
     const json: unknown = await request.json();

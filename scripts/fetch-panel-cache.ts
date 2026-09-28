@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./load-env";
 
 import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -6,12 +6,8 @@ import path from "node:path";
 import { PANEL_CACHE_PATH, readSnapshot, snapshotSize } from "@/lib/backtest/panelCache";
 
 /**
- * 把面板快照取到本地缓存路径，供 `next build` 打进函数包。
- *
- * 为什么要有这一步：部署环境文件系统只读，运行时拿不到缓存就会回落数据库，
- * 每个冷启动实例都要下载完整面板（72MB）——Neon 免费档按这个用法约 70 次就见底。
- * 所以面板必须在构建时就位，成为部署产物的一部分（见 next.config.ts 的
- * outputFileTracingIncludes）。
+ * 把已上传的面板快照下载到本地缓存，供标普 / 纳指实验室使用。
+ * 缺缓存时不会转向其他存储服务；Small Fund 使用独立的本地 / VPS CSV。
  *
  * 只认一个 URL 而不绑定某家对象存储：R2、Vercel Blob、S3、GitHub Release
  * 都能给出可下载地址，用 fetch 就够，不必为此引入任何 SDK。
@@ -19,7 +15,7 @@ import { PANEL_CACHE_PATH, readSnapshot, snapshotSize } from "@/lib/backtest/pan
  * 用法:
  *   PANEL_SNAPSHOT_URL=https://... npx tsx scripts/fetch-panel-cache.ts
  *
- * 刷新流程：本地 `npm run panel:cache` 重建 → 上传到你的存储 → 重新部署。
+ * 刷新流程：本地 `npm run panel:cache` 重建 → 上传到存储 → 在使用快照的环境下载。
  */
 
 const STAGING_PATH = `${PANEL_CACHE_PATH}.download`;
@@ -41,7 +37,7 @@ async function main() {
   if (!url) {
     console.warn(
       "[panel] 无缓存且未设置 PANEL_SNAPSHOT_URL，跳过。" +
-        "标普/纳指实验室上线后没有面板快照；Small Fund 仍读仓库 CSV。" +
+        "标普/纳指实验室没有面板快照；Small Fund 仍读本地 / VPS CSV。" +
         "需要完整面板时再配快照地址，或本地 npm run panel:cache。",
     );
     return;

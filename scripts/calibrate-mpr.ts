@@ -1,6 +1,6 @@
-import "dotenv/config";
+import "./load-env";
 
-import { getPrisma } from "@/lib/db/prisma";
+import { loadDailyBars } from "@/lib/vps/loadDailyBars";
 import {
   MPR_SYMBOLS,
   alignMprInputs,
@@ -20,21 +20,14 @@ const WARMUP_BARS = 252;
 const FORWARD_DAYS = 5;
 
 async function loadBars(): Promise<Record<MprSymbol, AlignBar[]>> {
-  const prisma = getPrisma();
   const result = {} as Record<MprSymbol, AlignBar[]>;
 
+  const daily = await loadDailyBars(MPR_SYMBOLS);
   for (const symbol of MPR_SYMBOLS) {
-    const instrument = await prisma.instrument.findUnique({ where: { symbol } });
-    if (!instrument) {
-      throw new Error(`Instrument ${symbol} not found. Run: npm run backfill:macro`);
-    }
-    const bars = await prisma.dailyBar.findMany({
-      where: { instrumentId: instrument.id },
-      orderBy: { date: "asc" },
-      select: { date: true, close: true, volume: true },
-    });
+    const bars = daily.get(symbol) ?? [];
+    if (bars.length === 0) throw new Error(`缺少宏观标的 ${symbol} 的日线 CSV，请检查 MARKET_DATA_DIR / MARKET_DATA_BASE_URL。`);
     result[symbol] = bars.map((bar) => ({
-      date: bar.date.toISOString().slice(0, 10),
+      date: bar.date,
       close: bar.close,
       volume: Number(bar.volume),
     }));
@@ -154,12 +147,9 @@ async function main() {
   console.log("  - 「模型预测概率」与「5D下跌频率」的差距即 alpha_base 的校准误差。");
   console.log("  - domCred/domSpot 取的是两个 ECDF 分位的 max，其理论中位数是 70.7 而非 50。");
   console.log("    阈值却仍设在 50/75，导致这两个域天然长期处于「异动」，是不单调的主因。");
-
-  await getPrisma().$disconnect();
 }
 
-main().catch(async (error) => {
+main().catch((error) => {
   console.error(error);
-  await getPrisma().$disconnect();
   process.exit(1);
 });

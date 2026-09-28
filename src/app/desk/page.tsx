@@ -1,3 +1,4 @@
+import { loadRuntimeConfig } from "@/lib/runtimeConfig";
 import { PageHeading } from "@/components/PageHeading";
 import { DeskWorkbench, type DeskStrategies } from "@/components/DeskWorkbench";
 import { champOf } from "@/lib/fund/champs";
@@ -26,6 +27,7 @@ export default async function DeskPage({
 }: {
   searchParams: Promise<{ q?: string | string[] }>;
 }) {
+  await loadRuntimeConfig();
   const raw = (await searchParams).q;
   const q = Array.isArray(raw) ? (raw[0] ?? "") : (raw ?? "");
 

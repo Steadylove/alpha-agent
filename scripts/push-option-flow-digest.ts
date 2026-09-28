@@ -1,7 +1,6 @@
+import "./load-env";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-
-import { config as loadEnv } from "dotenv";
 
 import type { GexSnapshot } from "@/lib/discord/gexCopy";
 import { postSignalImage } from "@/lib/notifications/postSignalImage";
@@ -13,8 +12,6 @@ import {
   hasDigestContent,
 } from "@/lib/optionFlow/digest";
 import { optionFlowOf, readOptionFlow } from "@/lib/optionFlow/store";
-
-loadEnv({ override: true });
 
 function webhookUrl(): string | undefined {
   return process.env.DISCORD_SIGNAL_WEBHOOK_URL || process.env.DISCORD_WEBHOOK_URL;

@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./load-env";
 import { closeSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { marketBaseUrl } from "@/lib/backtest/marketStore";

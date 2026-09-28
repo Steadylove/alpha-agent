@@ -1,3 +1,4 @@
+import { loadRuntimeConfig } from "@/lib/runtimeConfig";
 import { DailyReview } from "@/components/review/DailyReview";
 import { getReviewData } from "@/lib/review/store";
 
@@ -12,6 +13,7 @@ export default async function HomePage({
 }: {
   searchParams: Promise<{ date?: string }>;
 }) {
+  await loadRuntimeConfig();
   const { date } = await searchParams;
   return <DailyReview {...await getReviewData(date)} />;
 }

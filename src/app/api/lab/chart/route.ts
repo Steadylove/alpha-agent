@@ -1,3 +1,4 @@
+import { loadRuntimeConfig } from "@/lib/runtimeConfig";
 import { NextResponse } from "next/server";
 
 import {
@@ -28,6 +29,7 @@ import { TWO_HOUR_VERSION } from "@/lib/backtest/twoHourVersion";
 type Level = number | null;
 
 export async function POST(request: Request) {
+  await loadRuntimeConfig();
   let body: Record<string, unknown> = {};
   try {
     body = (await request.json()) as Record<string, unknown>;

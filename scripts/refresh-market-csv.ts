@@ -1,5 +1,5 @@
+import "./load-env";
 import { refreshReviewMacro } from "@/lib/data-sources/reviewMacro";
-import "dotenv/config";
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";

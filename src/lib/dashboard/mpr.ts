@@ -36,6 +36,6 @@ export type MprData = {
   latest: MacroPhaseSnapshot | null;
   /** 近端历史，最新的在最后。 */
   history: MprHistoryPoint[];
-  /** 宏观日线缺失的标的，非空时说明还没跑 npm run backfill:macro。 */
+  /** 宏观日线缺失的标的，非空时需检查行情目录或运行 market:refresh。 */
   missingSymbols: string[];
 };

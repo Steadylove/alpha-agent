@@ -4,27 +4,35 @@ import { TelegramStore } from "./store";
 import { verifyRelay } from "./relayAuth";
 import { openRelayIdentity } from "./relayIdentity";
 import type { TelegramUpdate } from "./updates";
+import { sealRuntimeConfig } from "../runtimeConfig";
 
 export function createTelegramRelayServer(store: TelegramStore, secret: string, configured: boolean,
   status: () => { ok: boolean; username?: string }, identityPrivateKey = "",
-  webhook?: { secret: string; handle: (update: TelegramUpdate) => Promise<void> }) {
+  webhook?: { secret: string; handle: (update: TelegramUpdate) => Promise<void> },
+  runtimeSecrets?: () => unknown) {
   return createServer(async (req, res) => {
     const reply = (code: number, body: unknown) => { res.writeHead(code, { "content-type": "application/json", "cache-control": "no-store" }); res.end(JSON.stringify(body)); };
     const route = req.url?.split("?")[0];
-    if (req.method === "GET" && route === "/health") { reply(200, { ok: true, configured }); return; }
+    if (req.method === "GET" && route === "/health") { reply(200, { ok: true, configured, runtimeConfig: Boolean(runtimeSecrets && identityPrivateKey) }); return; }
     if (!configured) { reply(503, { error: "not configured" }); return; }
-    if (!(req.method === "GET" && (route === "/status" || route === "/targets")) && !(req.method === "POST" && ["/enqueue", "/updates"].includes(route ?? ""))) { reply(404, { error: "not found" }); return; }
+    if (!(req.method === "GET" && (route === "/status" || route === "/targets")) && !(req.method === "POST" && ["/enqueue", "/updates", "/runtime-config"].includes(route ?? ""))) { reply(404, { error: "not found" }); return; }
     try {
       const chunks: Buffer[] = []; let size = 0;
       for await (const chunk of req) {
         size += chunk.length;
-        if (size > 8 * 1024 * 1024) { reply(413, { error: "too large" }); return; }
+        if (size > (route === "/runtime-config" ? 4096 : 8 * 1024 * 1024)) { reply(413, { error: "too large" }); return; }
         chunks.push(Buffer.from(chunk));
       }
       const body = Buffer.concat(chunks).toString("utf8");
-      const signed = secret !== "change-me" && verifyRelay(secret, String(req.headers["x-relay-time"] ?? ""), String(req.headers["x-relay-signature"] ?? ""), body);
+      const signed = route !== "/runtime-config" && secret !== "change-me" && verifyRelay(secret, String(req.headers["x-relay-time"] ?? ""), String(req.headers["x-relay-signature"] ?? ""), body);
       const identity = signed ? null : await openRelayIdentity(identityPrivateKey, String(req.headers["x-relay-identity"] ?? ""), body);
       if (!signed && !identity) { reply(401, { error: "unauthorized" }); return; }
+      if (route === "/runtime-config") {
+        if (!runtimeSecrets || !identity?.sourceSecret) { reply(503, { error: "configuration unavailable" }); return; }
+        const encrypted = await sealRuntimeConfig(body, identity.sourceSecret, runtimeSecrets());
+        res.writeHead(200, { "content-type": "application/jose", "cache-control": "no-store" });
+        res.end(encrypted); return;
+      }
       if (route === "/status") { reply(200, { ...status(), ...store.stats() }); return; }
       if (route === "/targets") { reply(200, { ...status(), groups: store.targets() }); return; }
       if (route === "/updates") {

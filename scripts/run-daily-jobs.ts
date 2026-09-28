@@ -1,8 +1,7 @@
-import "dotenv/config";
+import "./load-env";
 
 import { runMacroPhaseJob } from "@/lib/jobs/macroPhase";
 import { runOpportunityJob } from "@/lib/jobs/opportunity";
-import { runFundScoreJob } from "@/lib/jobs/fundScore";
 
 /**
  * 按依赖顺序跑完每日量化任务链。
@@ -17,8 +16,7 @@ type Step = {
   /**
    * 失败是否允许继续。
    *
-   * 基本面评分依赖外部接口，失败不应拖垮账本任务。
-   * 旧快照仍受版本和有效期检查。
+   * 机会快照失败不应阻断后续独立的账本与复盘任务。
    */
   soft?: boolean;
 };
@@ -26,7 +24,6 @@ type Step = {
 const STEPS: Step[] = [
   { name: "macro-phase", run: runMacroPhaseJob },
   { name: "opportunity", run: runOpportunityJob, soft: true },
-  { name: "fund-score", run: () => runFundScoreJob(), soft: true },
 ];
 
 async function main() {

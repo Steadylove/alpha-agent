@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./load-env";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { readRpsSnapshot } from "@/lib/backtest/rpsSnapshot";

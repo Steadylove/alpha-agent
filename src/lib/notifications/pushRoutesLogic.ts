@@ -1,3 +1,4 @@
+import { appConfig } from "../../../app.config";
 export const PUSH_KINDS = [
   "signal-4h",
   "signal-2h",
@@ -39,7 +40,7 @@ export type PushRoutesFile = {
   routes: Record<PushKind, PushRoute>;
 };
 
-export const DEFAULT_FLOW_MIN_PREMIUM_USD = 500_000;
+export const DEFAULT_FLOW_MIN_PREMIUM_USD = appConfig.optionFlow.minPremiumUsd;
 export function validFlowMinPremium(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= 1_000_000_000_000;
 }

@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
 import { CompactEncrypt, compactDecrypt, importSPKI, importPKCS8, createRemoteJWKSet, decodeJwt, jwtVerify } from "jose";
-import { TELEGRAM_RELAY_PUBLIC_KEY } from "./relayPublicKey";
+import { appConfig } from "../../../app.config";
 
 const digest = (body: string) => createHash("sha256").update(body).digest("hex");
-const teamIssuer = "https://oidc.vercel.com/steady1ove";
+const { team, project, environment, relayPublicKey } = appConfig.vercelIdentity;
+const teamIssuer = `https://oidc.vercel.com/${team}`;
 const issuers = new Map([teamIssuer, "https://oidc.vercel.com"].map((iss) => [iss, createRemoteJWKSet(new URL(`${iss}/.well-known/jwks`))]));
 
-export async function sealRelayIdentity(token: string, body = "", now = Date.now(), publicKey = TELEGRAM_RELAY_PUBLIC_KEY, sourceSecret?: string) {
+export async function sealRelayIdentity(token: string, body = "", now = Date.now(), publicKey: string = relayPublicKey, sourceSecret?: string) {
   const key = await importSPKI(publicKey, "RSA-OAEP-256");
   const envelope = Buffer.from(JSON.stringify({ token, digest: digest(body), time: now, sourceSecret }));
   // 使用标准 JWE 加密短期服务凭据，避免它经过现有 HTTP 行情代理时明文暴露。
@@ -18,8 +19,8 @@ export async function verifyVercelIdentity(token: string) {
   const jwks = iss ? issuers.get(iss) : undefined;
   if (!jwks) throw new Error("Untrusted issuer");
   await jwtVerify(token, jwks, {
-    issuer: iss, audience: "https://vercel.com/steady1ove",
-    subject: "owner:steady1ove:project:alpha-agent:environment:production",
+    issuer: iss, audience: `https://vercel.com/${team}`,
+    subject: `owner:${team}:project:${project}:environment:${environment}`,
     algorithms: ["RS256"], requiredClaims: ["exp", "iat", "iss", "aud", "sub"],
   });
 }

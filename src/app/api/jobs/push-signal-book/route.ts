@@ -1,3 +1,4 @@
+import { loadRuntimeConfig } from "@/lib/runtimeConfig";
 import { NextResponse } from "next/server";
 
 import { buildSignalBooks } from "@/lib/fund/pushSignalBook";
@@ -6,10 +7,12 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 export async function GET() {
+  await loadRuntimeConfig();
   return NextResponse.json({ ready: true });
 }
 
 export async function POST(request: Request) {
+  await loadRuntimeConfig();
   const url = new URL(request.url);
   try {
     const books = await buildSignalBooks({

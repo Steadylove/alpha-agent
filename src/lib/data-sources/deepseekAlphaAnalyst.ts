@@ -1,3 +1,4 @@
+import { appConfig } from "../../../app.config";
 import type { ScreenerRow } from "@/lib/jobs/alphaScreener";
 
 const DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions";
@@ -107,7 +108,7 @@ RPS20: ${Math.round(row.rps[20])}
       },
       body: JSON.stringify({
         // For analysis, deepseek-chat works perfectly well. Can use deepseek-reasoner for advanced CoT.
-        model: "deepseek-v4-pro",
+        model: appConfig.aiModel,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: prompt },

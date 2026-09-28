@@ -1,4 +1,14 @@
-/** CAN SLIM+ 六维基本面分。缺维不加分，也不当成 C 级垃圾。 */
+/** 历史 CAN SLIM+ 六维基本面分，仅用于旧记录兼容与离线研究。 */
+
+/** 历史研究口径：当前收盘价相对前 252 根收盘高点，排除当前根。 */
+export function distFrom52w(closes: number[]): number | null {
+  if (closes.length < 60) return null;
+  const window = closes.slice(Math.max(0, closes.length - 253), -1);
+  const high = Math.max(...window);
+  const close = closes.at(-1);
+  if (!close || high <= 0) return null;
+  return ((close - high) / high) * 100;
+}
 
 export type FundScoreInputs = {
   epsYoy: number | null;

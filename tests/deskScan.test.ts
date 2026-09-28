@@ -1,14 +1,10 @@
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_BACKTEST_CONFIG,
   prepareUniverse,
 } from "@/lib/backtest/engine";
 import { scanDeskBoard } from "@/lib/backtest/deskScan";
-import { deskDecisionId, readLedger, upsertDecision } from "@/lib/backtest/deskLedger";
 import type { PanelBars } from "@/lib/backtest/panel";
 
 const axisDates = (n: number) =>
@@ -65,37 +61,5 @@ describe("deskScan", () => {
       rps: 40,
     });
     expect(snap.rows.find((r) => r.symbol === "B")).toMatchObject({ lastSignal: 0, holding: null });
-  });
-});
-
-describe("deskLedger", () => {
-  const prev = process.env.DESK_LEDGER_PATH;
-  afterEach(() => {
-    if (prev == null) delete process.env.DESK_LEDGER_PATH;
-    else process.env.DESK_LEDGER_PATH = prev;
-  });
-
-  it("同信号再写覆盖，账本可回读", () => {
-    const dir = mkdtempSync(path.join(tmpdir(), "desk-"));
-    process.env.DESK_LEDGER_PATH = path.join(dir, "ledger.json");
-    const base = {
-      date: "2026-08-25",
-      timeframe: "1d",
-      poolId: "sf-live",
-      symbol: "NVDA",
-      sigType: 1 as const,
-      rps: 72,
-      rawWeightPct: 72,
-      note: "",
-    };
-    upsertDecision({ ...base, decision: "confirm" });
-    const again = upsertDecision({ ...base, decision: "reject", note: "板块过热" });
-    expect(again.id).toBe(deskDecisionId(base));
-    const rows = readLedger();
-    expect(rows).toHaveLength(1);
-    expect(rows[0].decision).toBe("reject");
-    expect(rows[0].note).toBe("板块过热");
-    const saved = JSON.parse(readFileSync(process.env.DESK_LEDGER_PATH, "utf8")) as { id: string }[];
-    expect(saved).toHaveLength(1);
   });
 });

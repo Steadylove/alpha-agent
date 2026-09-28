@@ -1,8 +1,8 @@
-import "dotenv/config";
+import "./load-env";
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 
-import { getPrisma } from "@/lib/db/prisma";
+import { loadDailyBars } from "@/lib/vps/loadDailyBars";
 import {
   MPR_SYMBOLS,
   alignMprInputs,
@@ -82,18 +82,13 @@ function parseCsv(text: string): Map<string, Record<string, number>> {
 }
 
 async function loadLocalSeries(): Promise<MprDay[]> {
-  const prisma = getPrisma();
   const bySymbol = {} as Record<MprSymbol, AlignBar[]>;
+  const daily = await loadDailyBars(MPR_SYMBOLS);
   for (const symbol of MPR_SYMBOLS) {
-    const instrument = await prisma.instrument.findUnique({ where: { symbol } });
-    if (!instrument) throw new Error(`Instrument ${symbol} not found. Run: npm run backfill:macro`);
-    const bars = await prisma.dailyBar.findMany({
-      where: { instrumentId: instrument.id },
-      orderBy: { date: "asc" },
-      select: { date: true, close: true, volume: true },
-    });
+    const bars = daily.get(symbol) ?? [];
+    if (bars.length === 0) throw new Error(`缺少宏观标的 ${symbol} 的日线 CSV，请检查 MARKET_DATA_DIR / MARKET_DATA_BASE_URL。`);
     bySymbol[symbol] = bars.map((bar) => ({
-      date: bar.date.toISOString().slice(0, 10),
+      date: bar.date,
       close: bar.close,
       volume: Number(bar.volume),
     }));
@@ -191,7 +186,6 @@ async function main() {
     if (totalMismatched > 0) {
       console.log("");
       console.log("对拍未通过，拒绝冻结夹具。");
-      await getPrisma().$disconnect();
       process.exit(1);
     }
     // 均匀抽样，覆盖不同市场状态而非只取一段
@@ -214,12 +208,10 @@ async function main() {
     console.log(`已冻结 ${samples.length} 条真值样本到 ${GOLDEN_PATH}`);
   }
 
-  await getPrisma().$disconnect();
   if (totalMismatched > 0) process.exit(1);
 }
 
-main().catch(async (error) => {
+main().catch((error) => {
   console.error(error instanceof Error ? error.message : error);
-  await getPrisma().$disconnect();
   process.exit(1);
 });

@@ -1,3 +1,4 @@
+import { appConfig } from "../../../app.config";
 import type { OptionFlowConfig } from "./types";
 import { DEFAULT_FLOW_MIN_PREMIUM_USD, meetsFlowPremium, validFlowMinPremium } from "@/lib/notifications/pushRoutesLogic";
 
@@ -42,8 +43,8 @@ export function optionFlowConfig(): OptionFlowConfig {
   return {
     channelId: process.env.DISCORD_OPTION_CHANNEL_ID?.trim() || DEFAULT_OPTION_CHANNEL_ID,
     minPremiumUsd: validFlowMinPremium(premium) ? premium : DEFAULT_FLOW_MIN_PREMIUM_USD,
-    dropAds: boolEnv("OPTION_FLOW_DROP_ADS", true),
-    dropPaid: boolEnv("OPTION_FLOW_DROP_PAID", true),
+    dropAds: boolEnv("OPTION_FLOW_DROP_ADS", appConfig.optionFlow.dropAds),
+    dropPaid: boolEnv("OPTION_FLOW_DROP_PAID", appConfig.optionFlow.dropPaid),
   };
 }
 

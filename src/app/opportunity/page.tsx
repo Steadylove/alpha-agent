@@ -1,12 +1,15 @@
+import { loadRuntimeConfig } from "@/lib/runtimeConfig";
 import { PageHeading } from "@/components/PageHeading";
 import { OpportunityBoard } from "@/components/OpportunityBoard";
 import { getOpportunityData } from "@/lib/dashboard/opportunity";
 
 export const metadata = { title: "机会" };
 
-export const revalidate = 300;
+// Private configuration uses the request's Vercel identity, never a build-time token.
+export const dynamic = "force-dynamic";
 
 export default async function OpportunityPage() {
+  await loadRuntimeConfig();
   const data = await getOpportunityData();
 
   return (

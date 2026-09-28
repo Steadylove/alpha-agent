@@ -1,3 +1,4 @@
+import { appConfig } from "../../../app.config";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
@@ -92,7 +93,7 @@ export async function publishContextReport(catalyst: CatalystReport, options: {
       current.coverage.flow.state === "unavailable" && previous.observations.some(row => row.flows.length));
     const refreshing = !previous || Boolean(options.refresh && eligible && !losesEvidence);
     const base = refreshing ? current : previous;
-    const model = options.model || "deepseek-v4-pro";
+    const model = options.model || appConfig.aiModel;
     let selected = await analyzeContext(base, previous?.summary ?? previousLatest?.summary ?? null, { analyze: options.analyze && eligible, apiKey: options.apiKey, model, now, generate: options.generate });
     // AI may be added later to a frozen evidence cutoff, without changing its facts.
     const changed = !previous || refreshing || JSON.stringify(selected.summary) !== JSON.stringify(previous.summary) || selected.summaryStatus !== previous.summaryStatus;

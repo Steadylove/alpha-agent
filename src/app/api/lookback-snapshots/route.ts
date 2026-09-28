@@ -1,3 +1,4 @@
+import { loadRuntimeConfig } from "@/lib/runtimeConfig";
 import { NextResponse } from "next/server";
 
 import {
@@ -10,10 +11,12 @@ import {
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  await loadRuntimeConfig();
   return NextResponse.json({ ok: true, snapshots: await readLookbackSnapshots() });
 }
 
 export async function POST(request: Request) {
+  await loadRuntimeConfig();
   let body: Record<string, unknown> = {};
   try {
     body = (await request.json()) as Record<string, unknown>;

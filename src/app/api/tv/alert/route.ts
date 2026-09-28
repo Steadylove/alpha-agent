@@ -15,6 +15,7 @@ import { after, NextResponse } from "next/server";
 import type { AlertPayload } from "@/lib/discord/tvAlertCopy";
 import { EXIT_REASONS } from "@/lib/signals/assessment";
 import { deliverTvAlert } from "@/lib/signals/deliverTvAlert";
+import { loadRuntimeConfig } from "@/lib/runtimeConfig";
 
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 
@@ -30,8 +31,6 @@ function parsePayload(raw: unknown): AlertPayload | null {
 }
 
 export async function POST(request: Request) {
-  const webhookUrl = process.env.DISCORD_SIGNAL_WEBHOOK_URL || process.env.DISCORD_WEBHOOK_URL || "";
-
   let payload: AlertPayload | null = null;
   try {
     payload = parsePayload(JSON.parse(await request.text()));
@@ -42,10 +41,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Malformed alert payload." }, { status: 400 });
   }
 
-  after(() =>
-    deliverTvAlert(payload, webhookUrl).catch((error) => {
+  after(async () => {
+    try {
+      await loadRuntimeConfig();
+      const webhookUrl = process.env.DISCORD_SIGNAL_WEBHOOK_URL || process.env.DISCORD_WEBHOOK_URL || "";
+      await deliverTvAlert(payload, webhookUrl);
+    } catch (error) {
       console.error("[tv-alert]", error instanceof Error ? error.message : error);
-    }),
-  );
+    }
+  });
   return NextResponse.json({ ok: true, accepted: true });
 }

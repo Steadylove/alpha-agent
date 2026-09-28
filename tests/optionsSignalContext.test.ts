@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
+import { MantineProvider } from "@mantine/core";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   OptionsSignalStudy,
@@ -289,7 +290,8 @@ describe("options study: comparable denominators", () => {
     const sample = signal(2);
     const view = (date: string) =>
       renderToStaticMarkup(
-        createElement(OptionsSignalStudy, { signals: [sample], date }),
+        createElement(MantineProvider, null,
+          createElement(OptionsSignalStudy, { signals: [sample], date })),
       );
     const matured = view(sessions[5]);
     expect(matured).toContain("T+5 均值");
@@ -298,7 +300,8 @@ describe("options study: comparable denominators", () => {
     expect(matured).not.toContain("等待信号前冻结的期权结构");
     expect(view(signalDate)).not.toContain("+2.00%");
     const detail = renderToStaticMarkup(
-      createElement(FrozenSignalOptions, { signal: sample }),
+      createElement(MantineProvider, null,
+        createElement(FrozenSignalOptions, { signal: sample })),
     );
     expect(detail).toContain(quoteDate);
     expect(detail).toContain("非信号时刻实时 Gamma");

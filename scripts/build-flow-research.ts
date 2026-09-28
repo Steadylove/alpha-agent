@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./load-env";
 import { archiveFlowResearch } from "@/lib/optionFlow/research/store";
 
 archiveFlowResearch(process.argv.includes("--daily"), process.argv.includes("--rebuild"))

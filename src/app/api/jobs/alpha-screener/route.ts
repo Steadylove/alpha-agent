@@ -1,3 +1,4 @@
+import { loadRuntimeConfig } from "@/lib/runtimeConfig";
 import { NextResponse } from "next/server";
 import { runAlphaScreenerJob } from "@/lib/jobs/alphaScreener";
 import { sendAlphaScreenerToDiscord } from "@/lib/discord/screenerWebhook";
@@ -10,6 +11,7 @@ function parseSkipAi(request: Request): boolean {
 }
 
 export async function POST(request: Request) {
+  await loadRuntimeConfig();
   const secret = request.headers.get("x-cron-secret");
   if (!process.env.CRON_SECRET) {
     return NextResponse.json({ error: "CRON_SECRET is not configured." }, { status: 503 });

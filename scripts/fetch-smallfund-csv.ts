@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./load-env";
 
 import {
   CSV_PANEL_DIR,
@@ -20,8 +20,7 @@ import { fetchYahooDailyBars } from "@/lib/data-sources/yahoo";
 /**
  * 把 Small Fund 池的日线抓成 CSV，全程不碰数据库。
  *
- * 数据库额度耗尽期间这是唯一可用的路径；额度恢复后用 import-smallfund-to-db.ts
- * 把同一批 CSV 导进 BacktestPanel，两条路径产出的面板逐位相同。
+ * CSV 可直接用于本地回测，或同步到 VPS 供网站与每日任务读取。
  *
  * 用法:
  *   npx tsx scripts/fetch-smallfund-csv.ts

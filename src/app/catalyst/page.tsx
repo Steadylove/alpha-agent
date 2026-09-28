@@ -1,3 +1,4 @@
+import { loadRuntimeConfig } from "@/lib/runtimeConfig";
 import { CatalystMonitor } from "@/components/catalyst/CatalystMonitor";
 import { getCatalystPage } from "@/lib/catalyst/store";
 
@@ -8,5 +9,6 @@ export const metadata = {
 };
 
 export default async function CatalystPage() {
+  await loadRuntimeConfig();
   return <CatalystMonitor {...await getCatalystPage()} />;
 }

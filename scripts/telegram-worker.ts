@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
 import { TelegramClient, TelegramError } from "@/lib/telegram/client";
@@ -27,7 +28,7 @@ const server = createTelegramRelayServer(store, secret, configured, () => ({ ok:
     const work = updatesQueue.then(() => processTelegramUpdate(store, api, bot!, update));
     updatesQueue = work.catch(() => {});
     return work;
-  } } : undefined);
+  } } : undefined, () => JSON.parse(readFileSync(path.join(path.dirname(configFile), "web-secrets.json"), "utf8")));
 server.listen(Number(process.env.PORT || 8082), "0.0.0.0", () => console.info(`[telegram] listening ${Number(process.env.PORT || 8082)} configured=${configured}`));
 
 async function poll() {

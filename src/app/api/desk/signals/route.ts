@@ -1,3 +1,4 @@
+import { loadRuntimeConfig } from "@/lib/runtimeConfig";
 import { NextResponse } from "next/server";
 
 import { scanDeskBoard, type DeskBarState, type DeskBoardRow, type DeskTfBoard } from "@/lib/backtest/deskScan";
@@ -30,6 +31,7 @@ function mergeRows(h4: DeskTfBoard, h2: DeskTfBoard): DeskBoardRow[] {
 }
 
 export async function GET() {
+  await loadRuntimeConfig();
   const started = Date.now();
   try {
     const members = await readSignalPoolMembers();

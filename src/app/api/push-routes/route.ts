@@ -1,3 +1,4 @@
+import { loadRuntimeConfig } from "@/lib/runtimeConfig";
 import { NextResponse } from "next/server";
 
 import { loadPushBoard, pushRoutesOf, readPushRoutes, validFlowMinPremium, writePushRoutes } from "@/lib/notifications/pushRoutes";
@@ -6,6 +7,7 @@ import { telegramRelayTargets } from "@/lib/telegram/relay";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  await loadRuntimeConfig();
   const routes = await loadPushBoard();
   const telegram = await telegramRelayTargets().catch(() => ({ ok: false, groups: [] as const }));
   return NextResponse.json({
@@ -22,6 +24,7 @@ export async function GET() {
 }
 
 export async function PUT(request: Request) {
+  await loadRuntimeConfig();
   let body: { routes?: unknown; updatedAt?: unknown; optionFlowMinPremiumUsd?: unknown } = {};
   try {
     body = (await request.json()) as typeof body;

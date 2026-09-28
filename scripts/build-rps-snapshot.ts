@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./load-env";
 import { buildAndStoreSignalRps } from "@/lib/backtest/buildSignalRps";
 
 // Vercel 始终取 VPS 动态快照，不再在构建阶段固化排名或全量下载行情。

@@ -15,8 +15,7 @@ type Replay = { payload: AlertPayload; view: { rps?: number } };
 type MinuteFile = { source: string; symbol: string; timeframe: string; adjustment: string; start: string; end: string; fetchedAt: string; bars: MinuteBar[] };
 
 async function fetchMinutes(symbol: string, from: number, to: number, timeframe: "1Min" | "30Min"): Promise<MinuteFile> {
-  const { config } = await import("dotenv");
-  config({ quiet:true });
+  await import("./load-env");
   const { alpacaCredentials } = await import("@/lib/data-sources/alpaca");
   const { key, secret } = alpacaCredentials();
   assert(to > from && to-from <= 100*86400000, "预览下载范围限制为 100 天");

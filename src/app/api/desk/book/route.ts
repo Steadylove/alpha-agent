@@ -1,3 +1,4 @@
+import { loadRuntimeConfig } from "@/lib/runtimeConfig";
 import { NextResponse } from "next/server";
 
 import { CSV_4H_DIR, CSV_PANEL_DIR, hasCsvPanel } from "@/lib/backtest/csvPanel";
@@ -15,6 +16,7 @@ function csvMissing(ticker: string): string[] {
 }
 
 export async function GET(request: Request) {
+  await loadRuntimeConfig();
   const asOf = new URL(request.url).searchParams.get("asOf") ?? new Date().toISOString().slice(0, 10);
   const changes = readLiveBook();
   const members = membersOn("sf-live", asOf, changes);
@@ -29,6 +31,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  await loadRuntimeConfig();
   let body: Record<string, unknown> = {};
   try {
     body = (await request.json()) as Record<string, unknown>;

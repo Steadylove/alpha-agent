@@ -1,6 +1,6 @@
-import "dotenv/config";
+import "./load-env";
 
-import { getPrisma } from "@/lib/db/prisma";
+import { loadDailyBars } from "@/lib/vps/loadDailyBars";
 import { computeLogMacdSeries } from "@/lib/scoring/logMacd";
 import { macroExposurePct } from "@/lib/scoring/macroExposure";
 import {
@@ -42,21 +42,15 @@ type SymbolSeries = {
 };
 
 async function loadRotation(): Promise<SymbolSeries[]> {
-  const prisma = getPrisma();
   const out: SymbolSeries[] = [];
 
+  const daily = await loadDailyBars(ROTATION_UNIVERSE.map(({ symbol }) => symbol));
   for (const { symbol } of ROTATION_UNIVERSE) {
-    const instrument = await prisma.instrument.findUnique({ where: { symbol } });
-    if (!instrument) continue;
-    const rows = await prisma.dailyBar.findMany({
-      where: { instrumentId: instrument.id },
-      orderBy: { date: "asc" },
-      select: { date: true, high: true, low: true, close: true },
-    });
+    const rows = daily.get(symbol) ?? [];
     if (rows.length < MIN_BARS) continue;
 
     const bars: TradeBar[] = rows.map((r) => ({
-      date: r.date.toISOString().slice(0, 10),
+      date: r.date,
       high: r.high,
       low: r.low,
       close: r.close,
@@ -84,19 +78,14 @@ async function loadRotation(): Promise<SymbolSeries[]> {
 }
 
 async function loadPathByDate(): Promise<Map<string, number>> {
-  const prisma = getPrisma();
   const bySymbol = {} as Record<MprSymbol, AlignBar[]>;
 
+  const daily = await loadDailyBars(MPR_SYMBOLS);
   for (const symbol of MPR_SYMBOLS) {
-    const instrument = await prisma.instrument.findUnique({ where: { symbol } });
-    if (!instrument) throw new Error(`缺少宏观标的 ${symbol}，请先执行 npm run backfill:macro`);
-    const rows = await prisma.dailyBar.findMany({
-      where: { instrumentId: instrument.id },
-      orderBy: { date: "asc" },
-      select: { date: true, close: true, volume: true },
-    });
+    const rows = daily.get(symbol) ?? [];
+    if (rows.length === 0) throw new Error(`缺少宏观标的 ${symbol} 的日线 CSV，请检查 MARKET_DATA_DIR / MARKET_DATA_BASE_URL。`);
     bySymbol[symbol] = rows.map((r) => ({
-      date: r.date.toISOString().slice(0, 10),
+      date: r.date,
       close: r.close,
       volume: Number(r.volume),
     }));
@@ -225,8 +214,6 @@ async function main() {
         s.sharpe.toFixed(2).padStart(12),
     );
   }
-
-  await getPrisma().$disconnect();
 }
 
 main().catch((err) => {
