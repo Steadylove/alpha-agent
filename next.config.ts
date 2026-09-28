@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  allowedDevOrigins: ["127.0.0.1"],
   /*
    * 线上读行情机 / 本地 CSV，不要把整池 CSV / 72MB 面板按路由打进函数包。
    * 不同 outputFileTracingIncludes 会拆成多个 Serverless Function，
@@ -17,6 +18,7 @@ const nextConfig: NextConfig = {
       "data/smallfund2h/**",
       "data/smallfund1h/**",
       "data/benchmarks/**",
+      "data/intraday-research/**",
       ".cache/**",
       ".env*",
       "**/web-secrets*.json",

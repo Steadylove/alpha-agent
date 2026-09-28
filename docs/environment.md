@@ -11,7 +11,7 @@
 | VPS 日更、宏观补采、Catalyst、日报图 | `/var/lib/alpha-agent/daily-quant.env` | Alpaca、独立分析密钥、可选来源；数据路径由包装脚本设置 |
 | VPS 期权流 worker | `/var/lib/alpha-agent/option-flow.env` | Discord Bot、来源频道、过滤开关、轮询间隔 |
 | VPS desk / book | `/var/lib/alpha-agent/market-http/docker-compose.yml` 与同目录 `.env` | Compose 注入文件路径；可从 `.env` 读取 `DESK_STORE_SECRET` |
-| VPS Telegram | `/var/lib/alpha-agent/telegram-config/telegram.config.mjs`，挂载到容器 `/config/telegram.config.mjs` | `token`、`relaySecret`、`identityPrivateKey`、`mode`、`webhookSecret` |
+| VPS Telegram | `/var/lib/alpha-agent/telegram-config/telegram.config.mjs`，挂载到容器 `/config/telegram.config.mjs` | `token`、`relaySecret`、`identityPrivateKey`、`mode`、`webhookSecret`、`intradayWebhookSecret` |
 | GitHub Actions | Repository → Settings → Secrets and variables → Actions | `VPS_SSH_KEY`、手动补跑所需 API 凭据；它不是 Vercel 或 VPS 配置的自动镜像 |
 | Theta 本地研究 | `.env.local` 的 `THETADATA_API_KEY`，或进程环境 | 与生产每日 GEX 采集分开 |
 

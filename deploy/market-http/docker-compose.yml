@@ -39,6 +39,7 @@ services:
     volumes:
       - /var/lib/alpha-agent/telegram:/data
       - /var/lib/alpha-agent/telegram-config:/config:ro
+      - /var/lib/alpha-agent/desk:/desk:ro
       - /var/lib/alpha-agent/market-http/telegram.mjs:/app/telegram.mjs:ro
     command: ["node", "/app/telegram.mjs"]
     expose:

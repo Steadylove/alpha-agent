@@ -2,6 +2,7 @@ import { appConfig } from "../../../app.config";
 export const PUSH_KINDS = [
   "signal-4h",
   "signal-2h",
+  "signal-intraday",
   "book",
   "gex",
   "option-flow",
@@ -51,6 +52,7 @@ export function meetsFlowPremium(premium: unknown, minimum: number): boolean {
 export const PUSH_KIND_META: Record<PushKind, { label: string; hint: string }> = {
   "signal-4h": { label: "买卖点 · 4 小时", hint: "TradingView 4H 买/卖卡" },
   "signal-2h": { label: "买卖点 · 2 小时", hint: "TradingView 2H 买/卖卡" },
+  "signal-intraday": { label: "日内共振信号", hint: "TV 优质买点 / 能量共振 / 减仓 / 逃顶；先存档，再转发" },
   book: { label: "现金账本", hint: "日更账本 1 / 账本 2" },
   gex: { label: "GEX 简报", hint: "日更 GEX 卡 + Tomorrow Map + Options Market Map，共用路由" },
   "option-flow": { label: "期权流 · 单笔", hint: "Quill #option 完整单" },
@@ -109,6 +111,7 @@ export function defaultPushRoutes(): PushRoutesFile {
     routes: {
       "signal-4h": route({ discordDests: ["main", "mirror-4h"], telegram: true }),
       "signal-2h": route({ discordDests: ["main", "mirror-2h"], telegram: true }),
+      "signal-intraday": route({ enabled: false, discordDests: ["main"], telegram: true }),
       book: route({ discordDests: ["main", "mirror-book"], telegram: true }),
       gex: route({ discordDests: ["main", "mirror-gex"], telegram: true }),
       "option-flow": route({ discordDests: ["main"], telegram: true }),

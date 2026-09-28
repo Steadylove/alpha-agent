@@ -110,6 +110,7 @@ const catalog: { variables: Record<string, Entry>; retired: Record<string, strin
     "OPTION_FLOW_PUSH_URL": {"group": "推送与期权流", "description": "单笔期权流交给网站推送的接口地址", "profiles": ["web", "daily", "flow"], "secret": false},
     "TELEGRAM_RELAY_URL": {"group": "推送与期权流", "description": "Telegram 中继；缺省使用行情服务地址加 /telegram", "profiles": ["web", "daily", "flow"], "secret": false},
     "TELEGRAM_RELAY_SECRET": {"group": "推送与期权流", "description": "非 Vercel 客户端的中继签名密钥；需与 Telegram 服务一致", "profiles": ["web", "daily", "flow"], "secret": true},
+    "TV_INTRADAY_WEBHOOK_SECRET": {"group": "推送与期权流", "description": "仅本地 TV 日内接收接口使用；生产从 VPS telegram.config.mjs 的 intradayWebhookSecret 校验，不在 Vercel 配置", "profiles": ["web"], "secret": true},
     "TELEGRAM_ENABLED": {"group": "推送与期权流", "description": "设置 false 禁用图片入队", "profiles": ["web", "daily", "flow"], "secret": false, "default": "true"},
     "BOOK_PUSH_URL": {"group": "推送与期权流", "description": "账本卡的远程接口，同时作为 GEX 远程推送的站点 origin", "profiles": ["web", "daily", "flow"], "secret": false},
     "GEX_PUSH_URL": {"group": "推送与期权流", "description": "覆盖 GEX 单卡远程接口", "profiles": ["web", "daily", "flow"], "secret": false},

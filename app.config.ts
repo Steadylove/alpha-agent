@@ -5,6 +5,15 @@ export const appConfig = {
   aiModel: "deepseek-v4-pro",
   screenerSkipAi: true,
   optionFlow: { minPremiumUsd: 500_000, pollMs: 3000, dropAds: true, dropPaid: true },
+  intraday: { maxSignalAgeMs: 120_000, maxFutureSkewMs: 30_000, maxDeliveryAgeMs: 180_000, maxAttempts: 5, maxBodyBytes: 16_384 },
+  intradayResearch: {
+    version: "offline-1.0.0", initialCash: 10000, riskFraction: 0.0025,
+    maxPositionFraction: 0.2, maxPositions: 2, dailyLossFraction: 0.01,
+    minPrice: 1, maxPrice: 20, minGainPct: 20, minVolumeRatio: 5, maxFloat: 20000000,
+    warmupBars: 500, stopLookback: 8, feePerShare: 0.005, minimumFee: 1,
+    slippageFraction: 0.001, minimumSlippage: 0.01, participation: 0.01,
+    quoteMaxAgeMs: 5000, latencyMs: 2000, maxSpreadFraction: 0.01, limitProtection: 0.005, entryExpiryMs: 30000,
+  },
   runtimeConfig: { path: "/telegram/runtime-config", cacheMs: 300_000, timeoutMs: 10_000 },
   vercelIdentity: {
     team: "steady1ove", project: "alpha-agent", environment: "production",

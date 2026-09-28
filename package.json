@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "intraday:lab": "npx --yes tsx scripts/intraday-lab.ts",
     "catalyst:build": "npx --yes tsx scripts/build-catalyst.ts",
     "catalyst:bundle": "node scripts/bundle-catalyst.mjs",
     "review:analysis": "npx --yes tsx scripts/build-review-analysis.ts",

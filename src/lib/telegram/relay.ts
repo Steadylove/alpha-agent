@@ -3,6 +3,11 @@ import { marketBaseUrl } from "@/lib/backtest/marketStore";
 import { relayHeaders } from "./relayAuth";
 import { getVercelOidcToken } from "@vercel/oidc";
 import { sealRelayIdentity } from "./relayIdentity";
+import { timingSafeEqual } from "node:crypto";
+
+export class RelayHttpError extends Error {
+  constructor(public status: number) { super(`Telegram 推送服务 HTTP ${status}`); }
+}
 
 function config() {
   const base = process.env.TELEGRAM_RELAY_URL || (marketBaseUrl() ? `${marketBaseUrl()}/telegram` : "");
@@ -10,7 +15,7 @@ function config() {
   return { base: base.replace(/\/$/, ""), secret };
 }
 
-async function requestRelay(path: string, body?: string, sourceSecret?: string) {
+async function requestRelay(path: string, body?: string, sourceSecret?: string, timeoutMs = 15_000) {
   const { base, secret } = config();
   if (!base) throw new Error("Telegram 推送服务未配置");
   let auth: Record<string, string>;
@@ -24,14 +29,30 @@ async function requestRelay(path: string, body?: string, sourceSecret?: string) 
   let response: Response;
   try {
     response = await fetch(`${base}/${path}`, { method: body == null ? "GET" : "POST", cache: "no-store",
-      headers: { "content-type": "application/json", ...auth }, body, signal: AbortSignal.timeout(15_000) });
+      headers: { "content-type": "application/json", ...auth }, body, signal: AbortSignal.timeout(timeoutMs) });
   } catch { throw new Error("Telegram 推送服务暂时不可达"); }
-  if (!response.ok) throw new Error(`Telegram 推送服务 HTTP ${response.status}`);
+  if (!response.ok) throw new RelayHttpError(response.status);
   return response.json() as Promise<{ ok: boolean; duplicate?: boolean; recipients?: number; username?: string; subscribed?: number }>;
 }
 
 export function telegramRelayStatus() { return requestRelay("status"); }
 export function relayTelegramUpdate(body: string, sourceSecret: string) { return requestRelay("updates", body, sourceSecret); }
+
+export function relayIntradaySignal(body: string, sourceSecret: string) {
+  if (!process.env.VERCEL) {
+    const expected = process.env.TV_INTRADAY_WEBHOOK_SECRET || "";
+    if (!/^[a-f0-9]{64}$/.test(expected) || sourceSecret.length !== expected.length || !timingSafeEqual(Buffer.from(sourceSecret), Buffer.from(expected))) {
+      throw new RelayHttpError(401);
+    }
+  }
+  return requestRelay("intraday/ingest", body, sourceSecret, 2300);
+}
+
+export async function readIntradayJournal(date: string) {
+  return await requestRelay("intraday/journal", JSON.stringify({ date })) as unknown as {
+    ok: boolean; date: string; records: Array<import("../intraday/store").IntradayRecord & { telegramDeliveries: import("./store").Delivery[] }>;
+  };
+}
 
 export type TelegramTarget = { id: string; title: string; subscribed: boolean; messageThreadId?: number };
 

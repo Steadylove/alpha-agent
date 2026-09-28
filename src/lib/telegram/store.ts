@@ -18,6 +18,7 @@ export type Delivery = {
 export type TelegramJob = {
   id: string; createdAt: number; content: string; png?: string; fileId?: string;
   direct?: boolean; deliveries: Delivery[];
+  expiresAt?: number;
 };
 type State = { version: 1; offset: number; groups: Record<string, Group>; nextApiAt?: number };
 export const subscribed = (g: Group) => g.present && g.writable && !g.paused && !g.migratedTo && !g.needsTopic && topicsOf(g).length > 0;
@@ -113,7 +114,7 @@ export class TelegramStore {
       }));
     });
   }
-  enqueue(id: string, content: string, png?: string, directChat?: string, now = Date.now(), directThreadId?: number, chatIds?: readonly string[]) {
+  enqueue(id: string, content: string, png?: string, directChat?: string, now = Date.now(), directThreadId?: number, chatIds?: readonly string[], expiresAt?: number) {
     const prior = this.jobs.get(id);
     if (prior?.deliveries.length) return { duplicate: true, recipients: prior.deliveries.length };
     const deliveries: Delivery[] = [];
@@ -140,7 +141,7 @@ export class TelegramStore {
         for (const topic of topicsOf(group)) add(group.id, topic.threadId);
       }
     }
-    this.saveJob({ id, content, png, createdAt: now, direct: !!directChat, deliveries });
+    this.saveJob({ id, content, png, createdAt: now, direct: !!directChat, deliveries, ...(expiresAt === undefined ? {} : { expiresAt }) });
     return { duplicate: false, recipients: deliveries.length };
   }
   cancelGroup(chatId: string) {
