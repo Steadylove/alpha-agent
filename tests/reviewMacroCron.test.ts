@@ -16,6 +16,9 @@ function run(failCommand = "") {
     const bin = path.join(root, "bin"),
       calls = path.join(root, "calls");
     mkdirSync(bin);
+    mkdirSync(path.join(root, "runtime-current/node_modules"), { recursive: true });
+    writeFileSync(path.join(root, "runtime-current/runtime.json"), "{}");
+    writeFileSync(path.join(bin, "runtime-env.sh"), readFileSync("deploy/market-http/cron/runtime-env.sh"));
     writeFileSync(
       path.join(root, "daily-quant.env"),
       "MARKET_DATA_BASE_URL=https://remote.invalid\nVERCEL=1\n",
@@ -27,7 +30,7 @@ function run(failCommand = "") {
 printf '%s\\n' '${cmd}' >> "$TEST_CALLS"
 if [ '${cmd}' = "$TEST_FAIL_COMMAND" ]; then exit 1; fi
 if [ '${cmd}' = 'node' ]; then
-  test "$1" = "$ALPHA_ROOT/market-http/review-macro.mjs" || exit 2
+  test "$1" = "$(readlink -f "$ALPHA_ROOT/runtime-current")/jobs/supplement-review-macro.mjs" || exit 2
   test "$MARKET_DATA_DIR" = "$ALPHA_ROOT/market" || exit 3
   test -z "$MARKET_DATA_BASE_URL" || exit 4
   test -z "\${VERCEL:-}" || exit 5
@@ -50,6 +53,7 @@ fi
           env: {
             ...process.env,
             ALPHA_ROOT: root,
+            ALPHA_RUNTIME: "",
             PATH: `${bin}:${process.env.PATH}`,
             TEST_CALLS: calls,
             TEST_FAIL_COMMAND: failCommand,

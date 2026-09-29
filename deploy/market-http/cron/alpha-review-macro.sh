@@ -17,6 +17,7 @@ export TZ=Asia/Shanghai
 export MARKET_DATA_DIR="$ROOT/market"
 export MARKET_DATA_BASE_URL=''
 unset VERCEL
+. "$ROOT/bin/runtime-env.sh"
 echo "$(date '+%F %T %Z') 开始宏观补采"
-node "$ROOT/market-http/review-macro.mjs"
+node "$RUNTIME/jobs/supplement-review-macro.mjs"
 echo "$(date '+%F %T %Z') 宏观补采结束"

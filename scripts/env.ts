@@ -241,7 +241,8 @@ function main() {
   if (args.includes("--strict") && report.issues.length) process.exitCode = 1;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+// A bundled importer shares import.meta.url with its entrypoint; never run this CLI inside a job bundle.
+if (process.argv[1] && /(?:^|[\\/])env\.(?:ts|[cm]?js)$/.test(process.argv[1]) && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   try { main(); }
   catch { console.error("环境配置检查未完成；请检查参数、文件是否存在以及读取权限。未输出配置内容。"); process.exitCode = 1; }
 }

@@ -1,50 +1,77 @@
-name: Deploy Market HTTP
+name: Deploy Market Runtime
 
-# 推任何分支都重装 VPS 行情服务（Vercel 仍走各自的预览/生产部署）。
-# 只重启 nginx，不 rsync CSV。
+# Feature branches must not replace the production VPS.
 on:
   push:
+    branches: [main]
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: deploy-market
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 150
+    env:
+      RELEASE_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build Linux runtime artifact in CI
+        uses: docker/build-push-action@v6
         with:
-          node-version: 22
-          cache: npm
-
-      - name: Bundle workers
-        run: npm ci && npm run book:worker:bundle && npm run telegram:worker:bundle && npm run option-flow:worker:bundle && npm run review:macro:bundle && npm run review:cards:bundle
-
-      - name: Deploy to VPS
+          context: .
+          file: deploy/market-http/runtime.Dockerfile
+          target: artifact
+          platforms: linux/amd64
+          build-args: RELEASE_ID=${{ env.RELEASE_ID }}
+          outputs: type=local,dest=dist/market-release
+          cache-from: type=gha,scope=market-runtime
+          cache-to: type=gha,mode=max,scope=market-runtime
+      - name: Build OCR worker image in CI
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/market-http/runtime.Dockerfile
+          target: option-flow
+          platforms: linux/amd64
+          build-args: RELEASE_ID=${{ env.RELEASE_ID }}
+          tags: alpha-option-flow:${{ env.RELEASE_ID }}
+          load: true
+          cache-from: type=gha,scope=market-runtime
+      - name: Package image and installer
+        run: |
+          set -euo pipefail
+          docker save "alpha-option-flow:${RELEASE_ID}" | gzip -1 > dist/market-release/option-flow-image.tar.gz
+          cp deploy/market-http/deploy.sh dist/market-release/deploy.sh
+          cd dist/market-release
+          sha256sum option-flow-image.tar.gz > option-flow-image.sha256
+      - name: Keep verified release for recovery
+        uses: actions/upload-artifact@v4
+        with:
+          name: market-runtime-${{ env.RELEASE_ID }}
+          path: dist/market-release/
+          retention-days: 14
+      - name: Transfer and activate release
         env:
           HOST: 108.174.50.53
           KEY: ${{ secrets.VPS_SSH_KEY }}
         run: |
           set -euo pipefail
-          if [ -z "${KEY:-}" ]; then
-            echo "缺少 GitHub secret VPS_SSH_KEY" >&2
-            exit 1
-          fi
+          test -n "$KEY"
           mkdir -p ~/.ssh
           printf '%s\n' "$KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
-          rsync -a --delete \
-            -e "ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes" \
-            deploy/market-http/ \
-            "root@${HOST}:/var/lib/alpha-agent/market-http-src/"
-          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes \
-            "root@${HOST}" \
-            "bash /var/lib/alpha-agent/market-http-src/deploy.sh"
+          incoming="/var/lib/alpha-agent/releases/incoming/${RELEASE_ID}"
+          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes "root@${HOST}" "mkdir -p '$incoming'"
+          rsync -a --delete -e "ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes" \
+            dist/market-release/ "root@${HOST}:${incoming}/"
+          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes "root@${HOST}" \
+            "bash '$incoming/deploy.sh' '$incoming' '${RELEASE_ID}'"

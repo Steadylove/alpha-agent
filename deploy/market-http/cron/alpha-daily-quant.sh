@@ -3,11 +3,9 @@
 # lastSettledSession 仍按 America/New_York 16:15 认定收盘日。
 set -euo pipefail
 
-ROOT=/var/lib/alpha-agent
-REPO=$ROOT/repo
+ROOT=${ALPHA_ROOT:-/var/lib/alpha-agent}
 MARKET=$ROOT/market
 ENV_FILE=$ROOT/daily-quant.env
-STAMP=$REPO/.npm-ci.stamp
 BOOK_PUSH_URL=${BOOK_PUSH_URL:-https://alpha-agent-eight.vercel.app/api/jobs/push-signal-book}
 
 export TZ=Asia/Shanghai
@@ -54,11 +52,8 @@ retry() {
 }
 
 fetch_gex() {
-  local collector=scripts/fetch-gex-snapshot.py
-  # Installed asset survives the repo's daily reset to origin/main.
-  if [ -f "$ROOT/market-http/fetch-gex-snapshot.py" ]; then collector=$ROOT/market-http/fetch-gex-snapshot.py; fi
-  GEX_OUTPUT_DIR="$REPO/.cache/gex" python3 "$collector" || return 1
-  env -u VERCEL MARKET_DATA_BASE_URL= npm run review:check -- --stage=gex --file=.cache/gex/latest.json || return 1
+  GEX_OUTPUT_DIR="$ROOT/work/.cache/gex" python3 "$RUNTIME/fetch-gex-snapshot.py" || return 1
+  env -u VERCEL MARKET_DATA_BASE_URL= node "$RUNTIME/jobs/check-daily-review.mjs" --stage=gex --file=.cache/gex/latest.json || return 1
   cp .cache/gex/latest.json "$MARKET/snapshots/gex.json"
   if [ -d .cache/gex/profiles ]; then
     mkdir -p "$MARKET/snapshots/gex-profiles"
@@ -67,11 +62,11 @@ fetch_gex() {
 }
 
 check_review() {
-  env -u VERCEL MARKET_DATA_BASE_URL= SIGNAL_JOURNAL_DIR="$ROOT/desk" npm run review:check
+  env -u VERCEL MARKET_DATA_BASE_URL= SIGNAL_JOURNAL_DIR="$ROOT/desk" node "$RUNTIME/jobs/check-daily-review.mjs"
 }
 
 build_review() {
-  env -u VERCEL MARKET_DATA_BASE_URL= SIGNAL_JOURNAL_DIR="$ROOT/desk" LIVE_BOOKS_PATH="$ROOT/desk/live-books.json" npm run review:build || return 1
+  env -u VERCEL MARKET_DATA_BASE_URL= SIGNAL_JOURNAL_DIR="$ROOT/desk" LIVE_BOOKS_PATH="$ROOT/desk/live-books.json" node "$RUNTIME/jobs/build-daily-review.mjs" || return 1
   check_review
 }
 
@@ -88,43 +83,17 @@ if [ -z "${ALPACA_API_KEY:-}" ] || [ -z "${ALPACA_API_SECRET:-}" ]; then
   exit 1
 fi
 
-if [ ! -d "$REPO/.git" ]; then
-  git clone --depth 1 https://github.com/Steadylove/alpha-agent.git "$REPO"
-fi
-cd "$REPO"
-git fetch --depth 1 origin main
-git reset --hard origin/main
-
-dependencies_ready() {
-  # A killed npm ci can leave the directory behind without a complete installation.
-  [ -f node_modules/.package-lock.json ] || return 1
-  node -e 'require.resolve("next"); require("dotenv"); require("zod"); require("sharp");' >/dev/null 2>&1
-}
-
-lock_hash=$(sha256sum package-lock.json | awk '{print $1}')
-if [ "$(cat "$STAMP" 2>/dev/null || true)" != "$lock_hash" ] || ! dependencies_ready; then
-  rm -f "$STAMP"
-  log "开始安装依赖（限时 15 分钟）"
-  # The worker needs runtime packages; full development/build installs remain in CI.
-  # Keep the heap cap local to npm; market refresh and analysis retain their settings.
-  if timeout --kill-after=30s 15m env NODE_OPTIONS=--max-old-space-size=256 npm ci --omit=dev --no-audit --no-fund --prefer-offline --maxsockets=2; then
-    if ! dependencies_ready; then
-      log "依赖安装后校验失败，停止后续任务"
-      exit 1
-    fi
-    printf '%s\n' "$lock_hash" >"$STAMP"
-    log "依赖安装与校验完成"
-  else
-    install_status=$?
-    log "依赖安装失败或超时（退出码 ${install_status}），停止后续任务"
-    exit "$install_status"
-  fi
-fi
+# Dependencies and JavaScript are installed by the CI release, never by this task.
+. "$ROOT/bin/runtime-env.sh"
+for job in refresh-market-csv run-daily-jobs build-flow-research check-daily-review build-daily-review push-gex-card push-daily-screener build-review-analysis supplement-review-macro push-review-cards; do
+  test -f "$RUNTIME/jobs/$job.mjs" || { echo "CI 任务产物缺失：$job" >&2; exit 1; }
+done
+test -f "$RUNTIME/fetch-gex-snapshot.py"
 
 log "补行情"
 refresh_ok=0
 for attempt in 1 2 3; do
-  if npm run market:refresh; then
+  if node "$RUNTIME/jobs/refresh-market-csv.mjs"; then
     refresh_ok=1
     break
   fi
@@ -137,8 +106,8 @@ if [ "$refresh_ok" -ne 1 ]; then
 fi
 
 # Independent research archive; never coupled to GEX or message delivery.
-soft flow-research env -u VERCEL MARKET_DATA_BASE_URL= OPTION_FLOW_PATH="$ROOT/desk/option-flow.json" npm run flow:research -- --daily
-soft jobs:daily npm run jobs:daily
+soft flow-research env -u VERCEL MARKET_DATA_BASE_URL= OPTION_FLOW_PATH="$ROOT/desk/option-flow.json" node "$RUNTIME/jobs/build-flow-research.mjs" --daily
+soft jobs:daily node "$RUNTIME/jobs/run-daily-jobs.mjs"
 failed=0
 gex_ok=0
 review_ok=0
@@ -151,8 +120,8 @@ log "生成每日复盘与信号跟踪"
 # 同机读取不可变信号档案和已算好的账本；不读取网页构建时的数据副本。
 if retry daily-review build_review; then review_ok=1; else failed=1; fi
 # 主任务已经持有同一把锁，直接运行独立 worker，不再进入补采锁脚本。
-if [ -f "$ROOT/market-http/review-macro.mjs" ]; then
-  soft daily-review-macro env -u VERCEL MARKET_DATA_BASE_URL= node "$ROOT/market-http/review-macro.mjs"
+if [ -f "$RUNTIME/jobs/supplement-review-macro.mjs" ]; then
+  soft daily-review-macro env -u VERCEL MARKET_DATA_BASE_URL= node "$RUNTIME/jobs/supplement-review-macro.mjs"
   # Refresh the health report after supplementary macro observations change.
   if [ "$review_ok" -eq 1 ] && ! check_review; then failed=1; fi
 fi
@@ -161,7 +130,7 @@ log "推账本"
 curl -fsS -m 120 -X POST "$BOOK_PUSH_URL"
 
 if [ "$gex_ok" -eq 1 ]; then
-  soft gex-card npx --yes tsx scripts/push-gex-card.ts
+  soft gex-card node "$RUNTIME/jobs/push-gex-card.mjs"
 else
   log "跳过 GEX 推送：本次采集或完整性校验失败"
 fi
@@ -170,11 +139,11 @@ if [ "$gex_ok" -eq 1 ] && [ "$review_ok" -eq 1 ]; then
 else
   log "跳过两张复盘图：本次 GEX 或每日复盘未完成"
 fi
-soft screener env SCREENER_SKIP_AI=true npm run screener:push
+soft screener env SCREENER_SKIP_AI=true node "$RUNTIME/jobs/push-daily-screener.mjs"
 
 # Reads this session's saved review even when optional inputs (e.g. GEX) are partial.
 # Keep model latency/failure outside the original data and delivery path.
-soft review-analysis env -u VERCEL MARKET_DATA_BASE_URL= npm run review:analysis
+soft review-analysis env -u VERCEL MARKET_DATA_BASE_URL= node "$RUNTIME/jobs/build-review-analysis.mjs"
 
 if [ "$failed" -ne 0 ]; then
   log "结束：数据步骤重试后仍不完整，详情见 health-gex / health-review 与任务日志"

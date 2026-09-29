@@ -1,6 +1,6 @@
 import "./load-env";
 import { readFileSync, readdirSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
-import { createRequire } from "node:module";
+import sharp from "sharp";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 import { expectedReviewSession } from "@/lib/review/health";
@@ -28,9 +28,6 @@ async function main() {
   validateReviewCards(review, bars, profile, expected);
   const history = readdirSync(reviews).filter(n => /^\d{4}-\d{2}-\d{2}\.json$/.test(n) && n.slice(0, 10) <= review.date).sort().slice(-11).map(n => json<DailyReview>(path.join(reviews, n)));
   const logo = readFileSync(path.join(process.env.REVIEW_CARD_ASSET_DIR || "src/lib/discord", "trendAdaptiveLogo.svg"), "utf8");
-  // The deployed standalone worker resolves native Sharp from the existing repo installation.
-  const sharpModule = createRequire(path.join(process.cwd(), "package.json"))("sharp");
-  const sharp = (sharpModule.default ?? sharpModule) as typeof import("sharp")["default"];
   const output = path.join(root, `snapshots/${dryRun ? "review-cards-preview" : "review-cards"}/${review.date}`); mkdirSync(output, { recursive: true });
   const cards = [
     { name: "tomorrow-map", title: "Tomorrow Map", svg: tomorrowMapCardSvg(review, history, logo) },

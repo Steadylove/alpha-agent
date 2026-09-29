@@ -34,13 +34,13 @@ export LIVE_BOOKS_PATH="$ROOT/desk/live-books.json"
 export OPTION_FLOW_PATH="$ROOT/desk/option-flow.json"
 export MARKET_DATA_BASE_URL=''
 unset VERCEL
-cd "$ROOT/repo"
+. "$ROOT/bin/runtime-env.sh"
 echo "$(date '+%F %T %Z') Catalyst 开始 ${1:-collect}"
 failed=0
-if ! node "$ROOT/market-http/catalyst.mjs" "$@"; then failed=1; fi
+if ! node "$RUNTIME/jobs/build-catalyst.mjs" "$@"; then failed=1; fi
 if [ "$analyze" = true ]; then
   # Auxiliary AI may fail after raw evidence is saved. Part 8 has its own source validation and failure boundary.
-  if ! npm run review:analysis; then failed=1; fi
+  if ! node "$RUNTIME/jobs/build-review-analysis.mjs"; then failed=1; fi
 fi
 if [ "$failed" -ne 0 ]; then exit 1; fi
 echo "$(date '+%F %T %Z') Catalyst 完成"

@@ -45,10 +45,7 @@ services:
     expose:
       - "8082"
   option-flow:
-    build:
-      context: .
-      dockerfile: option-flow.Dockerfile
-      network: host
+    image: ${OPTION_FLOW_IMAGE:?Deploy the CI release image first}
     container_name: alpha-option-flow
     restart: unless-stopped
     mem_limit: 512m

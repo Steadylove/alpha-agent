@@ -1,6 +1,6 @@
 # 环境变量与配置入口
 
-更新：2026-09-28。公开默认值集中在 [`app.config.ts`](../app.config.ts)。网站生产密钥保存在 VPS 私有文件，按请求通过 Vercel 服务身份读取；无需在 Vercel 控制台配置业务变量。变量检查器与完整元数据合并在 [`scripts/env.ts`](../scripts/env.ts)。
+更新：2026-09-29。公开默认值集中在 [`app.config.ts`](../app.config.ts)。网站生产密钥保存在 VPS 私有文件，按请求通过 Vercel 服务身份读取；无需在 Vercel 控制台配置业务变量。变量检查器与完整元数据合并在 [`scripts/env.ts`](../scripts/env.ts)。
 
 ## 1. 先按运行场景配置
 
@@ -14,6 +14,8 @@
 | VPS Telegram | `/var/lib/alpha-agent/telegram-config/telegram.config.mjs`，挂载到容器 `/config/telegram.config.mjs` | `token`、`relaySecret`、`identityPrivateKey`、`mode`、`webhookSecret`、`intradayWebhookSecret` |
 | GitHub Actions | Repository → Settings → Secrets and variables → Actions | `VPS_SSH_KEY`、手动补跑所需 API 凭据；它不是 Vercel 或 VPS 配置的自动镜像 |
 | Theta 本地研究 | `.env.local` 的 `THETADATA_API_KEY`，或进程环境 | 与生产每日 GEX 采集分开 |
+
+任务执行代码与密钥分开管理：VPS 任务从 `/var/lib/alpha-agent/runtime-current` 指向的 CI 发布包运行，密钥仍读取上表中的私有文件。旧 `/var/lib/alpha-agent/repo` 不再作为自动任务的代码或依赖来源。发布流程见文末“CI 运行产物”。
 
 每个场景只配置实际需要的项。文件路径、端口、重试次数和研究参数已有默认值，不需要把附录全部复制进环境文件。
 
@@ -235,7 +237,7 @@ npm run env:check -- --list
 | `REVIEW_CARD_TELEGRAM_CONFIG` | 按场景可选 | 出图脚本读取 Telegram 中继签名密钥的配置文件 |
 | `REVIEW_RETRY_SLEEP` | 45 | 日更派生数据步骤失败重试间隔，秒 |
 | `MARKET_REFRESH_RETRY_SLEEP` | 45 | 行情刷新失败重试间隔，秒 |
-| `ALPHA_ROOT` | /var/lib/alpha-agent | 补采 / Catalyst / 复盘图脚本的部署根目录；主日更仍使用固定生产根目录 |
+| `ALPHA_ROOT` | /var/lib/alpha-agent | 发布器、主日更、补采 / Catalyst / 复盘图脚本的部署根目录；生产 systemd 路径固定 |
 
 ### 服务及平台
 
@@ -255,3 +257,55 @@ npm run env:check -- --list
 | `FONTCONFIG_FILE` | 按场景可选 | 出图模块自动设置的字体配置，通常不手动填写 |
 | `MPLCONFIGDIR` | 按场景可选 | Python 绘图缓存目录，研究脚本自动设置 |
 | `VPS_SSH_KEY` | 按场景可选 | GitHub Actions 的 SSH Secret，用于部署和手动补跑 |
+
+## 9. CI 运行产物（2026-09-29）
+
+`.github/workflows/deploy-market.yml` 仅在 `main` 推送或从 `main` 手动触发时部署生产 VPS。部署串行且不会取消正在切换的发布。
+
+### 构建与交付
+
+1. CI 通过 `deploy/market-http/runtime.Dockerfile` 在 **Linux amd64 / Debian 12 / Node 22.22.3** 环境按锁文件安装依赖。
+2. `scripts/build-runtime.mjs` 编译 11 个批处理入口和 3 个在线 worker。发布包携带生产 `node_modules`、原生 Sharp、Next 图片渲染依赖、中文字体及调度包装脚本；不含 `.env`、VPS 密钥、原始行情或本地研究数据。
+3. CI 校验所有代码文件，实际执行 Sharp 中文 PNG 与 Next ImageResponse 冒烟检查；将 `runtime.tar.gz` 和预构建的期权流 OCR 镜像归档上传。GitHub 保留产物 14 天。
+4. VPS 只校验 SHA256、解压、加载镜像和启动服务；发布与定时任务均不执行 `git pull/reset`、`npm ci`、`npx`、`apt-get` 或 Docker build。Node 22、Python 3、Docker/Compose、tar、flock 等宿主基础工具是首次配置的前提。
+
+部署命令：
+
+```bash
+bash /path/to/incoming/deploy.sh /path/to/incoming <release-id>
+```
+
+该目录必须包含 CI 生成的 `runtime.tar.gz`、`runtime.sha256`、`option-flow-image.tar.gz`、`option-flow-image.sha256` 和安装脚本。不得用 macOS 的 `node_modules` 替代 Linux 依赖。首次迁移可在开发机的 Linux 构建器运行相同 Dockerfile 生成产物，避免为验证而在 VPS 编译。
+
+### 服务器目录
+
+| 路径 | 用途 |
+| --- | --- |
+| `/var/lib/alpha-agent/releases/runtime-<id>/` | 不可变运行版本：编译后的任务、原生依赖、字体与清单 |
+| `/var/lib/alpha-agent/runtime-current` | 当前版本软链接，每次任务开始后固定到一个版本 |
+| `/var/lib/alpha-agent/work/` | GEX 等可变临时缓存；与代码、历史行情、密钥分开 |
+| `/var/lib/alpha-agent/market-http/` | 原有常驻服务挂载目录；`.env` 仅新增非秘密镜像标签 `OPTION_FLOW_IMAGE` |
+| `/var/lib/alpha-agent/private-backups/runtime-deploy-*/` | 发布前服务配置、任务脚本、systemd 单元和旧版本指针，可能含私密值 |
+
+日更、宏观补采、Catalyst 和复盘图通过 `bin/runtime-env.sh` 使用已校验的运行版本。缺少产物时明确失败，不在线下载工具自修复。原有交易日、定时频率、数据目录、重试规则和消息投递顺序保持不变。
+
+首次迁移会在新工作目录尚无 GEX 缓存时，复制旧 `repo/.cache/gex` 的按时间归档数据；旧文件保留，后续发布不会覆盖已存在的新缓存。
+
+### 切换与回退
+
+- 发布先取得独立部署锁，再等待日更/Catalyst/宏观任务共用的数据锁和复盘图锁；在途任务完成后才切换软链接与容器。
+- 保留 VPS 现有私有 `.env`，仅替换镜像标签。容器使用 `--no-build --pull never`，不能回落到服务器现场构建。
+- 行情、信号台、账本、Telegram 和期权流健康检查都通过后，才确认发布成功。检查失败会恢复之前的脚本、配置、版本指针和服务，并返回失败状态。
+- 保留当前、上一版及一个额外运行版本；清理只针对带本发布清单的旧代码目录与对应 `alpha-option-flow:<id>` 镜像。历史行情、研究报告、私有配置和备份不进入清理范围。成功发布后移除本次服务器接收目录中的两份大压缩包，CI 仍保留其归档。
+- 部署前至少要求 2GiB 剩余磁盘；空间不足时停止部署并保留当前服务。
+- 人工回退优先重新运行上一版 CI 产物的安装脚本。备份内 `previous-runtime` 记录旧代码路径；不要为了回退运行整个日更任务，避免重复推送。
+
+### 首次上线验证
+
+2026-09-29 已从开发机 Linux amd64 构建器使用上述 Dockerfile 构建并部署 `manual-20260929-runtime-ci-v2`，全程未在 VPS 安装依赖或编译。首次验证不是 GitHub Actions 的运行记录；工作流随仓库推送后接管后续构建部署。
+
+- 行情、desk、book、Telegram、期权流的五项 HTTP 检查均为 200，新容器无 OOM、重启计数为 0。
+- 新运行包成功检查 2026-09-28 的实际复盘，并以 `--dry-run` 生成 Tomorrow Map 和 Options Market Map 两张图片；未发送测试消息。复盘无错误，仍提示 2H 月收益缺少月初基准，此为原有数据缺项。
+- 4 个 systemd 定时任务维持原定计划；PostgreSQL 仍停用，Uptime Kuma 的内存和 CPU 上限仍保留。
+- 发布与定时任务相关的 31 项测试通过，涵盖损坏产物拒绝、锁等待失败、健康检查失败回退、环境加载和消息投递顺序；完整测试中受沙箱端口限制的文件已在允许监听的环境重跑通过。类型检查和本次修改的 ESLint 通过。
+- 首次回退备份：`/var/lib/alpha-agent/private-backups/runtime-deploy-manual-20260929-runtime-ci-v2-20260929-145058/`。旧源码与历史数据未删除。
