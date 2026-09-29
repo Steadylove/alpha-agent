@@ -95,10 +95,30 @@ cd "$REPO"
 git fetch --depth 1 origin main
 git reset --hard origin/main
 
+dependencies_ready() {
+  # A killed npm ci can leave the directory behind without a complete installation.
+  [ -f node_modules/.package-lock.json ] || return 1
+  node -e 'require.resolve("next"); require("dotenv"); require("zod"); require("sharp");' >/dev/null 2>&1
+}
+
 lock_hash=$(sha256sum package-lock.json | awk '{print $1}')
-if [ ! -d node_modules ] || [ "$(cat "$STAMP" 2>/dev/null || true)" != "$lock_hash" ]; then
-  npm ci
-  printf '%s\n' "$lock_hash" >"$STAMP"
+if [ "$(cat "$STAMP" 2>/dev/null || true)" != "$lock_hash" ] || ! dependencies_ready; then
+  rm -f "$STAMP"
+  log "开始安装依赖（限时 15 分钟）"
+  # The worker needs runtime packages; full development/build installs remain in CI.
+  # Keep the heap cap local to npm; market refresh and analysis retain their settings.
+  if timeout --kill-after=30s 15m env NODE_OPTIONS=--max-old-space-size=256 npm ci --omit=dev --no-audit --no-fund --prefer-offline --maxsockets=2; then
+    if ! dependencies_ready; then
+      log "依赖安装后校验失败，停止后续任务"
+      exit 1
+    fi
+    printf '%s\n' "$lock_hash" >"$STAMP"
+    log "依赖安装与校验完成"
+  else
+    install_status=$?
+    log "依赖安装失败或超时（退出码 ${install_status}），停止后续任务"
+    exit "$install_status"
+  fi
 fi
 
 log "补行情"

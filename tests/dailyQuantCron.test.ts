@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import {
+  existsSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -14,7 +15,17 @@ import { expect, it, vi } from "vitest";
 vi.setConfig({ testTimeout: 15_000 });
 
 /** 跑实际 Bash 任务链，外部命令全部替换为记录调用的桩，不联网、不发消息。 */
-function run(failCommand = "", macroWorker = false, failures = 99) {
+function run(
+  failCommand = "",
+  macroWorker = false,
+  failures = 99,
+  installation: {
+    missingMarker?: boolean;
+    dependencyFailures?: number;
+    installerExit?: number;
+    timeoutExit?: number;
+  } = {},
+) {
   const root = mkdtempSync(path.join(tmpdir(), "alpha-daily-quant-test-"));
   try {
     const bin = path.join(root, "bin"),
@@ -22,6 +33,9 @@ function run(failCommand = "", macroWorker = false, failures = 99) {
     mkdirSync(bin);
     mkdirSync(path.join(root, "repo/.git"), { recursive: true });
     mkdirSync(path.join(root, "repo/node_modules"));
+    if (!installation.missingMarker) {
+      writeFileSync(path.join(root, "repo/node_modules/.package-lock.json"), "{}");
+    }
     mkdirSync(path.join(root, "repo/.cache/gex"), { recursive: true });
     writeFileSync(path.join(root, "repo/.cache/gex/latest.json"), "{}");
     if (macroWorker) {
@@ -43,11 +57,40 @@ function run(failCommand = "", macroWorker = false, failures = 99) {
       "npx",
       "sha256sum",
       "node",
+      "timeout",
       "alpha-review-cards.sh",
     ]) {
       writeFileSync(
         path.join(bin, cmd),
-        `#!/bin/bash\ncall="${cmd} $*"\nprintf '%s\\n' "$call" >> "$TEST_CALLS"\nif [ "$call" = "$TEST_FAIL_COMMAND" ]; then\n count=$(cat "$TEST_COUNT" 2>/dev/null || echo 0)\n count=$((count + 1))\n echo "$count" > "$TEST_COUNT"\n if [ "$count" -le "$TEST_FAILURES" ]; then exit 1; fi\nfi\nif [ '${cmd}' = 'sha256sum' ]; then echo test-hash; fi\n`,
+        `#!/bin/bash
+call="${cmd} $*"
+printf '%s\\n' "$call" >> "$TEST_CALLS"
+if [ "$call" = "$TEST_FAIL_COMMAND" ]; then
+ count=$(cat "$TEST_COUNT" 2>/dev/null || echo 0)
+ count=$((count + 1))
+ echo "$count" > "$TEST_COUNT"
+ if [ "$count" -le "$TEST_FAILURES" ]; then exit 1; fi
+fi
+if [ '${cmd}' = 'sha256sum' ]; then echo test-hash; fi
+if [ '${cmd}' = 'timeout' ]; then
+ if [ "$TEST_TIMEOUT_EXIT" -ne 0 ]; then exit "$TEST_TIMEOUT_EXIT"; fi
+ shift 2
+ exec "$@"
+fi
+if [ '${cmd}' = 'npm' ] && [ "$1" = 'ci' ]; then
+ printf 'installer NODE_OPTIONS=%s\\n' "$NODE_OPTIONS" >> "$TEST_CALLS"
+ if [ "$TEST_INSTALLER_EXIT" -ne 0 ]; then exit "$TEST_INSTALLER_EXIT"; fi
+ mkdir -p node_modules
+ echo '{}' > node_modules/.package-lock.json
+fi
+if [ '${cmd}' = 'node' ] && [ "$1" = '-e' ]; then
+ printf 'dependency-check NODE_OPTIONS=%s\\n' "$NODE_OPTIONS" >> "$TEST_CALLS"
+ count=$(cat "$TEST_DEPENDENCY_COUNT" 2>/dev/null || echo 0)
+ count=$((count + 1))
+ echo "$count" > "$TEST_DEPENDENCY_COUNT"
+ if [ "$count" -le "$TEST_DEPENDENCY_FAILURES" ]; then exit 1; fi
+fi
+`,
         { mode: 0o755 },
       );
     }
@@ -62,8 +105,9 @@ function run(failCommand = "", macroWorker = false, failures = 99) {
     writeFileSync(scriptFile, script);
     let failed = false;
     let error = "";
+    let output = "";
     try {
-      execFileSync("bash", [scriptFile], {
+      output = execFileSync("bash", [scriptFile], {
         env: {
           ...process.env,
           PATH: `${bin}:${process.env.PATH}`,
@@ -71,17 +115,30 @@ function run(failCommand = "", macroWorker = false, failures = 99) {
           TEST_FAIL_COMMAND: failCommand,
           TEST_FAILURES: String(failures),
           TEST_COUNT: path.join(root, "failure-count"),
+          TEST_TIMEOUT_EXIT: String(installation.timeoutExit ?? 0),
+          TEST_INSTALLER_EXIT: String(installation.installerExit ?? 0),
+          TEST_DEPENDENCY_FAILURES: String(installation.dependencyFailures ?? 0),
+          TEST_DEPENDENCY_COUNT: path.join(root, "dependency-count"),
+          NODE_OPTIONS: "--stack-trace-limit=30",
           MARKET_REFRESH_RETRY_SLEEP: "0",
           REVIEW_RETRY_SLEEP: "0",
         },
         stdio: "pipe",
+        encoding: "utf8",
         timeout: 10_000,
       });
     } catch (e) {
       failed = true;
       error = String(e);
     }
-    return { failed, error, calls: readFileSync(calls, "utf8").split("\n") };
+    const stamp = path.join(root, "repo/.npm-ci.stamp");
+    return {
+      failed,
+      error,
+      output,
+      stamp: existsSync(stamp) ? readFileSync(stamp, "utf8").trim() : null,
+      calls: readFileSync(calls, "utf8").split("\n"),
+    };
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -99,6 +156,45 @@ it("日更实际执行行情、账本、GEX 和筛选推送", () => {
   expect(book).toBeGreaterThan(refresh);
   expect(screener).toBeGreaterThan(book);
   expect(result.calls).toContain("npx --yes tsx scripts/push-gex-card.ts");
+  expect(result.calls.some((c) => c.startsWith("npm ci"))).toBe(false);
+});
+
+const installCommand = "npm ci --omit=dev --no-audit --no-fund --prefer-offline --maxsockets=2";
+
+it("stamp 匹配但 npm 安装标记缺失时仍修复依赖，成功后才保存 stamp", () => {
+  const result = run("", false, 99, { missingMarker: true });
+  expect(result.failed, result.error).toBe(false);
+  expect(result.calls).toContain(installCommand);
+  expect(result.calls).toContain(
+    `timeout --kill-after=30s 15m env NODE_OPTIONS=--max-old-space-size=256 ${installCommand}`,
+  );
+  expect(result.calls).toContain("installer NODE_OPTIONS=--max-old-space-size=256");
+  expect(result.calls).toContain("dependency-check NODE_OPTIONS=--stack-trace-limit=30");
+  expect(result.stamp).toBe("test-hash");
+  expect(result.output).toContain("开始安装依赖");
+  expect(result.output).toContain("依赖安装与校验完成");
+});
+
+it("stamp 和安装标记存在但运行依赖缺失时重新安装", () => {
+  const result = run("", false, 99, { dependencyFailures: 1 });
+  expect(result.failed, result.error).toBe(false);
+  expect(result.calls).toContain(installCommand);
+  expect(result.calls.filter((c) => c.startsWith("node -e "))).toHaveLength(2);
+  expect(result.stamp).toBe("test-hash");
+});
+
+it.each([
+  ["安装失败", { missingMarker: true, installerExit: 1 }],
+  ["安装超时", { missingMarker: true, timeoutExit: 124 }],
+  ["安装后依赖仍然不完整", { missingMarker: true, dependencyFailures: 1 }],
+])("%s 清除旧 stamp 并停止后续数据和推送任务", (_, installation) => {
+  const result = run("", false, 99, installation);
+  expect(result.failed).toBe(true);
+  expect(result.stamp).toBeNull();
+  expect(result.calls).not.toContain("npm run market:refresh");
+  expect(result.calls.some((c) =>
+    c.startsWith("curl ") || c.startsWith("docker ") || c.includes("screener:push"),
+  )).toBe(false);
 });
 it("主任务生成复盘后调用独立宏观补采，且只获取一次锁", () => {
   const result = run("", true);
