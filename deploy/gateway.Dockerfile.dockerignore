@@ -1,0 +1,7 @@
+*
+!deploy/
+deploy/*
+!deploy/gateway-start.sh
+!.build/
+.build/*
+!.build/ibgateway-installer.sh

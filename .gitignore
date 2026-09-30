@@ -1,59 +1,13 @@
-# dependencies
-node_modules/
-
-# next.js
-.next/
-out/
-build/
-
-# production
-dist/
-
-# testing
-coverage/
-
-# misc
-.DS_Store
-*.pem
-
-# env
 .env
-.env.*
-!.env.example
+.venv/
+node_modules/
+dist/
+.data/
+__pycache__/
+.pytest_cache/
+*.pyc
+.DS_Store
 
-# vercel
-.vercel
+secrets/
 
-# typescript
-*.tsbuildinfo
-
-# ide
-.vscode/
-.idea/
-
-# logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-tmp/
-.tmp/
-alpha-market-*.tar.gz
-
-# 历史面板和研究缓存，可从文件快照或行情源重建
-.cache/
-
-# 行情 CSV / 本地账本在本机或 VPS，不进仓库
-data/
-.market/
-deploy/market-http/compute.mjs
-deploy/market-http/telegram.mjs
-deploy/market-http/option-flow.mjs
-deploy/market-http/review-macro.mjs
-deploy/market-http/review-cards.mjs
-deploy/market-http/catalyst.mjs
-deploy/market-http/fetch-gex-snapshot.py
-deploy/market-http/review-card-assets/
-**/__pycache__/
-**/telegram.config.mjs
-**/web-secrets*.json
+.build/
