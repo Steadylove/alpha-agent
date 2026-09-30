@@ -194,7 +194,7 @@ export function hydrateDiscordWebhooks(file: PushRoutesFile, lookup: (dest: Disc
     const item = routes[kind];
     if (item.discordWebhooks.length) continue;
     const urls = [...new Set(item.discordDests.map((dest) => lookup(dest)).filter(Boolean))];
-    if (urls.length) routes[kind] = { ...item, discordWebhooks: urls };
+    if (urls.length && urls.every(isDiscordWebhookUrl)) routes[kind] = { ...item, discordWebhooks: urls };
   }
   return { ...file, routes };
 }

@@ -1,7 +1,7 @@
 import { loadRuntimeConfig } from "@/lib/runtimeConfig";
 import { NextResponse } from "next/server";
 
-import { loadPushBoard, pushRoutesOf, readPushRoutes, validFlowMinPremium, writePushRoutes } from "@/lib/notifications/pushRoutes";
+import { loadPushBoard, PushRouteValidationError, readPushRoutes, validFlowMinPremium, writePushRoutes } from "@/lib/notifications/pushRoutes";
 import { telegramRelayTargets } from "@/lib/telegram/relay";
 
 export const dynamic = "force-dynamic";
@@ -38,13 +38,13 @@ export async function PUT(request: Request) {
   try {
     const previous = await readPushRoutes({ strict: true });
     const saved = await writePushRoutes(
-      pushRoutesOf({ routes: body.routes ?? previous.routes, updatedAt: "", optionFlowMinPremiumUsd: body.optionFlowMinPremiumUsd ?? previous.optionFlowMinPremiumUsd }),
+      { routes: body.routes ?? previous.routes, updatedAt: "", optionFlowMinPremiumUsd: body.optionFlowMinPremiumUsd ?? previous.optionFlowMinPremiumUsd },
       typeof body.updatedAt === "string" ? body.updatedAt : "",
     );
     return NextResponse.json({ ok: true, updatedAt: saved.updatedAt, optionFlowMinPremiumUsd: saved.optionFlowMinPremiumUsd, routes: saved.routes });
   } catch (error) {
     const message = error instanceof Error ? error.message : "保存失败";
     const conflict = message.includes("已被其他操作更新");
-    return NextResponse.json({ error: message }, { status: conflict ? 409 : 500 });
+    return NextResponse.json({ error: message }, { status: conflict ? 409 : error instanceof PushRouteValidationError ? 400 : 500 });
   }
 }

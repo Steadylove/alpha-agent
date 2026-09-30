@@ -6,6 +6,7 @@ import { writeJsonAtomic } from "@/lib/files/atomicJson";
 
 import {
   DISCORD_DEST_META,
+  PUSH_KIND_META,
   PUSH_KINDS,
   defaultPushRoutes,
   hydrateDiscordWebhooks,
@@ -14,13 +15,37 @@ import {
   pushRoutesOf,
   validFlowMinPremium,
   type DiscordDest,
-  type PushKind,
   type PushRoutesFile,
 } from "./pushRoutesLogic";
 
 export * from "./pushRoutesLogic";
 
 const REMOTE_FILE = "push-routes.json";
+
+export class PushRouteValidationError extends Error {}
+
+export function validatePushRouteWebhooks(routes: unknown): void {
+  if (!routes || typeof routes !== "object") return;
+  const incoming = routes as Record<string, unknown>;
+  for (const kind of PUSH_KINDS) {
+    const item = incoming[kind];
+    if (!item || typeof item !== "object") continue;
+    const webhooks = (item as { discordWebhooks?: unknown }).discordWebhooks;
+    if (!Array.isArray(webhooks)) continue;
+    // Match hooksOf's retained addresses while preserving the submitted row numbers.
+    const accepted = new Set<string>();
+    for (const [index, value] of webhooks.entries()) {
+      if (accepted.size === 8) break;
+      if (typeof value !== "string") continue;
+      const url = value.trim();
+      if (!url || url.length >= 400 || accepted.has(url)) continue;
+      if (!isDiscordWebhookUrl(url)) {
+        throw new PushRouteValidationError(`${PUSH_KIND_META[kind].label}：第 ${index + 1} 个 Discord webhook 地址无效`);
+      }
+      accepted.add(url);
+    }
+  }
+}
 
 function envOf(name: string): string {
   return (process.env[name] || "").trim();
@@ -65,17 +90,13 @@ export async function readPushRoutes(options: { strict?: boolean } = {}): Promis
   }
 }
 
-export async function writePushRoutes(next: PushRoutesFile, expectedUpdatedAt?: string): Promise<PushRoutesFile> {
+export async function writePushRoutes(next: Omit<PushRoutesFile, "routes"> & { routes: unknown }, expectedUpdatedAt?: string): Promise<PushRoutesFile> {
   const previous = await readPushRoutes({ strict: true });
   if (expectedUpdatedAt != null && previous.updatedAt !== expectedUpdatedAt) {
     throw new Error("配置已被其他操作更新，请刷新后重试");
   }
+  validatePushRouteWebhooks(next.routes);
   const parsed = pushRoutesOf(next);
-  for (const kind of Object.keys(parsed.routes) as PushKind[]) {
-    if (parsed.routes[kind].discordWebhooks.some((url) => !isDiscordWebhookUrl(url))) {
-      throw new Error("Discord webhook 地址无效");
-    }
-  }
   const saved: PushRoutesFile = { ...parsed, updatedAt: new Date().toISOString() };
   if (usesRemoteStore()) {
     await writeDeskJson(REMOTE_FILE, saved, expectedUpdatedAt);
