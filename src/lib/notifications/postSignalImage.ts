@@ -21,13 +21,10 @@ export async function postSignalImage(webhook: string, input: PushImage): Promis
   if (input.kind === "option-flow" && !meetsFlowPremium(input.premiumUsd, settings.optionFlowMinPremiumUsd)) return { skipped: true };
 
   const image = { filename: input.filename, bytes: input.bytes, content: input.content, eventKey: input.eventKey };
-  const tasks: Array<{ name: string; run: Promise<unknown> }> = [];
+  const tasks: Array<{ name: string; run: Promise<void | { skipped: boolean }> }> = [];
 
   if (route.discord) {
     const dests = resolveDiscordTargets(route, (dest) => discordWebhookOf(dest, webhook));
-    if (!dests.length) {
-      tasks.push({ name: "Discord", run: Promise.reject(new Error("Discord webhook 未配置")) });
-    }
     for (const row of dests) {
       tasks.push({
         name: "Discord",
@@ -39,7 +36,10 @@ export async function postSignalImage(webhook: string, input: PushImage): Promis
   if (route.telegram && (route.telegramAll || route.telegramChats.length)) {
     tasks.push({
       name: "Telegram",
-      run: enqueueTelegramImage(image, route.telegramAll ? undefined : route.telegramChats),
+      run: enqueueTelegramImage(image, route.telegramAll ? undefined : route.telegramChats).then((result) => {
+        if ("ok" in result && result.ok === false) throw new Error("推送服务返回失败");
+        return { skipped: ("skipped" in result && result.skipped === true) || ("recipients" in result && result.recipients === 0) };
+      }),
     });
   }
 
@@ -49,5 +49,5 @@ export async function postSignalImage(webhook: string, input: PushImage): Promis
     result.status === "rejected" ? [`${tasks[i]!.name}: ${result.reason instanceof Error ? result.reason.message : "推送失败"}`] : []
   ));
   if (errors.length) throw new Error(errors.join("; "));
-  return { skipped: false };
+  return { skipped: results.every((result) => result.status === "fulfilled" && result.value?.skipped === true) };
 }

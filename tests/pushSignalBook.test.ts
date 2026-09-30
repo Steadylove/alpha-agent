@@ -1,11 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { continuousCache } from "./liveBooksFixtures";
-import { buildSignalBooks } from "@/lib/fund/pushSignalBook";
+import { buildSignalBooks, pushSignalBooks } from "@/lib/fund/pushSignalBook";
 
-const mocks = vi.hoisted(() => ({ peek: vi.fn(), refresh: vi.fn() }));
+const mocks = vi.hoisted(() => ({ peek: vi.fn(), refresh: vi.fn(), render: vi.fn(), post: vi.fn() }));
 vi.mock("@/lib/fund/liveBooks", () => ({ peekLiveBooks: mocks.peek, refreshLiveBooks: mocks.refresh }));
 vi.mock("@/lib/backtest/marketRemote", () => ({ loadMarketPanel: async () => null }));
+vi.mock("@/lib/discord/bookCardImage", () => ({ renderCashBookPng: mocks.render }));
+vi.mock("@/lib/notifications/postSignalImage", () => ({ postSignalImage: mocks.post }));
 beforeEach(() => vi.resetAllMocks());
+afterEach(() => vi.useRealTimers());
 
 describe("每日卡片曲线", () => {
   it.each([true, false])("fromCache=%s 两周期推送分别使用自身记账日期", async (fromCache) => {
@@ -42,5 +45,41 @@ describe("每日卡片曲线", () => {
       expect(card.input.rows).toEqual(cache.books[0].view.rows);
     }
     expect(mocks.refresh).toHaveBeenCalledTimes(fromCache ? 0 : 1);
+  });
+});
+
+describe("两周期独立投递", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    mocks.refresh.mockResolvedValue(continuousCache());
+    mocks.render.mockResolvedValue(Buffer.from("image"));
+    mocks.post.mockResolvedValue({ skipped: false });
+  });
+
+  it.each(["render", "post"] as const)("第一张 %s 失败仍尝试第二张，最终报告失败且不重试", async (step) => {
+    mocks[step].mockRejectedValueOnce(new Error("first failed"));
+    const result = pushSignalBooks().catch((error: Error) => error);
+    await vi.runAllTimersAsync();
+    expect(await result).toBeInstanceOf(Error);
+    expect((await result as Error).message).toContain("first failed");
+    expect(mocks.render).toHaveBeenCalledTimes(2);
+    expect(mocks.post).toHaveBeenCalledTimes(step === "render" ? 1 : 2);
+    expect(mocks.post.mock.lastCall?.[1].content).toContain("现金账本2");
+  });
+
+  it("两张失败都报告", async () => {
+    mocks.post.mockRejectedValueOnce(new Error("first failed")).mockRejectedValueOnce(new Error("second failed"));
+    const result = pushSignalBooks().catch((error: Error) => error);
+    await vi.runAllTimersAsync();
+    expect((await result as Error).message).toContain("first failed");
+    expect((await result as Error).message).toContain("second failed");
+    expect(mocks.post).toHaveBeenCalledTimes(2);
+  });
+
+  it("跳过的通知不计入已发送", async () => {
+    mocks.post.mockResolvedValue({ skipped: true });
+    const result = pushSignalBooks();
+    await vi.runAllTimersAsync();
+    expect(await result).toEqual({ sent: [] });
   });
 });

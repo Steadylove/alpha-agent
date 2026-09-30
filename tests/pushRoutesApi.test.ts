@@ -5,7 +5,7 @@ import path from "node:path";
 
 import { GET, PUT } from "@/app/api/push-routes/route";
 import * as atomicJson from "@/lib/files/atomicJson";
-import { defaultPushRoutes, DISCORD_DEST_META, PUSH_KIND_META, readPushRoutes } from "@/lib/notifications/pushRoutes";
+import { defaultPushRoutes, DISCORD_DEST_META, readPushRoutes, resolveDiscordTargets } from "@/lib/notifications/pushRoutes";
 
 vi.mock("@/lib/runtimeConfig", () => ({ loadRuntimeConfig: vi.fn() }));
 vi.mock("@/lib/telegram/relay", () => ({ telegramRelayTargets: vi.fn(async () => ({ ok: false, groups: [] })) }));
@@ -100,36 +100,49 @@ it.each([
   "[REDACTED]",
   "https://example.invalid/api/webhooks/2/private-fixture-token",
   "https://discord.com/api/v10/webhooks/2/private-fixture-token",
-])("手填非法地址返回 400 并指出推送类型与序号，不泄露地址：%s", async (invalidWebhook) => {
+  "https://fake-user:fake-password@discord.com/api/webhooks/2/private-fixture-token",
+  "x".repeat(400),
+])("无效地址可保存，但只跳过该地址，不影响其他配置：%s", async (invalidWebhook) => {
   const board = await (await GET()).json();
-  const previous = readFileSync(file, "utf8");
+  const previous = (await readPushRoutes({ strict: true })).routes;
   board.routes.gex.discordWebhooks.push(invalidWebhook);
-  const response = await PUT(request(board));
-  expect(response.status).toBe(400);
-  const result = await response.json();
-  expect(result).toEqual({ error: `${PUSH_KIND_META.gex.label}：第 2 个 Discord webhook 地址无效` });
-  expect(JSON.stringify(result)).not.toContain(invalidWebhook);
-  expect(JSON.stringify(result)).not.toContain("private-fixture-token");
-  expect(readFileSync(file, "utf8")).toBe(previous);
+  const response = await PUT(request({ ...board, optionFlowMinPremiumUsd: 1_000_000 }));
+  expect(response.status).toBe(200);
+  const stored = await readPushRoutes({ strict: true });
+  expect(stored.optionFlowMinPremiumUsd).toBe(1_000_000);
+  expect(stored.routes.gex.discordWebhooks).toEqual([...previous.gex.discordWebhooks, invalidWebhook]);
+  expect(resolveDiscordTargets(stored.routes.gex, () => defaultWebhook)).toEqual([
+    { url: previous.gex.discordWebhooks[0], mirror: false },
+  ]);
+  for (const [kind, route] of Object.entries(previous)) {
+    if (kind !== "gex") expect(stored.routes).toHaveProperty(kind, route);
+  }
+  const loaded = await (await GET()).json();
+  expect(loaded.routes.gex.discordHooks.at(-1).url).toBe(invalidWebhook);
+  loaded.routes.book.enabled = false;
+  expect((await PUT(request(loaded))).status).toBe(200);
+  expect((await readPushRoutes({ strict: true })).routes.book.enabled).toBe(false);
 });
 
 it.each([
-  { webhooks: ["", "[SENSITIVE]"], row: 2 },
-  { webhooks: [defaultWebhook, defaultWebhook, "[SENSITIVE]"], row: 3 },
-])("非法 webhook 按原始界面第 $row 行报错，不受去空或去重影响", async ({ webhooks, row }) => {
+  { webhooks: ["", "[SENSITIVE]"] },
+  { webhooks: ["x".repeat(400)] },
+])("全部地址无效时仍可保存，且不能改投默认频道：$webhooks", async ({ webhooks }) => {
   const board = await (await GET()).json();
-  const previous = readFileSync(file, "utf8");
   board.routes.gex.discordWebhooks = webhooks;
   const response = await PUT(request(board));
-  expect(response.status).toBe(400);
-  expect(await response.json()).toEqual({ error: `${PUSH_KIND_META.gex.label}：第 ${row} 个 Discord webhook 地址无效` });
-  expect(readFileSync(file, "utf8")).toBe(previous);
+  expect(response.status).toBe(200);
+  const stored = await readPushRoutes({ strict: true });
+  expect(stored.routes.gex.discordWebhooks.length).toBeGreaterThan(0);
+  const lookup = vi.fn(() => defaultWebhook);
+  expect(resolveDiscordTargets(stored.routes.gex, lookup)).toEqual([]);
+  expect(lookup).not.toHaveBeenCalled();
 });
 
 it("校验仍忽略原本不会保存为地址的值", async () => {
   const board = await (await GET()).json();
   const webhooks = Array.from({ length: 8 }, (_, index) => `https://discord.com/api/webhooks/${index + 1}/retained-fixture`);
-  board.routes.gex.discordWebhooks = [null, 42, " ", "x".repeat(400), ...webhooks, "[SENSITIVE]"];
+  board.routes.gex.discordWebhooks = [null, 42, " ", ...webhooks, "[SENSITIVE]"];
   const response = await PUT(request(board));
   expect(response.status).toBe(200);
   expect((await readPushRoutes({ strict: true })).routes.gex.discordWebhooks).toEqual(webhooks);

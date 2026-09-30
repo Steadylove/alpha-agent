@@ -127,7 +127,10 @@ if [ -f "$RUNTIME/jobs/supplement-review-macro.mjs" ]; then
 fi
 
 log "推账本"
-curl -fsS -m 120 -X POST "$BOOK_PUSH_URL"
+if ! curl -fsS -m 120 -X POST "$BOOK_PUSH_URL"; then
+  failed=1
+  log "账本推送失败，继续其他推送与分析"
+fi
 
 if [ "$gex_ok" -eq 1 ]; then
   soft gex-card node "$RUNTIME/jobs/push-gex-card.mjs"
@@ -146,7 +149,7 @@ soft screener env SCREENER_SKIP_AI=true node "$RUNTIME/jobs/push-daily-screener.
 soft review-analysis env -u VERCEL MARKET_DATA_BASE_URL= node "$RUNTIME/jobs/build-review-analysis.mjs"
 
 if [ "$failed" -ne 0 ]; then
-  log "结束：数据步骤重试后仍不完整，详情见 health-gex / health-review 与任务日志"
+  log "结束：数据步骤或推送失败，详情见 health-gex / health-review 与任务日志"
   exit 1
 fi
 log "结束"

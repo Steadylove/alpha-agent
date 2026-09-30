@@ -156,17 +156,23 @@ export async function pushSignalBooks(opts: PushSignalBookOpts = {}): Promise<Pu
   const { renderCashBookPng } = await import("@/lib/discord/bookCardImage");
   const { postSignalImage } = await import("@/lib/notifications/postSignalImage");
   const sent: string[] = [];
+  const errors: string[] = [];
   for (const book of await buildSignalBooks(opts)) {
-    const image = {
-      kind: "book" as const,
-      filename: book.filename,
-      eventKey: JSON.stringify([book.filename, book.content, book.input]),
-      bytes: await renderCashBookPng(book.input),
-      content: book.content,
-    };
-    await postSignalImage(webhook, image);
-    sent.push(book.summary);
+    try {
+      const image = {
+        kind: "book" as const,
+        filename: book.filename,
+        eventKey: JSON.stringify([book.filename, book.content, book.input]),
+        bytes: await renderCashBookPng(book.input),
+        content: book.content,
+      };
+      const result = await postSignalImage(webhook, image);
+      if (!result.skipped) sent.push(book.summary);
+    } catch (error) {
+      errors.push(`${book.filename}: ${error instanceof Error ? error.message : "推送失败"}`);
+    }
     await new Promise((resolve) => setTimeout(resolve, 800));
   }
+  if (errors.length) throw new Error(errors.join("; "));
   return { sent };
 }

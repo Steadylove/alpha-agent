@@ -22,20 +22,28 @@ export async function POST(request: Request) {
     });
     const dest = new URL("/api/tv/render-book", url.origin);
     const sent: string[] = [];
+    const errors: string[] = [];
     for (const book of books) {
-      const res = await fetch(dest, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(book),
-        cache: "no-store",
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text.trim() || `出图失败 HTTP ${res.status}`);
+      try {
+        const res = await fetch(dest, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(book),
+          cache: "no-store",
+          signal: AbortSignal.timeout(60_000),
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text.trim() || `出图失败 HTTP ${res.status}`);
+        }
+        const result = await res.json() as { skipped?: boolean };
+        if (!result.skipped) sent.push(book.summary);
+      } catch (error) {
+        errors.push(`${book.filename}: ${error instanceof Error ? error.message : "推送失败"}`);
       }
-      sent.push(book.summary);
       await new Promise((resolve) => setTimeout(resolve, 800));
     }
+    if (errors.length) return NextResponse.json({ error: errors.join("; "), sent }, { status: 500 });
     return NextResponse.json({ ok: true, sent });
   } catch (error) {
     const message = error instanceof Error ? error.message : "推送失败";

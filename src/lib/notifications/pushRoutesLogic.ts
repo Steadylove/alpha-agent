@@ -91,7 +91,8 @@ function destsOf(value: unknown): DiscordDest[] {
 
 function hooksOf(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return [...new Set(value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter((item) => item.length > 0 && item.length < 400))].slice(0, 8);
+  // Preserve invalid entries for correction and avoid falling back to another channel.
+  return [...new Set(value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter((item) => item.length > 0))].slice(0, 8);
 }
 
 function chatsOf(value: unknown): string[] {
@@ -152,9 +153,11 @@ export function isMirrorDest(dest: DiscordDest): boolean {
 }
 
 export function isDiscordWebhookUrl(value: string): boolean {
+  if (value.length >= 400) return false;
   try {
     const url = new URL(value);
     if (url.protocol !== "https:") return false;
+    if (url.username || url.password) return false;
     if (!/^(?:(?:ptb|canary)\.)?(?:discord|discordapp)\.com$/.test(url.hostname)) return false;
     return /^\/api\/webhooks\/\d+\/[\w.-]+\/?$/.test(url.pathname);
   } catch {
@@ -167,11 +170,14 @@ export function resolveDiscordTargets(
   lookup: (dest: DiscordDest) => string,
 ): Array<{ url: string; mirror: boolean }> {
   if (item.discordWebhooks.length) {
-    return [...new Set(item.discordWebhooks)].map((url, index) => ({ url, mirror: index > 0 }));
+    return [...new Set(item.discordWebhooks)]
+      .map((url, index) => ({ url, mirror: index > 0 }))
+      .filter((row) => isDiscordWebhookUrl(row.url));
   }
   const rows = item.discordDests.map((dest) => ({ dest, url: lookup(dest) })).filter((row) => row.url);
   const hasPrimary = rows.some((row) => !isMirrorDest(row.dest));
-  return rows.map((row) => ({ url: row.url, mirror: hasPrimary && isMirrorDest(row.dest) }));
+  return rows.map((row) => ({ url: row.url, mirror: hasPrimary && isMirrorDest(row.dest) }))
+    .filter((row) => isDiscordWebhookUrl(row.url));
 }
 
 export type DiscordHookRow = { label: string; url: string };

@@ -9,7 +9,7 @@ import type { RpsCalendar } from "@/lib/backtest/rpsSnapshot";
 import type { DailyReview, ReviewIndex } from "@/lib/review/types";
 import { tomorrowMapCardSvg } from "@/lib/discord/tomorrowMapCardImage";
 import { optionsMapCardSvg, type OptionsMapProfile } from "@/lib/discord/optionsMapCardImage";
-import { discordWebhookOf, isDiscordWebhookUrl, readPushRoutes, resolveDiscordTargets } from "@/lib/notifications/pushRoutes";
+import { discordWebhookOf, readPushRoutes, resolveDiscordTargets } from "@/lib/notifications/pushRoutes";
 import { deliverReviewCard, postReviewDiscordImage, reviewDeliveryKey } from "@/lib/notifications/reviewCardDelivery";
 import { enqueueTelegramImage } from "@/lib/telegram/relay";
 
@@ -47,18 +47,25 @@ async function main() {
   const route = (await readPushRoutes({ strict: true })).routes.gex;
   if (!route.enabled) { console.log("GEX 路由关闭，两图已归档，不发送"); return; }
   const targets = route.discord ? [...new Set(resolveDiscordTargets(route, d => discordWebhookOf(d)).map(t => t.url))] : [];
-  if (route.discord && (!targets.length || targets.some(url => !isDiscordWebhookUrl(url)))) throw new Error("GEX Discord 路由缺失或无效");
+  if (route.discord && !targets.length) console.warn("GEX Discord 没有有效地址，跳过该通道");
   const telegram = route.telegram && (route.telegramAll || route.telegramChats.length > 0);
   console.log(JSON.stringify({ date: review.date, output, cards: rendered.map(c => c.filename), discordTargets: targets.length, telegram, dryRun }));
   if (dryRun) return;
-  if (telegram && !process.env.TELEGRAM_RELAY_SECRET) {
-    const file = process.env.REVIEW_CARD_TELEGRAM_CONFIG;
-    if (file && existsSync(file)) {
-      const config = (await import(pathToFileURL(file).href)).default as { relaySecret?: string };
-      if (config.relaySecret) process.env.TELEGRAM_RELAY_SECRET = config.relaySecret;
+  let telegramConfigError: unknown;
+  if (telegram) {
+    try {
+      if (!process.env.TELEGRAM_RELAY_SECRET) {
+        const file = process.env.REVIEW_CARD_TELEGRAM_CONFIG;
+        if (file && existsSync(file)) {
+          const config = (await import(pathToFileURL(file).href)).default as { relaySecret?: string };
+          if (config.relaySecret) process.env.TELEGRAM_RELAY_SECRET = config.relaySecret;
+        }
+      }
+      if (!process.env.TELEGRAM_RELAY_SECRET || !process.env.TELEGRAM_RELAY_URL) throw new Error("Telegram 服务鉴权未配置，跳过该通道");
+    } catch (error) {
+      telegramConfigError = error;
     }
   }
-  if (telegram && (!process.env.TELEGRAM_RELAY_SECRET || !process.env.TELEGRAM_RELAY_URL)) throw new Error("Telegram 服务鉴权未配置，停止本次推送");
   const stateFile = path.join(process.env.REVIEW_CARD_STATE_DIR || path.join(root, ".review-card-delivery"), `${review.date}.json`);
   const failures: string[] = [];
   for (const card of rendered) {
@@ -72,6 +79,7 @@ async function main() {
       const key = reviewDeliveryKey(review.date, card.name, `telegram:${JSON.stringify(chats ?? "all")}`);
       try {
         console.log(`${card.name} Telegram:`, await deliverReviewCard(stateFile, key, async () => {
+          if (telegramConfigError) throw telegramConfigError;
           const result = await enqueueTelegramImage({ ...card, eventKey: key }, chats);
           if ("skipped" in result || !result.ok) throw new Error("Telegram 推送服务未启用");
           if (!result.recipients) throw new Error("Telegram 当前没有可接收的目标，未记为发送成功");

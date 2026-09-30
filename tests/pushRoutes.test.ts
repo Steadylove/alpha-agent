@@ -40,6 +40,23 @@ it("填了 webhook 就不再看频道名", () => {
   expect(targets).toEqual([{ url: "https://discord.com/api/webhooks/1/custom", mirror: false }]);
 });
 
+it("坏主地址只跳过自身，保留有效镜像的原有身份", () => {
+  const parsed = pushRoutesOf({ routes: { gex: { discordWebhooks: ["[SENSITIVE]", "https://discord.com/api/webhooks/1/mirror"] } } });
+  expect(resolveDiscordTargets(parsed.routes.gex, () => "https://discord.com/api/webhooks/1/fallback")).toEqual([
+    { url: "https://discord.com/api/webhooks/1/mirror", mirror: true },
+  ]);
+});
+
+it("旧环境默认地址也逐条过滤，坏镜像不影响主频道", () => {
+  const route = defaultPushRoutes().routes["signal-4h"];
+  expect(resolveDiscordTargets(route, dest => dest === "main" ? "https://discord.com/api/webhooks/1/main" : "[SENSITIVE]")).toEqual([
+    { url: "https://discord.com/api/webhooks/1/main", mirror: false },
+  ]);
+  expect(resolveDiscordTargets(route, dest => dest === "main" ? "[SENSITIVE]" : "https://discord.com/api/webhooks/1/mirror")).toEqual([
+    { url: "https://discord.com/api/webhooks/1/mirror", mirror: true },
+  ]);
+});
+
 it("现用环境变量地址灌进配置后按频道名展示", () => {
   const lookup = (dest: string) => dest === "main" ? "https://discord.com/api/webhooks/1/main" : dest === "mirror-4h" ? "https://discord.com/api/webhooks/1/4h" : dest === "screener" ? "https://discord.com/api/webhooks/1/screener" : "";
   const presented = presentPushRoutes(defaultPushRoutes(), lookup);

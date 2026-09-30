@@ -38,8 +38,8 @@ export async function POST(request: Request) {
         : await renderGexOgPng(body.input),
       content: body.content ?? "",
     };
-    await postSignalImage(webhook, image);
-    return NextResponse.json({ ok: true });
+    const result = await postSignalImage(webhook, image);
+    return NextResponse.json({ ok: true, skipped: result.skipped });
   } catch (error) {
     const message = error instanceof Error ? error.message : "出图失败";
     return NextResponse.json({ error: message }, { status: 500 });

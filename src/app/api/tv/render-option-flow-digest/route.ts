@@ -26,14 +26,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "缺少 png / filename" }, { status: 400 });
   }
   try {
-    await postSignalImage(webhook, {
+    const result = await postSignalImage(webhook, {
       kind: "option-flow-digest",
       filename: body.filename,
       eventKey: body.eventKey,
       bytes: Buffer.from(body.png, "base64"),
       content: body.content ?? "期权流 · 日结",
     });
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, skipped: result.skipped });
   } catch (error) {
     const message = error instanceof Error ? error.message : "推送失败";
     return NextResponse.json({ error: message }, { status: 500 });

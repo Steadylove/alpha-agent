@@ -82,10 +82,10 @@ export async function deliverTvAlert(payload: AlertPayload, webhookUrl: string):
     bytes: await renderSignalOgPng(view),
     content: `**${STRATEGY_NAME} ${view.title} · ${payload.symbol}**${alertTimeframeSuffix(label)}`,
   };
-  await postSignalImage(webhookUrl, image);
+  const result = await postSignalImage(webhookUrl, image);
   return {
     ok: true,
-    forwarded: true,
+    forwarded: !result.skipped,
     gate: payload.event === "buy" ? "pass" : undefined,
     rps,
     lookupError,

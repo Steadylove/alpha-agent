@@ -58,7 +58,7 @@ async function main() {
       continue;
     }
     try {
-      await postSignalImage(webhook, {
+      const result = await postSignalImage(webhook, {
         kind: "option-flow-digest",
         filename: `option-flow-digest-${day}.png`,
         eventKey: JSON.stringify(["option-flow-digest.png", view.day, view.legs, view.spy, view.notes]),
@@ -66,7 +66,7 @@ async function main() {
         content: `${flowDigestCaption(test)} · ${view.title.replace("期权流 · ", "")}`,
       });
       console.log(
-        "pushed",
+        result.skipped ? "skip" : "pushed",
         day,
         view.bias,
         `call=${view.callUsd}`,

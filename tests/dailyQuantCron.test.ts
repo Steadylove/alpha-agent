@@ -102,3 +102,20 @@ it("a fetched but stale Gamma snapshot triggers re-collection", () => {
   const r = run(`${job("check-daily-review")} --stage=gex --file=.cache/gex/latest.json`, 1); expect(r.failed, r.error).toBe(false);
   expect(r.calls.filter(c => c === "python3 fetch-gex-snapshot.py")).toHaveLength(2);
 });
+it("account delivery failure is recorded but later notifications and AI still run once", () => {
+  const baseline = run();
+  const bookPush = baseline.calls.find(c => c.startsWith("curl "))!;
+  const r = run(bookPush);
+  expect(r.failed).toBe(true);
+  expect(r.calls.filter(c => c === bookPush)).toHaveLength(1);
+  for (const later of [job("push-gex-card"), "alpha-review-cards.sh", job("push-daily-screener"), job("build-review-analysis")]) {
+    expect(r.calls.filter(c => c === later)).toHaveLength(1);
+    expect(r.calls.indexOf(later)).toBeGreaterThan(r.calls.indexOf(bookPush));
+  }
+});
+it("account computation failure still stops delivery before sending any stale account", () => {
+  const baseline = run();
+  const r = run(baseline.calls.find(c => c.startsWith("docker exec alpha-book"))!);
+  expect(r.failed).toBe(true);
+  expect(r.calls.some(c => c.startsWith("curl ") || c === job("push-gex-card"))).toBe(false);
+});

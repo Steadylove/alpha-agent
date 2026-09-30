@@ -22,6 +22,8 @@ async function withDiscordRetry(action: () => Promise<void>, label: string): Pro
       return;
     } catch (error) {
       lastError = error;
+      // An aborted request may already have delivered its message.
+      if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) break;
       if (attempt === 3) break;
       console.warn(`${label} failed, retrying (${attempt}/3)`, error);
       await sleep(1500 * attempt);
@@ -39,6 +41,7 @@ function postJson(webhookUrl: string, payload: object): Promise<void> {
         method: "POST",
         hostname: url.hostname,
         path: `${url.pathname}${url.search}`,
+        signal: AbortSignal.timeout(30_000),
         headers: {
           "content-type": "application/json",
           "content-length": body.length,
@@ -91,6 +94,7 @@ function postMultipart(
         method: "POST",
         hostname: url.hostname,
         path: `${url.pathname}${url.search}`,
+        signal: AbortSignal.timeout(30_000),
         headers: {
           "content-type": `multipart/form-data; boundary=${boundary}`,
           "content-length": body.length,
@@ -168,27 +172,36 @@ export async function sendAlphaScreenerToDiscord(
   };
 
   const urls = resolveDiscordTargets(route, (dest) => discordWebhookOf(dest, webhookUrl)).map((row) => row.url);
+  const failures: string[] = [];
+  const attempt = async (label: string, send: () => Promise<void>) => {
+    try { await send(); }
+    catch (error) { failures.push(`${label}: ${error instanceof Error ? error.message : "发送失败"}`); }
+  };
 
   if (route.discord) {
-    if (!urls.length) throw new Error("Discord webhook 未配置");
-    for (const url of urls) {
-      await withDiscordRetry(
-        () => postMultipart(url, payload, files),
-        "Discord image push",
-      );
+    if (!urls.length) console.warn("选股 Discord 没有有效地址，跳过该通道");
+    for (const [index, url] of urls.entries()) {
+      await attempt(`Discord #${index + 1}`, () => withDiscordRetry(
+        () => postMultipart(url, payload, files), "Discord image push",
+      ));
     }
   }
 
   if (route.telegram && (route.telegramAll || route.telegramChats.length)) {
     const chats = route.telegramAll ? undefined : route.telegramChats;
-    await enqueueTelegramImage({ filename: "elite.png", bytes: elitePng, content: "选股 · 强势股精英池", eventKey: `screener:elite:${result.generatedAt.toISOString()}` }, chats);
-    await enqueueTelegramImage({ filename: "newhighs.png", bytes: newHighsPng, content: "选股 · 盘中新高", eventKey: `screener:newhighs:${result.generatedAt.toISOString()}` }, chats);
+    for (const image of [
+      { filename: "elite.png", bytes: elitePng, content: "选股 · 强势股精英池", eventKey: `screener:elite:${result.generatedAt.toISOString()}` },
+      { filename: "newhighs.png", bytes: newHighsPng, content: "选股 · 盘中新高", eventKey: `screener:newhighs:${result.generatedAt.toISOString()}` },
+    ]) {
+      await attempt(`Telegram ${image.filename}`, async () => {
+        const receipt = await enqueueTelegramImage(image, chats);
+        if ("skipped" in receipt || !receipt.ok) throw new Error("Telegram 推送服务未启用");
+        if (!receipt.recipients) throw new Error("Telegram 当前没有可接收的目标，未记为发送成功");
+      });
+    }
   }
 
-  if (!route.discord) return;
-
-  const analysisUrl = urls[0] || webhookUrl;
-  if (!analysisUrl) return;
+  const analysisUrl = route.discord ? urls[0] : undefined;
 
   // 3. 发送 AI 分析（仅精英池，每股单独卡片）
   const analysisEmbeds: DiscordEmbed[] = [];
@@ -207,8 +220,11 @@ export async function sendAlphaScreenerToDiscord(
   }
 
   // Discord 每条消息的 embeds 总大小限制为 6000；逐条发送更稳。
-  for (const embed of analysisEmbeds) {
-    await sleep(1000);
-    await withDiscordRetry(() => postJson(analysisUrl, { embeds: [embed] }), "Discord AI push");
+  if (analysisUrl) {
+    for (const embed of analysisEmbeds) {
+      await sleep(1000);
+      await attempt(`Discord AI ${embed.title}`, () => withDiscordRetry(() => postJson(analysisUrl, { embeds: [embed] }), "Discord AI push"));
+    }
   }
+  if (failures.length) throw new Error(failures.join("; "));
 }

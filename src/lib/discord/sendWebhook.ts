@@ -101,10 +101,13 @@ export async function postDiscordImage(
         method: "POST",
         body: form,
         keepalive: false,
+        signal: AbortSignal.timeout(15_000),
       });
       if (response.ok) return;
       lastError = new Error(`Discord webhook failed: ${response.status}`);
     } catch (error) {
+      // A timeout can happen after Discord accepted the image; do not send it again.
+      if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) throw error;
       lastError = error;
     }
     if (attempt < 3) {

@@ -43,6 +43,7 @@ const request = (value: unknown) => new Request('https://app.test/api', { method
 const hook = "https://discord.example/hook";
 beforeEach(() => {
   vi.resetAllMocks();
+  mocks.push.mockResolvedValue({ skipped: false });
   mocks.render.mockResolvedValue(mocks.png);
   mocks.fund.mockResolvedValue(undefined);
   vi.stubEnv('DISCORD_SIGNAL_WEBHOOK_URL', hook);
@@ -253,4 +254,16 @@ it("期权流日结接口复用 PNG 且同一份数据使用相同事件 ID", as
   expect((await flowDigest(request(payload))).status).toBe(200);
   expect(mocks.push.mock.calls[0][1].bytes.equals(Buffer.from("digest-card"))).toBe(true);
   expect(mocks.push.mock.calls[0][1].eventKey).toBe(mocks.push.mock.calls[1][1].eventKey);
+});
+
+it.each([["book", book], ["gex", gex], ["market", market], ["digest", flowDigest]] as const)("%s 接口把全目标跳过透传给推送任务", async (_, route) => {
+  mocks.push.mockResolvedValue({ skipped: true });
+  const response = await route(request({ filename: "card.png", input: { asOf: "2026-09-09" }, png: mocks.png.toString("base64") }));
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ ok: true, skipped: true });
+});
+
+it("信号全目标跳过时不记录为已转发", async () => {
+  mocks.push.mockResolvedValue({ skipped: true });
+  expect(await deliverTvAlert({ event: "sell", symbol: "CF", tf: "240", price: 100, kind: 1, barTime: 1 }, hook)).toMatchObject({ ok: true, forwarded: false });
 });

@@ -6,6 +6,7 @@ import { Alert, Button, Checkbox, MultiSelect, NumberInput, Switch, Text, TextIn
 import { Card } from "@/components/Card";
 import {
   expandTelegramChats,
+  isDiscordWebhookUrl,
   PUSH_KIND_META,
   PUSH_KINDS,
   validFlowMinPremium,
@@ -65,6 +66,7 @@ function DiscordWebhooksField({
             label={hook.label}
             value={hook.url}
             placeholder="粘贴 webhook"
+            error={hook.url.trim() && !isDiscordWebhookUrl(hook.url.trim()) ? "地址无效，将跳过此地址；仍可保存，其他推送不受影响" : undefined}
             disabled={disabled}
             onChange={(event) => {
               const next = rows.map((item, i) => (i === index ? { ...item, url: event.currentTarget.value } : item));
@@ -109,6 +111,7 @@ export function PushRoutesBoard() {
 
   const dirty = Boolean(payload && draft && (JSON.stringify(draft) !== JSON.stringify(payload.routes) || flowMinimum !== payload.optionFlowMinPremiumUsd));
   const validMinimum = validFlowMinPremium(flowMinimum);
+  const invalidHookCount = draft ? PUSH_KINDS.reduce((count, kind) => count + draft[kind].discordHooks.filter((hook) => hook.url.trim() && !isDiscordWebhookUrl(hook.url.trim())).length, 0) : 0;
 
   async function save() {
     if (!payload || !draft || !validMinimum) return;
@@ -164,7 +167,7 @@ export function PushRoutesBoard() {
         </div>
       </div>
       <Text size="sm" c="dimmed" mb="md">
-        Discord webhook 存在后端，打开页面会把现用推送地址写成默认值。改完保存即生效。第一个为主频道，后面的抄送失败不挡主频道。Telegram：在每个要收的话题里 /resume，然后在这里按话题勾选。同一话题群可以拆到不同信号。/pause 停全群。
+        Discord webhook 存在后端，打开页面会把现用推送地址写成默认值。改完保存即生效。第一个为主频道，后面的为抄送。无效地址仍可保存，发送时仅跳过该地址；某个地址发送失败，也不影响其他地址和 Telegram。Telegram：在每个要收的话题里 /resume，然后在这里按话题勾选。同一话题群可以拆到不同信号。/pause 停全群。
       </Text>
       <div className="overflow-x-auto">
         <table>
@@ -252,7 +255,7 @@ export function PushRoutesBoard() {
             ? `Telegram @${payload.telegram.username || "bot"} · ${payload.telegram.groups.filter((g) => g.subscribed).length} 个接收位置`
             : "Telegram 中转未连上，开关仍可保存，话题列表暂空"}
         </Text>
-        {saved && !dirty ? <Text size="xs" c="teal" role="status">已保存，下一笔推送生效</Text> : null}
+        {saved && !dirty ? <Text size="xs" c={invalidHookCount ? "yellow" : "teal"} role="status">{invalidHookCount ? `已保存；${invalidHookCount} 个无效 Discord 地址将在发送时跳过` : "已保存，下一笔推送生效"}</Text> : null}
         <Button size="sm" disabled={!dirty || saving || !validMinimum} loading={saving} onClick={() => void save()}>
           保存
         </Button>

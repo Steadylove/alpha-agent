@@ -32,11 +32,13 @@ async function postRemote(path: string, body: unknown): Promise<void> {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(60_000),
   });
   if (!res.ok) {
     throw new Error((await res.text()).trim() || `${path} 出图失败 HTTP ${res.status}`);
   }
-  console.log("pushed", dest);
+  const result = await res.json() as { skipped?: boolean };
+  console.log(result.skipped ? "skip" : "pushed", path);
 }
 
 async function loadFlowPosts() {
@@ -62,8 +64,8 @@ async function postLocal(snapshot: GexSnapshot, test: boolean): Promise<void> {
     bytes: await renderGexBriefOgPng(body.input),
     content: body.content,
   };
-  await postSignalImage(webhook, image);
-  console.log("pushed local gex.png", body.input.gex.asOf);
+  const result = await postSignalImage(webhook, image);
+  console.log(result.skipped ? "skip local gex.png" : "pushed local gex.png", body.input.gex.asOf);
 }
 
 async function digestPayload(snapshot: GexSnapshot, test: boolean) {
@@ -87,14 +89,14 @@ async function pushFlowDigest(snapshot: GexSnapshot, local: boolean, test: boole
     return;
   }
   if (local) {
-    await postSignalImage(webhookUrl() || "", {
+    const result = await postSignalImage(webhookUrl() || "", {
       kind: "option-flow-digest",
       filename: payload.filename,
       eventKey: payload.eventKey,
       bytes: payload.bytes,
       content: payload.content,
     });
-    console.log("pushed local option-flow-digest.png", payload.view.day);
+    console.log(result.skipped ? "skip local option-flow-digest.png" : "pushed local option-flow-digest.png", payload.view.day);
     return;
   }
   await postRemote("/api/tv/render-option-flow-digest", {
@@ -112,13 +114,19 @@ async function main() {
   const snapshot = JSON.parse(readFileSync(file, "utf8")) as GexSnapshot;
   if (!snapshot.items?.length) throw new Error(`${file} 没有 items`);
   const test = process.env.GEX_TEST === "1";
-  if (local) await postLocal(snapshot, test);
-  else await postRemote("/api/tv/render-gex", gexBriefPushBody(snapshot, test));
+  const errors: string[] = [];
+  try {
+    if (local) await postLocal(snapshot, test);
+    else await postRemote("/api/tv/render-gex", gexBriefPushBody(snapshot, test));
+  } catch (error) {
+    errors.push(`GEX: ${error instanceof Error ? error.message : "推送失败"}`);
+  }
   try {
     await pushFlowDigest(snapshot, local, test);
   } catch (error) {
-    console.warn("option-flow digest skip", error instanceof Error ? error.message : error);
+    errors.push(`option-flow digest: ${error instanceof Error ? error.message : "推送失败"}`);
   }
+  if (errors.length) throw new Error(errors.join("; "));
 }
 
 main().catch((err) => {
