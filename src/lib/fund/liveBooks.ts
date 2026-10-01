@@ -14,6 +14,7 @@ import { readLiveBooks, writeLiveBooks } from "./liveBooksStore";
 import { applySignalPool, defaultSignalPoolTickers, readSignalPool } from "./signalPool";
 import type { PoolRevision } from "./poolTimeline";
 import { TWO_HOUR_VERSION } from "@/lib/backtest/twoHourVersion";
+import { loadAndReconcileSignals } from "./signalReconciliationStore";
 
 export type LiveBooksResult = LiveBookCache & {
   stale: boolean;
@@ -107,10 +108,12 @@ async function compute(): Promise<LiveBooksResult> {
       previous: keep ? previous!.books.find((p) => p.tf === book.tf) : undefined, priorMembers: keep ? priorMembers : undefined });
     books.push(withBookCurve({ ...book, checkpoint, view: slimLookbackView(view) }));
   }
+  const next: LiveBookCache = { ...input, accounting: "continuous-v1", poolHistory: history, runId: randomUUID(), computedAt: new Date().toISOString(), books };
+  // 对账只解释差异；档案不可用时也必须保存本轮账户结果及明确的资料状态。
+  next.signalReconciliation = await loadAndReconcileSignals(next);
   if (JSON.stringify(input) !== JSON.stringify(await fingerprint())) {
     throw new Error("计算期间名单、起点或行情发生变化，未覆盖上次结果，请重算");
   }
-  const next: LiveBookCache = { ...input, accounting: "continuous-v1", poolHistory: history, runId: randomUUID(), computedAt: new Date().toISOString(), books };
   if (!isFresh(next, input)) throw new Error("池内行情未覆盖当前行情清单的最新时间，未覆盖上次结果");
   await writeLiveBooks(next);
   return { ...next, stale: false, fromCache: false };

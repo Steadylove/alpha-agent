@@ -4,7 +4,7 @@ import { bookEpochStateOf } from "@/lib/fund/bookEpochLogic";
 
 const mocks = vi.hoisted(() => ({
   epoch: vi.fn(), members: vi.fn(), market: vi.fn(), strategy: vi.fn(), run: vi.fn(),
-  read: vi.fn(), write: vi.fn(), remoteUrl: vi.fn(), remoteRun: vi.fn(), clear: vi.fn(), clearRps: vi.fn(),
+  read: vi.fn(), write: vi.fn(), remoteUrl: vi.fn(), remoteRun: vi.fn(), clear: vi.fn(), clearRps: vi.fn(), reconcile: vi.fn(),
 }));
 vi.mock("@/lib/fund/bookEpoch", () => ({ readBookEpoch: mocks.epoch }));
 vi.mock("@/lib/fund/signalPool", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/fund/signalPool")>(), readSignalPool: mocks.members }));
@@ -14,6 +14,7 @@ vi.mock("@/lib/fund/liveBooksStore", () => ({ readLiveBooks: mocks.read, writeLi
 vi.mock("@/lib/fund/deskRemote", () => ({ computeLiveBooksUrl: mocks.remoteUrl, postComputeLiveBooks: mocks.remoteRun }));
 vi.mock("@/lib/backtest/load", () => ({ invalidateSmallFundCache: mocks.clear }));
 vi.mock("@/lib/backtest/rpsScale", () => ({ clearRpsScaleCache: mocks.clearRps }));
+vi.mock("@/lib/fund/signalReconciliationStore", () => ({ loadAndReconcileSignals: mocks.reconcile }));
 import { peekLiveBooks, refreshLiveBooks } from "@/lib/fund/liveBooks";
 import { POST } from "@/app/api/fund/live-books/route";
 
@@ -27,6 +28,10 @@ beforeEach(() => {
   mocks.read.mockResolvedValue(bookCache());
   mocks.write.mockResolvedValue(undefined);
   mocks.remoteUrl.mockReturnValue(null);
+  mocks.reconcile.mockResolvedValue({ version: 1, availability: "unavailable", note: "测试档案不可用", rows: [],
+    generatedAt: "2026-09-08T21:00:00.000Z", asOf: "2026-09-08T17:30",
+    coverage: { from: "2026-08-01T00:00:00.000Z", through: "2026-09-08T21:00:00.000Z",
+      tvRecords: 0, localEvents: 0, legacyTimeframes: [], truncated: false } });
 });
 
 describe("账本计算与缓存一致性", () => {
@@ -116,6 +121,8 @@ describe("账本计算与缓存一致性", () => {
     expect(mocks.run).toHaveBeenCalledWith(expect.objectContaining({ tf: "2h", from: "2026-01-01", members: ["AAPL", "NVDA"], slots: 10, previous: expect.any(Object) }));
     expect(first.runId).not.toBe(second.runId);
     expect(mocks.write).toHaveBeenCalledTimes(2);
+    expect(mocks.reconcile).toHaveBeenCalledTimes(2);
+    expect(first.signalReconciliation?.note).toBe("测试档案不可用");
   });
 
   it("计算期间配置变更不允许把旧结果标成新配置保存", async () => {

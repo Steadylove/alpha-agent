@@ -10,7 +10,7 @@ import { TWO_HOUR_VERSION } from "@/lib/backtest/twoHourVersion";
 import { twoHourAsOf } from "@/lib/backtest/twoHourPanel";
 
 // 修改交易/信号算法时递增；参数变动由下面的配置哈希自动识别。
-export const LIVE_BOOK_ENGINE_VERSION = 4;
+export const LIVE_BOOK_ENGINE_VERSION = 5;
 
 export function liveStrategyKey(): string {
   return createHash("sha256").update(JSON.stringify({

@@ -73,6 +73,20 @@ describe("账本持久化", () => {
     expect(readdirSync(dir).some((f) => f.endsWith(".tmp"))).toBe(false);
   });
 
+  it("历史列表只返回摘要，对账明细仍保留在完整归档中", async () => {
+    const report = { version: 1 as const, generatedAt: "2026-09-09T07:00:00.000Z", asOf: "2026-09-08T17:30",
+      availability: "unavailable" as const, note: "测试对账报告", rows: [],
+      coverage: { from: "2026-08-01T00:00:00.000Z", through: "2026-09-09T07:00:00.000Z",
+        tvRecords: 0, localEvents: 0, legacyTimeframes: [], truncated: false } };
+    const current = bookCache({ signalReconciliation: report });
+    await writeLiveBooks(current);
+    const versions = await listLiveBookVersions();
+    expect(versions).toHaveLength(1);
+    expect(versions[0]).not.toHaveProperty("signalReconciliation");
+    expect((await readLiveBookVersion(current.runId!))!.signalReconciliation).toEqual(report);
+    expect((await readLiveBooks())!.signalReconciliation).toEqual(report);
+  });
+
   it("VPS 在两次读取间更新，第二次不会复用内存结果", async () => {
     remote();
     const fetcher = vi.fn().mockResolvedValueOnce(Response.json(bookCache())).mockResolvedValueOnce(Response.json(bookCache({ runId: "test-run-2" })));

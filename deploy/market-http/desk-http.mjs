@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, opendirSync, readFileSync, readdirSync, statSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 
 const DIR = process.env.DESK_DIR || "/data";
@@ -15,6 +15,8 @@ const EMPTY = {
   "option-flow-health.json": "null\n",
 };
 const MAX = 8 * 1024 * 1024;
+// Same limits as signalReconciliationStore.ts; bound disk work, not just response size.
+const RECONCILIATION_SCAN = { metadata: 2048, files: 512, bytes: 16 * 1024 * 1024, fileBytes: 2 * 1024 * 1024, ms: 1000 };
 const VERSION = /^book-versions\/([a-zA-Z0-9-]{1,80})\.json$/;
 const SIGNAL = /^signal-(entries|reviews)\/([a-f0-9]{64})\.json$/;
 
@@ -46,8 +48,9 @@ function archive(book) {
 }
 
 function versionSummary(b, id) {
+  const { signalReconciliation: _report, ...summary } = b;
   return {
-    ...b, id,
+    ...summary, id,
     books: b.books.map(({ tf, view: v }) => ({ tf, pnl: v.pnl, equity: v.equity, dd: v.stats.dd, holdings: v.rows.length, asOf: v.asOf })),
   };
 }
@@ -98,14 +101,81 @@ createServer((req, res) => {
     } catch { deny(res, 500, "cannot read book history"); }
     return;
   }
-  if (req.method === "GET" && name === "signal-entry-index.json") {
-    if (!authorized(req)) { deny(res, 401, "unauthorized"); return; }
+  if (req.method === "GET" && ["signal-entry-index.json", "signal-review-index.json"].includes(name)) {
+    if (!authorized(req) || (name === "signal-review-index.json" && !SECRET)) { deny(res, 401, "unauthorized"); return; }
     try {
-      const dir = `${DIR}/signal-entries`;
+      const dir = `${DIR}/${name === "signal-entry-index.json" ? "signal-entries" : "signal-reviews"}`;
       const ids = existsSync(dir) ? readdirSync(dir).filter(f => /^[a-f0-9]{64}\.json$/.test(f)).map(f => f.slice(0, -5)).sort() : [];
       res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
       res.end(JSON.stringify(ids));
     } catch { deny(res, 500, "cannot read signal index"); }
+    return;
+  }
+  // A bounded, read-only projection: charts, account settings and notification credentials never leave this endpoint.
+  if (req.method === "GET" && name === "signal-reconciliation-evidence.json") {
+    if (!SECRET || !authorized(req)) { deny(res, 401, "unauthorized"); return; }
+    const query = new URL(req.url, "http://desk").searchParams;
+    const from = Date.parse(query.get("from") ?? ""), through = Date.parse(query.get("through") ?? "");
+    const symbols = (query.get("symbols") ?? "").split(",").filter(Boolean);
+    const limit = Number(query.get("limit") ?? 400);
+    if (!Number.isFinite(from) || !Number.isFinite(through) || from > through || symbols.length > 80 ||
+        symbols.some(s => !/^[A-Z][A-Z0-9.-]{0,15}$/.test(s)) || !Number.isInteger(limit) || limit < 1 || limit > 400) {
+      deny(res, 400, "invalid reconciliation window"); return;
+    }
+    try {
+      const records = [], candidates = []; let invalid = 0, missing = 0, truncated = false;
+      const startedAt = Date.now(); let inspected = 0, reads = 0, bytes = 0;
+      for (const [folder, event] of [["signal-entries", "buy"], ["signal-reviews", "sell"]]) {
+        const dir = `${DIR}/${folder}`;
+        if (!existsSync(dir)) { missing++; continue; }
+        const handle = opendirSync(dir);
+        try {
+          for (let entry = handle.readSync(); entry; entry = handle.readSync()) {
+            if (++inspected > RECONCILIATION_SCAN.metadata || Date.now() - startedAt >= RECONCILIATION_SCAN.ms) { truncated = true; break; }
+            if (!entry.isFile() || !/^[a-f0-9]{64}\.json$/.test(entry.name)) continue;
+            try {
+              const file = `${dir}/${entry.name}`, stat = statSync(file);
+              candidates.push({ file, id: entry.name.slice(0, -5), event, size: stat.size, modified: stat.mtimeMs });
+            } catch { invalid++; }
+          }
+        } finally { handle.closeSync(); }
+      }
+      candidates.sort((a, b) => b.modified - a.modified || a.id.localeCompare(b.id));
+      for (const candidate of candidates) {
+        if (reads >= RECONCILIATION_SCAN.files || Date.now() - startedAt >= RECONCILIATION_SCAN.ms) { truncated = true; break; }
+        if (candidate.size > RECONCILIATION_SCAN.fileBytes || bytes + candidate.size > RECONCILIATION_SCAN.bytes) { truncated = true; continue; }
+        reads++; bytes += candidate.size;
+        const { event } = candidate;
+        try {
+            const row = JSON.parse(readFileSync(candidate.file, "utf8")), p = row?.payload;
+            if (row?.version !== 1 || row.id !== candidate.id || p?.event !== event || typeof p.symbol !== "string" || typeof p.tf !== "string" ||
+                typeof p.strategyKey !== "string" || !p.strategyKey || p.strategyKey.length > 512 || !Number.isSafeInteger(p.barTime) || p.barTime <= 0 || p.barTime > 8.64e15 ||
+                !Number.isSafeInteger(p.entrySignalTime) || p.entrySignalTime <= 0 || p.entrySignalTime > p.barTime || (event === "buy" && p.entrySignalTime !== p.barTime) ||
+                (p.kind !== undefined && p.kind !== 1 && p.kind !== 2) || !Number.isFinite(p.price) || p.price <= 0 || !Number.isFinite(Date.parse(row.capturedAt))) { invalid++; continue; }
+            const id = createHash("sha256").update(JSON.stringify([p.symbol.toUpperCase(), p.tf, p.strategyKey, p.entrySignalTime])).digest("hex");
+            if (id !== row.id) { invalid++; continue; }
+            const symbol = p.symbol.trim().toUpperCase().replace(/^.*:/, "");
+            if (!/^[A-Z][A-Z0-9.-]{0,15}$/.test(symbol) || !["120", "240", "2H", "4H"].includes(p.tf.toUpperCase())) { invalid++; continue; }
+            if (p.barTime > through || (p.barTime < from && !symbols.includes(symbol))) continue;
+            const payload = Object.fromEntries(["event", "symbol", "tf", "strategyKey", "barTime", "entrySignalTime", "price", "kind"]
+              .filter(key => p[key] !== undefined).map(key => [key, p[key]]));
+            if (Number.isFinite(p.entry) && p.entry > 0) payload.entry = p.entry;
+            if (Number.isSafeInteger(p.entryTime) && p.entryTime > 0 && p.entryTime <= 8.64e15) payload.entryTime = p.entryTime;
+            const barOpen = close => {
+              if (p.chart?.version !== 1 || p.chart.stride !== 1 || !Array.isArray(p.chart.bars)) return undefined;
+              const bar = p.chart.bars.find(b => Array.isArray(b) && b.length >= 6 && Number.isSafeInteger(b[0]) && b[0] > 0 && b[0] < close && b[1] === close);
+              return bar?.[0];
+            };
+            const projected = { version: 1, id, capturedAt: row.capturedAt, payload,
+              signalBarOpenTime: barOpen(p.barTime), entrySignalBarOpenTime: barOpen(p.entrySignalTime) };
+            const before = records.findIndex(r => r.payload.barTime < p.barTime || (r.payload.barTime === p.barTime && r.id > id));
+            records.splice(before < 0 ? records.length : before, 0, projected);
+            if (records.length > limit) { records.pop(); truncated = true; }
+        } catch { invalid++; }
+      }
+      res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+      res.end(JSON.stringify({ records, invalid, missing, truncated }));
+    } catch { deny(res, 500, "cannot read reconciliation evidence"); }
     return;
   }
   const version = VERSION.exec(name);

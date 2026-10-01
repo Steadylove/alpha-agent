@@ -60,12 +60,15 @@ it("VPS 文件服务保存并归档，失败不会冒充成功或损坏当前结
   const put = (book: unknown) => fetch(`${base}/live-books.json`, {
     method: "PUT", headers: { authorization: "Bearer test-secret", "content-type": "application/json" }, body: JSON.stringify(book),
   });
-  const first = bookCache();
+  const first = bookCache({ signalReconciliation: { version: 1, generatedAt: "2026-09-09T00:00:00.000Z", asOf: "2026-09-08T17:30",
+    availability: "ok", note: "full-report-kept-only-in-version", rows: [], coverage: { from: "2026-08-01T00:00:00.000Z", through: "2026-09-09T00:00:00.000Z", tvRecords: 0, localEvents: 0, legacyTimeframes: [], truncated: false } } });
   const second = bookCache({ runId: "second-run", computedAt: "2026-09-10T00:00:00Z", poolKey: "NVDA" });
   expect((await put(first)).status).toBe(200);
   expect((await put(second)).status).toBe(200);
   const history = await (await fetch(`${base}/live-books-history.json`)).json();
   expect(history.map((v: { id: string }) => v.id)).toEqual(["second-run", "test-run-1"]);
+  expect(history.every((v: Record<string, unknown>) => !("signalReconciliation" in v))).toBe(true);
+  expect(JSON.stringify(history)).not.toContain("full-report-kept-only-in-version");
   expect(await (await fetch(`${base}/book-versions/test-run-1.json`)).json()).toEqual(first);
   expect((await put({ ...second, poolKey: "MSFT" })).status).toBe(500);
   expect((await put({ books: [] })).status).toBe(400);

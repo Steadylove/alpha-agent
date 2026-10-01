@@ -24,7 +24,9 @@ describe("旧账本衔接与历史冻结", () => {
     const result = await runContinuousBook(request);
     expect(result.view.curve.slice(0, request.previous.view.curve.length)).toEqual(request.previous.view.curve);
     expect(result.view.fills.filter((f) => f.date <= request.previous.view.asOf)).toEqual(request.previous.view.fills);
-    expect(result.view.fills.find((f) => f.symbol === "NVDA")?.date).toBe(axis[56]);
+    // NVDA 在入池前已开始一轮信号；加入池子/账户空仓不能让第55根另开一笔。
+    expect(result.view.fills.find((f) => f.symbol === "NVDA")).toBeUndefined();
+    expect(result.checkpoint.signalTracking?.states.NVDA.state.sigType).not.toBe(0);
     expect(result.checkpoint.slots.AAPL.entryDate).toBe(axis[36]);
     expect(result.checkpoint.lastEq).toBe(result.view.equity);
   });
@@ -36,6 +38,9 @@ describe("旧账本衔接与历史冻结", () => {
     const result = await runContinuousBook({ ...input(), previous });
     expect(result.view).toEqual(previous.view);
     expect(result.checkpoint.lastEq).toBe(previous.view.equity);
+    expect(result.checkpoint.signalTracking?.migration.positions).toEqual([
+      expect.objectContaining({ symbol: "AAPL", entryDate: axis[36], reason: "legacy" }),
+    ]);
   });
 
   it("旧版仅存最后一天时，即使没有新行情也恢复全部历史净值", async () => {
@@ -45,6 +50,32 @@ describe("旧账本衔接与历史冻结", () => {
     const result = await runContinuousBook({ ...input(), previous });
     expect(result.view.curve.map((p) => [p.date, p.equity])).toEqual(full.map((p) => [p.date, p.equity]));
     expect({ ...result.view, curve: [] }).toEqual({ ...previous.view, curve: [] });
+  });
+
+  it("同一截止时间新增股票也恢复其信号状态，不改历史账户", async () => {
+    const small = { axis: axis.slice(0, 46), symbols: [symbol("AAPL", [35], undefined, 46)] };
+    vi.mocked(getPreparedUniverse).mockResolvedValue(small);
+    const first = await runContinuousBook({ ...input(), members: ["AAPL"] });
+    vi.mocked(getPreparedUniverse).mockResolvedValue({ ...small, symbols: [...small.symbols, symbol("NVDA", [40], undefined, 46)] });
+    const result = await runContinuousBook({ ...input(), previous: { ...baseline(), ...first } });
+    expect(result.view).toEqual(first.view);
+    expect(result.checkpoint.slots).toEqual(first.checkpoint.slots);
+    expect(result.checkpoint.cash).toBe(first.checkpoint.cash);
+    expect(result.checkpoint.signalTracking?.states.NVDA.signalDate).toBe(axis[40]);
+    expect(result.checkpoint.signalTracking?.events).toEqual(first.checkpoint.signalTracking?.events);
+  });
+
+  it("全局截止时间不变、个股尾部行情补齐时仍推进该票的独立状态", async () => {
+    const partial = { axis: axis.slice(0, 51), symbols: [symbol("AAPL", [35], undefined, 51), symbol("NVDA", [35], undefined, 40)] };
+    vi.mocked(getPreparedUniverse).mockResolvedValue(partial);
+    const first = await runContinuousBook(input());
+    vi.mocked(getPreparedUniverse).mockResolvedValue({ ...partial, symbols: [partial.symbols[0], symbol("NVDA", [35], undefined, 51)] });
+    const next = await runContinuousBook({ ...input(), previous: { ...baseline(), ...first } });
+    expect(next.checkpoint.signalTracking!.states.NVDA.lastProcessedDate).toBe(axis[50]);
+    expect(next.view).toEqual(first.view);
+    expect(next.checkpoint.slots).toEqual(first.checkpoint.slots);
+    expect(next.checkpoint.cash).toBe(first.checkpoint.cash);
+    expect(next.checkpoint.signalTracking!.events).toEqual(first.checkpoint.signalTracking!.events);
   });
 
   it.each(["4h", "2h"] as const)("%s 连续多日定时更新、序列化保存和同日重跑始终保留完整曲线", async (tf) => {
@@ -83,6 +114,14 @@ describe("旧账本衔接与历史冻结", () => {
     vi.mocked(getPreparedUniverse).mockResolvedValue(universe(changed, symbol("NVDA", [40, 55])));
     const next = await runContinuousBook({ ...input(), previous: { ...baseline(), ...first }, priorMembers: ["NVDA"] });
     expect(next).toEqual(first);
+  });
+
+  it("即使没有新行情也不能把旧信号参数标成当前配置", async () => {
+    const first = await runContinuousBook(input());
+    first.checkpoint.signalTracking!.parameters.stopMult += 1;
+    const saved = structuredClone(first);
+    await expect(runContinuousBook({ ...input(), previous: { ...baseline(), ...first } })).rejects.toThrow("参数已变化");
+    expect(first).toEqual(saved);
   });
 
   it("显式新建一期才从初始权益重新计算", async () => {

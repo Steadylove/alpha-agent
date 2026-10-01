@@ -5,6 +5,7 @@ import { poolRevisionsOf, type PoolRevision } from "./poolTimeline";
 import { TWO_HOUR_VERSION } from "@/lib/backtest/twoHourVersion";
 import { withBookCurve } from "./liveBookCurve";
 import { bookEpochStateOf, type BookEpoch, type BookEpochs } from "./bookEpochLogic";
+import { signalReconciliationReportOf, type SignalReconciliationReport } from "./signalReconciliation";
 
 export const LIVE_BOOKS: { tf: LookbackTf; name: string }[] = [
   { tf: "4h", name: "4 小时" },
@@ -28,6 +29,7 @@ export type LiveBookCache = {
   epochs?: BookEpochs;
   poolRevision?: string;
   poolHistory?: PoolRevision[];
+  signalReconciliation?: SignalReconciliationReport;
   computedAt: string;
   epochFrom: string;
   poolKey: string;
@@ -111,6 +113,7 @@ export function liveBookCacheOf(raw: unknown): LiveBookCache | null {
     marketRevision: typeof row.marketRevision === "string" ? row.marketRevision : undefined,
     strategyKey: typeof row.strategyKey === "string" ? row.strategyKey : undefined,
     twoHourVersion: typeof row.twoHourVersion === "string" ? row.twoHourVersion : undefined,
+    ...(row.signalReconciliation != null ? { signalReconciliation: signalReconciliationReportOf(row.signalReconciliation) ?? undefined } : {}),
     ...(row.epochs != null ? { epochs: bookEpochStateOf({ epochs: row.epochs }, row.epochFrom).epochs } : {}),
     ...(row.accounting === "continuous-v1" ? { accounting: row.accounting, epochResetAt: row.epochResetAt, poolRevision: row.poolRevision, poolHistory: poolRevisionsOf(row.poolHistory) } : {}),
   };
@@ -141,14 +144,16 @@ export function withoutObsoleteTwoHour<T extends { twoHourVersion?: string; book
   return cache.twoHourVersion === TWO_HOUR_VERSION ? cache : { ...cache, books: cache.books.filter((b) => b.tf !== "2h") };
 }
 
-export type LiveBookVersion = Omit<LiveBookCache, "books"> & {
+export type LiveBookVersion = Omit<LiveBookCache, "books" | "signalReconciliation"> & {
   id: string;
   books: { tf: LookbackTf; pnl: string; equity: number; dd: number; holdings: number; asOf: string }[];
 };
 
 export function liveBookVersion(cache: LiveBookCache, id: string): LiveBookVersion {
+  const summary = { ...cache };
+  delete summary.signalReconciliation;
   return {
-    ...cache, id,
+    ...summary, id,
     books: cache.books.map(({ tf, view }) => ({ tf, pnl: view.pnl, equity: view.equity, dd: view.stats.dd, holdings: view.rows.length, asOf: view.asOf })),
   };
 }

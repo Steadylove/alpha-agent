@@ -8,9 +8,11 @@ import { LabSymbolChart, type ChartTarget } from "@/components/LabSymbolChart";
 import { curveFromSparkline, LookbackEquityChart } from "@/components/LookbackEquityChart";
 import { daysOpenLabel, daysOpenOf, pnlLabel } from "@/lib/discord/bookCopy";
 import { formatEtFromUtc } from "@/lib/discord/cardTime";
-import { LIVE_BOOKS, liveBookName, liveBookEpoch } from "@/lib/fund/liveBooksLogic";
+import { LIVE_BOOKS, liveBookName, liveBookEpoch, type LiveBookOk } from "@/lib/fund/liveBooksLogic";
 import type { BookEpochs } from "@/lib/fund/bookEpochLogic";
 import { BookEpochCard } from "@/components/BookEpochCard";
+import { BookSignalAudit } from "@/components/BookSignalAudit";
+import type { SignalReconciliationReport } from "@/lib/fund/signalReconciliation";
 import type { ApplyBookSettings } from "@/components/FundWorkbench";
 import {
   DEFAULT_LOOKBACK_SLOTS,
@@ -28,7 +30,7 @@ const EXIT: Record<string, string> = {
   rotate: "置换",
 };
 
-type BookOk = { tf: LookbackTf; name: string; view: LookbackView; sparkline?: number[] };
+type BookOk = Pick<LiveBookOk, "tf" | "name" | "view" | "sparkline" | "checkpoint">;
 type BookErr = { tf: LookbackTf; name: string; error: string };
 export type FundSnapshot = {
   twoHourVersion?: string;
@@ -43,6 +45,7 @@ export type FundSnapshot = {
   stale: boolean;
   fromCache: boolean;
   books: (BookOk | BookErr)[];
+  signalReconciliation?: SignalReconciliationReport;
 };
 
 function stamp(raw: string): string {
@@ -149,9 +152,12 @@ export function FundBoard({
         ) : (
           <LiveBookCard
             key={book.tf}
+            tf={book.tf}
             name={liveBookName(book.tf)}
             view={book.view}
             sparkline={book.sparkline}
+            checkpoint={book.checkpoint}
+            reconciliation={snapshot?.signalReconciliation}
             fillsOpen={fillsOpen}
             onToggleFills={() => setFillsOpen((v) => !v)}
             readOnly={readOnly}
@@ -166,23 +172,31 @@ export function FundBoard({
 }
 
 function LiveBookCard({
+  tf,
   name,
   view,
   sparkline,
+  checkpoint,
+  reconciliation,
   readOnly,
   fillsOpen,
   onToggleFills,
   onOpenChart,
 }: {
+  tf: LookbackTf;
   name: string;
   readOnly: boolean;
   view: LookbackView;
   sparkline?: number[];
+  checkpoint?: LiveBookOk["checkpoint"];
+  reconciliation?: SignalReconciliationReport;
   fillsOpen: boolean;
   onToggleFills: () => void;
   onOpenChart: (symbol: string, entryDate?: string | null) => void;
 }) {
   const s = view.stats;
+  const tracking = checkpoint?.signalTracking;
+  const legacyHoldings = view.rows.filter((row) => tracking?.accounts[row.symbol]?.legacy);
   const fills = [...(view.fills ?? [])].reverse();
   const last = view.curve.at(-1);
   const lastBuys = last?.buys ?? [];
@@ -198,6 +212,12 @@ function LiveBookCard({
 
   return (
     <Card title={`${name} · ${stamp(view.asOf)}`}>
+      {tracking ? <Text size="xs" c="dimmed" mb="md">
+        本地策略与账户执行已分离 · 独立信号追踪基准 K 线 {stamp(tracking.activatedAt)}；从该账本截止点继续跟踪，历史成交和净值保持原记录。
+      </Text> : null}
+      {legacyHoldings.length ? <Alert color="orange" variant="light" mb="md" title="旧账本持仓（沿用原退出规则）">
+        {legacyHoldings.map((row) => row.symbol).join("、")} 来自迁移前的持仓或待执行单，保留原入场记录与退出规则，不标记为新信号或 TV 已同步。
+      </Alert> : null}
       <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <MetricCard label="累计" value={view.pnl} valueColor={view.equity >= 1 ? "teal.4" : "red.4"} hint={`自 ${view.since}`} />
         <MetricCard
@@ -281,6 +301,7 @@ function LiveBookCard({
               >
                 <Table.Td fw={600}>
                   <TickerLink symbol={row.symbol} readOnly={readOnly} />
+                  {tracking?.accounts[row.symbol]?.legacy ? <Text size="xs" c="orange.4" fw={400} mt={3}>旧账本持仓 · 原退出规则</Text> : null}
                 </Table.Td>
                 <Table.Td c="dimmed">{row.entryDate ? stamp(row.entryDate) : "—"}</Table.Td>
                 <Table.Td ta="right" ff="monospace">
@@ -307,13 +328,13 @@ function LiveBookCard({
 
       <UnstyledButton onClick={onToggleFills} mb="xs">
         <Text size="xs" fw={600} c="dimmed">
-          成交 {fills.length} 笔 {fillsOpen ? "▾" : "▸"}
+          模拟成交 {fills.length} 笔 {fillsOpen ? "▾" : "▸"}
         </Text>
       </UnstyledButton>
       {fillsOpen ? (
         fills.length === 0 ? (
           <Text size="sm" c="dimmed">
-            这段窗口没有成交
+            这段窗口没有模拟成交
           </Text>
         ) : (
           <div className="table-scroll"><Table striped highlightOnHover fz="sm">
@@ -340,6 +361,7 @@ function LiveBookCard({
           </Table></div>
         )
       ) : null}
+      <BookSignalAudit tf={tf} tracking={tracking} reconciliation={reconciliation} heldSymbols={view.rows.map((row) => row.symbol)} />
     </Card>
   );
 }

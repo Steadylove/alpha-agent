@@ -95,4 +95,16 @@ describe("live books cache", () => {
     expect(liveBookCacheOf(cache)?.books).toHaveLength(2);
     expect(liveBookCacheOf({ ...cache, books: [{ tf: "4h", name: "4 小时" }] })).toBeNull();
   });
+
+  it("已保存对账报告随账本往返；损坏报告不妨碍旧资金记录读取", () => {
+    const report = { version: 1, generatedAt: "2026-09-09T07:00:00.000Z", asOf: "2026-09-08T17:30",
+      availability: "unavailable", note: "档案暂时不可读取", rows: [],
+      coverage: { from: "2026-08-01T00:00:00.000Z", through: "2026-09-09T07:00:00.000Z",
+        tvRecords: 0, localEvents: 0, legacyTimeframes: ["2h", "4h"], truncated: false } };
+    const saved = liveBookCacheOf(JSON.parse(JSON.stringify({ ...cache, signalReconciliation: report })))!;
+    expect(saved.signalReconciliation).toEqual(report);
+    const broken = liveBookCacheOf({ ...cache, signalReconciliation: { version: 99 } })!;
+    expect(broken.signalReconciliation).toBeUndefined();
+    expect(broken.books).toEqual(saved.books);
+  });
 });

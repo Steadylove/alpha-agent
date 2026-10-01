@@ -7,6 +7,7 @@ import { poolAt, type PoolRevision } from "./poolTimeline";
 import { runRotate, type RotateCheckpoint } from "./rotate";
 import { rotateCheckpointOf } from "./rotateCheckpoint";
 import { restoreBookCurve } from "./liveBookCurve";
+import { signalParameters } from "./signalTracking";
 
 export function appendBookView(previous: LookbackView, next: LookbackView, checkpoint: RotateCheckpoint): LookbackView {
   const days = new Map(previous.curve.map((p) => [p.date, p]));
@@ -77,6 +78,7 @@ export async function runContinuousBook(input: {
   const wanted = [...new Set([
     ...members, ...(previous ? history.flatMap((r) => r.members) : []), ...(input.priorMembers ?? []),
     ...Object.keys(previous?.checkpoint?.slots ?? {}), ...(previous?.checkpoint?.orders.map((o) => o.symbol) ?? []),
+    ...Object.keys(previous?.checkpoint?.signalTracking?.states ?? {}),
   ])].sort();
   if (!wanted.length) throw new Error("请先纳入股票后建立账本");
   const uni = await getPreparedUniverse("SMALLFUND", champ.config.timeframe, champ.poolId, wanted);
@@ -89,14 +91,25 @@ export async function runContinuousBook(input: {
     checkpoint = migrateCheckpoint(oldUniverse, tf, previous, oldMembers, slots);
   }
   if (checkpoint && to < checkpoint.asOf) throw new Error("行情早于已记账时间，原成绩未覆盖");
-  if (checkpoint && previous && to === checkpoint.asOf) return { view: restoreBookCurve(previous.view, checkpoint), checkpoint };
+  const tracked = checkpoint?.signalTracking?.states;
+  const sameParameters = JSON.stringify(checkpoint?.signalTracking?.parameters) ===
+    JSON.stringify(signalParameters(champ.config, champ.opts.entryWindow === "dayClose"));
+  const signalQuotesUnchanged = tracked && uni.symbols.every((symbol) => {
+    const lastQuote = uni.axis[symbol.axisIndex[symbol.axisIndex.length - 1]];
+    return tracked[symbol.ticker]?.lastProcessedDate === lastQuote && !!lastQuote;
+  });
+  if (checkpoint && tracked && previous && to === checkpoint.asOf && sameParameters && signalQuotesUnchanged) {
+    return { view: restoreBookCurve(previous.view, checkpoint), checkpoint };
+  }
   const raw = runRotate(uni, { ...champ.config, from, to }, {
-    ...champ.opts, slotPct: 1 / slots, retainMissing: true,
+    ...champ.opts, slotPct: 1 / slots, retainMissing: true, separateSignalState: true,
     continuation: { checkpoint, capture: true },
     ...(previous ? { entryGate: (ticker: string, date: string) => poolAt(history, date).includes(ticker),
       fillGate: (ticker: string, date: string) => poolAt(history, date).includes(ticker) } : {}),
   });
-  const next = lookbackView(raw, from);
   const saved = rotateCheckpointOf(raw.checkpoint);
+  // 即使没有新行情，也迁移独立信号状态；已记账视图逐字段保留。
+  if (checkpoint && previous && to === checkpoint.asOf) return { view: restoreBookCurve(previous.view, saved), checkpoint: saved };
+  const next = lookbackView(raw, from);
   return { view: previous ? appendBookView(previous.view, next, saved) : next, checkpoint: saved };
 }
