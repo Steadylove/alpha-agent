@@ -1,6 +1,6 @@
 /** 仓库内统一的公开配置；这里不能填写 API Key、Token 或 webhook。 */
 export const appConfig = {
-  marketDataUrl: "http://108.174.50.53:8787",
+  marketDataUrl: "http://192.210.241.6:8787",
   siteUrl: "https://alpha-agent-eight.vercel.app",
   aiModel: "deepseek-v4-pro",
   screenerSkipAi: true,

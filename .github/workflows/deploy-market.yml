@@ -60,7 +60,7 @@ jobs:
           retention-days: 14
       - name: Transfer and activate release
         env:
-          HOST: 108.174.50.53
+          HOST: 192.210.241.6
           KEY: ${{ secrets.VPS_SSH_KEY }}
         run: |
           set -euo pipefail

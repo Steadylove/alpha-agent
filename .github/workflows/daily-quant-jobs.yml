@@ -15,7 +15,7 @@ jobs:
     env:
       MARKET_DATA_DIR: ${{ github.workspace }}/.market
       OPTION_FLOW_PATH: ${{ github.workspace }}/.review-desk/option-flow.json
-      HOST: 108.174.50.53
+      HOST: 192.210.241.6
       ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
       ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
       ALPACA_FEED: sip

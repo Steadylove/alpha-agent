@@ -22,7 +22,7 @@ describe("market store layout", () => {
   it("Vercel 未设 URL 时默认走行情机", () => {
     delete process.env.MARKET_DATA_BASE_URL;
     process.env.VERCEL = "1";
-    expect(marketBaseUrl()).toBe("http://108.174.50.53:8787");
+    expect(marketBaseUrl()).toBe("http://192.210.241.6:8787");
   });
 
   it("counts csv files and writes MANIFEST.json", () => {

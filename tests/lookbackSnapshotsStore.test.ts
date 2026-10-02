@@ -23,7 +23,7 @@ describe("lookback snapshot store", () => {
     delete process.env.LOOKBACK_SNAPSHOTS_PATH;
     delete process.env.MARKET_DATA_BASE_URL;
     process.env.VERCEL = "1";
-    expect(lookbackSnapshotsRemoteUrl()).toBe("http://108.174.50.53:8787/desk/lookback-snapshots.json");
+    expect(lookbackSnapshotsRemoteUrl()).toBe("http://192.210.241.6:8787/desk/lookback-snapshots.json");
   });
 
   it("指定本地路径就不走远程", () => {
