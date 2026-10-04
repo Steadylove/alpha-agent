@@ -1,0 +1,68 @@
+name: alpha-site-agent
+services:
+  agent:
+    image: ${SITE_AGENT_IMAGE:?Set an explicitly built versioned image}
+    restart: unless-stopped
+    init: true
+    user: "1000:1000"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 192
+    mem_limit: 1g
+    memswap_limit: 1g
+    cpus: "1.0"
+    ports:
+      # Initial access is through an SSH tunnel, never a public plaintext bearer endpoint.
+      - "127.0.0.1:8090:8090"
+    environment:
+      SITE_AGENT_SECRET: ${SITE_AGENT_SECRET:?Set at least 32 random characters}
+      SITE_AGENT_PORT: "8090"
+      SITE_AGENT_STATE_DIR: /state
+      SITE_AGENT_WORKSPACE: /workspace
+      SITE_AGENT_DATA_ROOT: /market
+      # 0.160 must use the read-only system helper, outside the denied auth home.
+      # This remains the existing persistent named volume, despite its /tmp path.
+      CODEX_HOME: /tmp/codex-home
+      CODEX_BIN: codex
+      HOME: /workspace
+      NODE_OPTIONS: --max-old-space-size=256
+    volumes:
+      - agent-state:/state
+      - codex-home:/tmp/codex-home
+      - workspace:/workspace
+      # These are published data only. No production desk, environment file, key or socket.
+      - type: bind
+        source: /var/lib/alpha-agent/market/snapshots/daily-review
+        target: /market/snapshots/daily-review
+        read_only: true
+        bind: { create_host_path: false }
+      - type: bind
+        source: /var/lib/alpha-agent/market/snapshots/fundamental-target
+        target: /market/snapshots/fundamental-target
+        read_only: true
+        bind: { create_host_path: false }
+      - type: bind
+        source: /var/lib/alpha-agent/market/snapshots/context
+        target: /market/snapshots/context
+        read_only: true
+        bind: { create_host_path: false }
+      - type: bind
+        source: /var/lib/alpha-agent/market/snapshots/catalyst
+        target: /market/snapshots/catalyst
+        read_only: true
+        bind: { create_host_path: false }
+      - type: bind
+        source: /var/lib/alpha-agent/market/1d
+        target: /market/1d
+        read_only: true
+        bind: { create_host_path: false }
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=128m,mode=1777
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "2" }
+volumes:
+  agent-state:
+  codex-home:
+  workspace:

@@ -1,0 +1,7 @@
+import { forwardAgentRequest } from "@/lib/siteAgent/gateway";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
+  return forwardAgentRequest(request, "message", await context.params);
+}

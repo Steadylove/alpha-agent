@@ -12,6 +12,7 @@ import {
 	LayoutDashboard,
 	ListChecks,
 	ScanLine,
+	SquareTerminal,
 	Wallet,
 } from "lucide-react";
 
@@ -26,6 +27,7 @@ const primaryNav = [
 	{ href: "/intraday", label: "日内研究", icon: Activity },
 	{ href: "/lab", label: "调参实验室", icon: FlaskConical },
 	{ href: "/push", label: "推送", icon: Bell },
+	{ href: "/agent", label: "Codex 问答", icon: SquareTerminal },
 ];
 
 export function SiteNav() {

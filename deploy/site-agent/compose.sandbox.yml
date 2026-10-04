@@ -1,0 +1,7 @@
+# Load and verify the dedicated AppArmor profile before selecting this override.
+# Only combine with compose.yml after the no-secrets native sandbox probe passes.
+services:
+  agent:
+    security_opt:
+      - seccomp=./security/seccomp-site-agent.json
+      - apparmor=site-agent-native
