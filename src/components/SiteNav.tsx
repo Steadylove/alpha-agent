@@ -34,7 +34,8 @@ export function SiteNav() {
 	const isActive = (href: string) =>
 		href === "/"
 			? pathname === "/" || pathname === "/review"
-			: pathname.startsWith(href);
+			: pathname === href || pathname.startsWith(`${href}/`) ||
+				(href === "/desk" && (pathname === "/fundamental" || pathname.startsWith("/fundamental/")));
 
 	return (
 		<>

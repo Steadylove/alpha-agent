@@ -1,0 +1,11 @@
+[Unit]
+Description=Review due fundamental valuations hourly in bounded batches
+
+[Timer]
+OnCalendar=*-*-* *:17:00 Asia/Shanghai
+Persistent=true
+AccuracySec=1min
+Unit=alpha-fundamental.service
+
+[Install]
+WantedBy=timers.target

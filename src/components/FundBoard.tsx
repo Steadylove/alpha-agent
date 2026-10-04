@@ -12,6 +12,8 @@ import { LIVE_BOOKS, liveBookName, liveBookEpoch, type LiveBookOk } from "@/lib/
 import type { BookEpochs } from "@/lib/fund/bookEpochLogic";
 import { BookEpochCard } from "@/components/BookEpochCard";
 import { BookSignalAudit } from "@/components/BookSignalAudit";
+import { fundamentalBookEntryAt } from "@/components/fundamental/entryContext";
+import { FundamentalEntryLink } from "@/components/fundamental/FundamentalEntryLink";
 import type { SignalReconciliationReport } from "@/lib/fund/signalReconciliation";
 import type { ApplyBookSettings } from "@/components/FundWorkbench";
 import {
@@ -171,7 +173,7 @@ export function FundBoard({
   );
 }
 
-function LiveBookCard({
+export function LiveBookCard({
   tf,
   name,
   view,
@@ -290,6 +292,7 @@ function LiveBookCard({
               <Table.Th ta="right">浮盈</Table.Th>
               <Table.Th ta="right">仓位</Table.Th>
               <Table.Th ta="right">RPS</Table.Th>
+              <Table.Th>基本面</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
@@ -320,6 +323,9 @@ function LiveBookCard({
                 <Table.Td ta="right" ff="monospace">
                   {row.rps == null ? "—" : row.rps.toFixed(0)}
                 </Table.Td>
+                <Table.Td>
+                  <FundamentalEntryLink symbol={row.symbol} entryAt={fundamentalBookEntryAt(row.entryDate)} label="模拟入场时估值" />
+                </Table.Td>
               </Table.Tr>
             ))}
           </Table.Tbody>
@@ -346,6 +352,7 @@ function LiveBookCard({
                 <Table.Th ta="right">价格</Table.Th>
                 <Table.Th ta="right">盈亏</Table.Th>
                 <Table.Th>原因</Table.Th>
+                <Table.Th>基本面</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
@@ -394,6 +401,9 @@ function FillRow({
         {fill.pnlPct == null ? "—" : `${fill.pnlPct >= 0 ? "+" : ""}${fill.pnlPct.toFixed(1)}%`}
       </Table.Td>
       <Table.Td c="dimmed">{fill.reason ? (EXIT[fill.reason] ?? fill.reason) : buy ? "开仓" : "—"}</Table.Td>
+      <Table.Td>
+        {buy ? <FundamentalEntryLink symbol={fill.symbol} entryAt={fundamentalBookEntryAt(fill.date)} label="模拟入场时估值" /> : "—"}
+      </Table.Td>
     </Table.Tr>
   );
 }

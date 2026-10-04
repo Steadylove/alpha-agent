@@ -10,7 +10,7 @@ rmSync(out, { recursive: true, force: true });
 mkdirSync(path.join(out, "jobs"), { recursive: true });
 const banner = { js: 'import { createRequire as bundleRequire } from "node:module"; const require = bundleRequire(import.meta.url);' };
 const common = { bundle: true, platform: "node", format: "esm", target: "node22", alias: { "@": "./src", "next/og": "next/og.js" }, banner, logLevel: "warning" };
-const jobs = ["refresh-market-csv", "run-daily-jobs", "build-flow-research", "check-daily-review", "build-daily-review", "push-gex-card", "push-daily-screener", "build-review-analysis", "build-catalyst", "supplement-review-macro", "push-review-cards"];
+const jobs = ["refresh-market-csv", "run-daily-jobs", "build-flow-research", "check-daily-review", "build-daily-review", "push-gex-card", "push-daily-screener", "build-review-analysis", "build-catalyst", "build-fundamental-targets", "supplement-review-macro", "push-review-cards"];
 for (const job of jobs) {
   await build({ ...common, packages: "external", entryPoints: [`scripts/${job}.ts`], outfile: path.join(out, `jobs/${job}.mjs`) });
 }

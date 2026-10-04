@@ -7,6 +7,8 @@
     "intraday:lab": "npx --yes tsx scripts/intraday-lab.ts",
     "catalyst:build": "npx --yes tsx scripts/build-catalyst.ts",
     "catalyst:bundle": "node scripts/bundle-catalyst.mjs",
+    "fundamental:build": "npx --yes tsx scripts/build-fundamental-targets.ts",
+    "fundamental:coverage": "npx --yes tsx scripts/fundamental-coverage.ts",
     "review:analysis": "npx --yes tsx scripts/build-review-analysis.ts",
     "review:cards": "npx --yes tsx scripts/push-review-cards.ts",
     "review:cards:bundle": "node scripts/bundle-review-cards.mjs",

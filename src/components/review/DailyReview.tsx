@@ -2,7 +2,7 @@
 
 import { Disclosure } from "@/components/Disclosure";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ActionIcon, Pagination, SegmentedControl, Select, TextInput } from "@mantine/core";
@@ -36,6 +36,9 @@ import { CatalystToday } from "./CatalystBrief";
 import type { CatalystReviewView } from "@/lib/catalyst/reviewDigest";
 import { ContextBrief } from "@/components/context/ContextBrief";
 import type { ContextReport } from "@/lib/context/types";
+import { fundamentalSignalEntryAt } from "@/components/fundamental/entryContext";
+import { FundamentalSummary } from "@/components/fundamental/FundamentalSummary";
+import { useFundamentalSummaries } from "@/components/fundamental/useFundamentalSummaries";
 
 const number = (v: number | null | undefined, digits = 2) =>
   v == null
@@ -320,10 +323,22 @@ function SignalDetail({ signal: s }: { signal: JournalSignal }) {
   );
 }
 function BuyPoints({ signals }: { signals: JournalSignal[] }) {
+  const groups = (["2h", "4h"] as const).map((tf) => {
+    const rows = signals.filter((s) => s.tf === tf && s.source === "live");
+    const ranked = [...rows].sort((a, b) =>
+      Number(b.quality.complete) - Number(a.quality.complete) || b.quality.points - a.quality.points,
+    ).slice(0, 10);
+    return { tf, rows, ranked };
+  });
+  const symbols = [...new Set(groups.flatMap(({ ranked }) => ranked.map((s) => s.symbol)))];
+  const fundamentals = useFundamentalSummaries(symbols);
   return (
+    <>
+    {symbols.length > 0 && <p className={styles.note}>
+      基本面摘要单独读取最新已保存版本，可能晚于本份复盘生成时间；查看“信号时估值”可核对买点触发时已知的版本。
+    </p>}
     <div className={styles.buyGrid}>
-      {(["2h", "4h"] as const).map((tf) => {
-        const rows = signals.filter((s) => s.tf === tf && s.source === "live");
+      {groups.map(({ tf, rows, ranked }) => {
         const complete = rows.filter((s) => s.quality.complete),
           incomplete = rows.length - complete.length;
         const buckets = [
@@ -336,13 +351,6 @@ function BuyPoints({ signals }: { signals: JournalSignal[] }) {
           ).length,
           complete.filter((s) => s.quality.points < 60).length,
         ];
-        const ranked = [...rows]
-          .sort(
-            (a, b) =>
-              Number(b.quality.complete) - Number(a.quality.complete) ||
-              b.quality.points - a.quality.points,
-          )
-          .slice(0, 10);
         const legacyRisk = ranked.some(
           (s) => s.quality.version !== "quality-v5",
         );
@@ -386,7 +394,8 @@ function BuyPoints({ signals }: { signals: JournalSignal[] }) {
                   </thead>
                   <tbody>
                     {ranked.map((s) => (
-                      <tr key={s.id}>
+                      <Fragment key={s.id}>
+                      <tr>
                         <td>
                           <SignalDetail signal={s} />
                         </td>
@@ -417,6 +426,13 @@ function BuyPoints({ signals }: { signals: JournalSignal[] }) {
                           );
                         })}
                       </tr>
+                      <tr>
+                        <td colSpan={FACTORS.length + 2}>
+                          <FundamentalSummary symbol={s.symbol} data={fundamentals.rows[s.symbol]} loading={fundamentals.loading}
+                            entries={[{ label: "信号时估值", entryAt: fundamentalSignalEntryAt(s.signalTime) }]} />
+                        </td>
+                      </tr>
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>
@@ -437,6 +453,7 @@ function BuyPoints({ signals }: { signals: JournalSignal[] }) {
         );
       })}
     </div>
+    </>
   );
 }
 

@@ -21,7 +21,7 @@ function fixture() {
   symlinkSync(`${root}/previous`, `${root}/runtime-current`);
   writeFileSync(`${payload}/verify-runtime.mjs`, 'if (process.env.TEST_PREFLIGHT_FAIL) process.exit(3);');
   for (const file of ["docker-compose.yml", "desk-http.mjs", "compute.mjs", "telegram.mjs", "option-flow.mjs", "nginx.conf.template"]) writeFileSync(`${payload}/${file}`, "new-release\n");
-  for (const file of ["alpha-daily-quant.sh", "alpha-catalyst.sh", "alpha-review-macro.sh", "alpha-review-cards.sh", "runtime-env.sh", "alpha-daily-quant.service", "alpha-daily-quant.timer"]) writeFileSync(`${payload}/cron/${file}`, "new-release\n");
+  for (const file of ["alpha-daily-quant.sh", "alpha-catalyst.sh", "alpha-review-macro.sh", "alpha-review-cards.sh", "alpha-fundamental.sh", "runtime-env.sh", "alpha-daily-quant.service", "alpha-daily-quant.timer", "alpha-fundamental.service", "alpha-fundamental.timer"]) writeFileSync(`${payload}/cron/${file}`, "new-release\n");
   execFileSync("tar", ["-czf", `${incoming}/runtime.tar.gz`, "-C", payload, "."]);
   writeFileSync(`${incoming}/option-flow-image.tar.gz`, "fake image for the Docker stub");
   for (const [file, checksum] of [["runtime.tar.gz", "runtime.sha256"], ["option-flow-image.tar.gz", "option-flow-image.sha256"]]) writeFileSync(`${incoming}/${checksum}`, `${createHash("sha256").update(readFileSync(`${incoming}/${file}`)).digest("hex")}  ${file}\n`);
@@ -31,6 +31,7 @@ function fixture() {
     writeFileSync(`${bin}/${cmd}`, `#!/bin/bash
 printf '%s\\n' '${cmd}'" $*" >> "$ALPHA_ROOT/calls"
 if [ '${cmd}' = flock ] && [ "$TEST_BUSY" = 1 ] && [ "$3" = 9 ]; then exit 1; fi
+if [ '${cmd}' = flock ] && [ "$TEST_FUND_BUSY" = 1 ] && [ "$3" = 6 ]; then exit 1; fi
 if [ '${cmd}' = docker ] && [ "$1" = compose ]; then
  case "$*" in *' up '*)
   if grep -q 'OPTION_FLOW_IMAGE=alpha-option-flow:test-release-123' "$ALPHA_ROOT/market-http/.env"; then echo new > "$ALPHA_ROOT/active-image"; else echo old > "$ALPHA_ROOT/active-image"; fi;;
@@ -44,7 +45,7 @@ fi
   const run = (env: Record<string, string> = {}) => spawnSync("bash", ["deploy/market-http/deploy.sh", incoming, id], { encoding: "utf8", timeout: 15000, env: { ...process.env, ALPHA_ROOT: root, ALPHA_SYSTEMD_DIR: `${root}/units`, PATH: `${bin}:${process.env.PATH}`, ...env } });
   return { root, incoming, run, calls: () => readFileSync(`${root}/calls`, "utf8") };
 }
-it("activates a validated artifact under both job locks, preserving secrets and using no-build containers", () => {
+it("activates a validated artifact under independent job locks, preserving secrets and using no-build containers", () => {
   const f = fixture();
   mkdirSync(`${f.root}/repo/.cache/gex`, { recursive: true });
   writeFileSync(`${f.root}/repo/.cache/gex/gex-20260928-2200.json`, "historical snapshot");
@@ -54,9 +55,12 @@ it("activates a validated artifact under both job locks, preserving secrets and 
   expect(readlinkSync(`${f.root}/runtime-current`)).toBe(`${f.root}/releases/runtime-${id}`);
   expect(readFileSync(`${f.root}/market-http/.env`, "utf8")).toBe(`DESK_STORE_SECRET=preserve-me\nOPTION_FLOW_IMAGE=alpha-option-flow:${id}\n`);
   const calls = f.calls(); expect(calls).toContain("--no-build --pull never");
+  expect(calls.indexOf("flock -w 7200 6")).toBeLessThan(calls.indexOf("flock -w 7200 9"));
   expect(calls.indexOf("flock -w 7200 9")).toBeLessThan(calls.indexOf("flock -w 900 8"));
   expect(calls.indexOf("flock -w 900 8")).toBeLessThan(calls.indexOf("--force-recreate"));
   expect(calls).not.toMatch(/npm|npx|git reset|docker build/);
+  expect(readFileSync(`${f.root}/bin/alpha-fundamental.sh`, "utf8")).toBe("new-release\n");
+  expect(readFileSync(`${f.root}/units/alpha-fundamental.timer`, "utf8")).toBe("new-release\n");
 });
 it.each(["runtime.tar.gz", "option-flow-image.tar.gz"])("rejects a damaged %s before switching anything", file => {
   const f = fixture(); writeFileSync(`${f.incoming}/${file}`, "corrupt");
@@ -71,6 +75,11 @@ it("rejects incompatible runtime preflight without disturbing the current deploy
 it("does not interrupt a writer if the shared-lock wait expires", () => {
   const f = fixture(); expect(f.run({ TEST_BUSY: "1" }).status).not.toBe(0);
   expect(readlinkSync(`${f.root}/runtime-current`)).toBe(`${f.root}/previous`); expect(f.calls()).not.toContain("--force-recreate");
+});
+it("waits for fundamental work before acquiring the strategy lock or switching the runtime", () => {
+  const f = fixture(); expect(f.run({ TEST_FUND_BUSY: "1" }).status).not.toBe(0);
+  expect(readlinkSync(`${f.root}/runtime-current`)).toBe(`${f.root}/previous`);
+  expect(f.calls()).not.toContain("flock -w 7200 9"); expect(f.calls()).not.toContain("--force-recreate");
 });
 it("restores the old pointer, private config and wrappers when new-service health fails", () => {
   const f = fixture(), r = f.run({ TEST_BAD_HEALTH: "1" }); expect(r.status).not.toBe(0);

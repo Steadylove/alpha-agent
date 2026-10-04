@@ -35,6 +35,9 @@ node "$RELEASE/verify-runtime.mjs" "$ID"
 docker load -i "$SRC/option-flow-image.tar.gz"
 docker image inspect "$IMAGE" >/dev/null
 
+# Wait for isolated valuation before taking the strategy lock, keeping daily work unblocked.
+exec 6>"$ROOT/fundamental.lock"
+flock -w 7200 6
 # Both writers and the standalone card sender finish before release pointers or containers change.
 exec 9>"$ROOT/daily-quant.lock"
 flock -w 7200 9
@@ -109,7 +112,7 @@ lines=[line for line in lines if not line.startswith('OPTION_FLOW_IMAGE=')]
 p.write_text('\n'.join(lines+['OPTION_FLOW_IMAGE='+sys.argv[2]])+'\n');p.chmod(0o600)
 PY
 docker compose --project-directory "$DEST" -f "$DEST/docker-compose.yml" config --quiet
-for name in alpha-daily-quant.sh alpha-catalyst.sh alpha-review-macro.sh alpha-review-cards.sh runtime-env.sh; do
+for name in alpha-daily-quant.sh alpha-catalyst.sh alpha-review-macro.sh alpha-review-cards.sh alpha-fundamental.sh runtime-env.sh; do
   install -m 755 "$RELEASE/cron/$name" "$ROOT/bin/$name"
 done
 for unit in "$RELEASE"/cron/*.service "$RELEASE"/cron/*.timer; do install -m 644 "$unit" "$SYSTEMD_DIR/$(basename "$unit")"; done
@@ -118,7 +121,7 @@ docker compose --project-directory "$DEST" -f "$DEST/docker-compose.yml" up -d -
 for endpoint in MANIFEST.json desk/lookback-snapshots.json compute/health telegram/health option-flow/health; do wait_http "$endpoint"; done
 systemctl daemon-reload
 # Enable existing schedules without restarting active timers or invoking any sender.
-systemctl enable --now alpha-daily-quant.timer alpha-review-macro.timer alpha-catalyst.timer alpha-catalyst-analysis.timer
+systemctl enable --now alpha-daily-quant.timer alpha-review-macro.timer alpha-catalyst.timer alpha-catalyst-analysis.timer alpha-fundamental.timer
 trap - ERR INT TERM
 printf 'CI runtime deployed: %s\nRollback backup: %s\n' "$ID" "$BACKUP"
 # Bound only our immutable build artifacts, never market data, private files or backups.

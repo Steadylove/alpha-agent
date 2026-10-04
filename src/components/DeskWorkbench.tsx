@@ -2,11 +2,15 @@
 
 import { chartTheme } from "@/lib/ui/chartTheme";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
 import { Group, Loader, SegmentedControl, Table, Text, UnstyledButton, TextInput } from "@mantine/core";
 
 import { Card } from "@/components/Card";
 import { LabSymbolChart, type ChartTarget } from "@/components/LabSymbolChart";
+import { FundamentalDrawer } from "@/components/fundamental/FundamentalDrawer";
+import { FundamentalSummary } from "@/components/fundamental/FundamentalSummary";
+import { useFundamentalSummaries } from "@/components/fundamental/useFundamentalSummaries";
+import { fundamentalBookEntryAt } from "@/components/fundamental/entryContext";
 import type { DeskBarState, DeskBoardRow } from "@/lib/backtest/deskScan";
 
 type Board = {
@@ -172,6 +176,7 @@ export function DeskWorkbench({ initialQuery = "", strategies }: { initialQuery?
   const [error, setError] = useState<string | null>(null);
   const [chartTf, setChartTf] = useState<"4h" | "2h">("4h");
   const [chartTarget, setChartTarget] = useState<ChartTarget | null>(null);
+  const [fundamentalTarget, setFundamentalTarget] = useState<{ symbol: string; entryAt: string | null; label?: string } | null>(null);
   const [query, setQuery] = useState(initialQuery.trim().toUpperCase());
   const [scope, setScope] = useState<"live" | "all">("live");
   const request = strategies[chartTf].request;
@@ -192,6 +197,8 @@ export function DeskWorkbench({ initialQuery = "", strategies }: { initialQuery?
   }, []);
 
   useEffect(() => {
+    // Mount starts the asynchronous signal scan and its loading state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
 
@@ -203,6 +210,7 @@ export function DeskWorkbench({ initialQuery = "", strategies }: { initialQuery?
   const liveCount = data?.rows.filter(isLive).length ?? 0;
   const rest = data?.rows.filter((r) => !isLive(r)) ?? [];
   const shown = data ? matchRows(data.rows, query) : [];
+  const fundamentals = useFundamentalSummaries(shown.map(row => row.symbol));
 
   return (
     <div className="space-y-6">
@@ -276,10 +284,12 @@ export function DeskWorkbench({ initialQuery = "", strategies }: { initialQuery?
                     <Table.Th>标的</Table.Th>
                     <Table.Th>4 小时</Table.Th>
                     <Table.Th>2 小时</Table.Th>
+                    <Table.Th>基本面</Table.Th>
                   </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
                   {shown.map((row) => (
+                    <Fragment key={row.symbol}>
                     <Table.Tr key={row.symbol}>
                       <Table.Td>
                         <UnstyledButton
@@ -308,7 +318,26 @@ export function DeskWorkbench({ initialQuery = "", strategies }: { initialQuery?
                           <TfCell state={row.h2} />
                         </TfButton>
                       </Table.Td>
+                      <Table.Td>
+                        <UnstyledButton
+                          type="button"
+                          aria-label={`查看 ${row.symbol} 基本面估值`}
+                          aria-expanded={fundamentalTarget?.symbol === row.symbol}
+                          className="min-h-11 cursor-pointer whitespace-nowrap text-xs text-(--accent) underline underline-offset-2"
+                          onClick={() => setFundamentalTarget(fundamentalTarget?.symbol === row.symbol ? null : { symbol: row.symbol, entryAt: null })}
+                        >估值</UnstyledButton>
+                      </Table.Td>
                     </Table.Tr>
+                    <Table.Tr><Table.Td colSpan={4}>
+                      <FundamentalSummary symbol={row.symbol} data={fundamentals.rows[row.symbol]} loading={fundamentals.loading}
+                        entries={(["4h", "2h"] as const).flatMap(tf => {
+                          const state = tf === "4h" ? row.h4 : row.h2;
+                          return state?.holding ? [{ label: `${tf.toUpperCase()} 模拟入场时估值`, entryAt: fundamentalBookEntryAt(state.holding.entryDate) }]
+                            : state?.lastSignal ? [{ label: `${tf.toUpperCase()} 信号时估值`, entryAt: null }] : [];
+                        })}
+                        onEntryOpen={entry => setFundamentalTarget({ symbol: row.symbol, ...entry })} />
+                    </Table.Td></Table.Tr>
+                    </Fragment>
                   ))}
                 </Table.Tbody>
               </Table>
@@ -326,6 +355,8 @@ export function DeskWorkbench({ initialQuery = "", strategies }: { initialQuery?
         </Card>
       ) : null}
 
+      {fundamentalTarget ? <FundamentalDrawer symbol={fundamentalTarget.symbol} entryAt={fundamentalTarget.entryAt}
+        contextLabel={fundamentalTarget.label} onClose={() => setFundamentalTarget(null)} /> : null}
       <LabSymbolChart target={chartTarget} request={request} onClose={() => setChartTarget(null)} />
     </div>
   );
