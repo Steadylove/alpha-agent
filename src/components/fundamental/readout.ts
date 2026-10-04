@@ -1,4 +1,4 @@
-import type { FundamentalHorizon, FundamentalState, FundamentalValuation } from "@/lib/fundamental/types";
+import { SEC_SCENARIO_RULE, type FundamentalHorizon, type FundamentalState, type FundamentalValuation } from "@/lib/fundamental/types";
 
 const positive = (value: number | null | undefined): value is number =>
   value != null && Number.isFinite(value) && value > 0;
@@ -32,15 +32,24 @@ export function targetSpace(target: number, quote: number | null): number | null
 }
 
 export function confidenceReadout(value: FundamentalValuation): string {
-  return value.confidence === "low" ? "低 · V1 预设" : "中 · 模型标记";
+  return value.confidence === "low" ? `低 · ${isReportedScenario(value) ? "V2" : "V1"} 预设` : "中 · 模型标记";
+}
+
+export function isReportedScenario(value: FundamentalValuation): boolean {
+  return value.rule === SEC_SCENARIO_RULE;
 }
 
 /** Fallback text describes actual formula inputs only; it never synthesizes business claims. */
 export function formulaReadout(value: FundamentalValuation, status: FundamentalState["analystStatus"]) {
+  const reported = isReportedScenario(value);
   return {
-    summary: `本次目标价由目标日期之后 12 个月的预期 EPS，与 ${value.peers.length} 家有效同业的 Forward P/E 样本共同计算。`,
-    dependencies: ["盈利预测：使用分析师 Non-GAAP EPS 共识，按实际财年覆盖相应盈利窗口。", `估值倍数：以 ${value.peers.length} 家已核验同业的预期市盈率为参考。`],
-    uncertainties: ["盈利预测与同业定价水平都可能变化；情景区间不是价格承诺。", "样本有限，情景权重为模型预设，尚未经过实证概率校准。"],
+    summary: reported
+      ? `本次目标价以已披露财报为基线，用收入增长、净利率与股数假设推导目标时点年化盈利能力情景，再参考 ${value.peers.length} 家有效同业的财报口径 P/E。`
+      : `本次目标价由目标日期之后 12 个月的预期 EPS，与 ${value.peers.length} 家有效同业的 Forward P/E 样本共同计算。`,
+    dependencies: reported
+      ? ["盈利情景：以已披露 TTM 收入为基线，按保存的增长率、净利率及固定稀释股数计算。", `估值倍数：以 ${value.peers.length} 家已核验同业的财报口径市盈率为参考。`]
+      : ["盈利预测：使用分析师 Non-GAAP EPS 共识，按实际财年覆盖相应盈利窗口。", `估值倍数：以 ${value.peers.length} 家已核验同业的预期市盈率为参考。`],
+    uncertainties: [reported ? "年化盈利能力来自模型假设，不是逐季度盈利或未来现金流预测；情景区间不是价格承诺。" : "盈利预测与同业定价水平都可能变化；情景区间不是价格承诺。", "样本有限，情景权重为模型预设，尚未经过实证概率校准。"],
     aiStatus: status === "unavailable" ? "本轮 AI 解读未成功，以下仅说明已保存公式的依赖。" : status === "not-requested" ? "本版未请求 AI 解读，以下仅说明已保存公式的依赖。" : "暂无可展示的已保存 AI 解读，以下仅说明公式依赖。",
   };
 }

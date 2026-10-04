@@ -6,7 +6,7 @@ import { symbolSchema } from "./types";
 const DAY = 86400000;
 
 /** A local symbol/industry directory is only a peer-search seed, never an RPS/score input. */
-export function readFundamentalPeerDirectory(now: Date): { symbol: string; industry: string }[] {
+export function readFundamentalPeerDirectory(now: Date): { symbol: string; industry: string; sector?: string }[] {
   try {
     const file = snapshotFile("screener");
     if (!existsSync(file) || statSync(file).size > 8 * 1024 * 1024) return [];
@@ -15,7 +15,8 @@ export function readFundamentalPeerDirectory(now: Date): { symbol: string; indus
     if (!parsed.success) return [];
     const generated = Date.parse(parsed.data.generatedAt);
     if (generated > now.getTime() || now.getTime() - generated > 90 * DAY) return [];
-    const rowSchema = z.object({ symbol: symbolSchema, industry: z.string().trim().min(1).max(200) });
+    const rowSchema = z.object({ symbol: symbolSchema, industry: z.string().trim().min(1).max(200),
+      sector: z.string().trim().min(1).max(200).optional().catch(undefined) });
     const directory = parsed.data.ranked.flatMap(raw => {
       const row = rowSchema.safeParse(raw);
       return row.success ? [row.data] : [];

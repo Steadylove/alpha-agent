@@ -7,6 +7,7 @@ import { readLiveBooks } from "@/lib/fund/liveBooksStore";
 import { readSignalPoolMembers } from "@/lib/fund/signalPool";
 import { readFundamentalState } from "@/lib/fundamental/store";
 import { createFundamentalProvider } from "@/lib/fundamental/providers";
+import { createSecFundamentalProvider } from "@/lib/fundamental/secProvider";
 import { refreshFundamentalSymbol } from "@/lib/fundamental/service";
 import type { CatalystEvent, CatalystReport } from "@/lib/catalyst/types";
 import type { LiveBookCache } from "@/lib/fund/liveBooksLogic";
@@ -16,6 +17,7 @@ vi.mock("@/lib/fund/liveBooksStore", () => ({ readLiveBooks: vi.fn() }));
 vi.mock("@/lib/fund/signalPool", () => ({ readSignalPoolMembers: vi.fn(), signalPoolPath: () => process.env.SIGNAL_POOL_PATH! }));
 vi.mock("@/lib/fundamental/store", () => ({ readFundamentalState: vi.fn() }));
 vi.mock("@/lib/fundamental/providers", () => ({ createFundamentalProvider: vi.fn() }));
+vi.mock("@/lib/fundamental/secProvider", () => ({ createSecFundamentalProvider: vi.fn() }));
 vi.mock("@/lib/fundamental/service", () => ({ refreshFundamentalSymbol: vi.fn() }));
 const now = new Date("2026-10-04T12:00:00.000Z");
 let directory: string;
@@ -32,10 +34,12 @@ beforeEach(() => {
   directory = mkdtempSync(path.join(os.tmpdir(), "fundamental-job-"));
   vi.stubEnv("MARKET_DATA_DIR", directory); vi.stubEnv("MARKET_DATA_BASE_URL", ""); vi.stubEnv("VERCEL", "");
   vi.stubEnv("SIGNAL_POOL_PATH", path.join(directory, "signal-pool.json"));
+  vi.stubEnv("FUNDAMENTAL_PROVIDER", "fmp");
   vi.mocked(readLiveBooks).mockReset().mockResolvedValue(null);
   vi.mocked(readSignalPoolMembers).mockReset().mockResolvedValue(["AMD"]);
   vi.mocked(readFundamentalState).mockReset().mockReturnValue(null);
   vi.mocked(createFundamentalProvider).mockReset().mockReturnValue(vi.fn());
+  vi.mocked(createSecFundamentalProvider).mockReset().mockReturnValue(vi.fn());
   vi.mocked(refreshFundamentalSymbol).mockReset().mockResolvedValue({ status: "updated", state: state() });
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); rmSync(directory, { recursive: true, force: true }); });
@@ -81,11 +85,47 @@ describe("fundamental event observation", () => {
 });
 
 describe("fundamental job execution", () => {
+  it("defaults to one shared SEC provider without an FMP key and leaves AI optional", async () => {
+    vi.stubEnv("FUNDAMENTAL_PROVIDER", ""); vi.stubEnv("FMP_API_KEY", "");
+    writeFileSync(process.env.SIGNAL_POOL_PATH!, "{}");
+    vi.mocked(readSignalPoolMembers).mockResolvedValue(["AMD", "CSCO"]);
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    await runFundamentalJob(parseFundamentalArgs(["--no-ai"]));
+    expect(createSecFundamentalProvider).toHaveBeenCalledExactlyOnceWith({ peerDirectory: [], issuerDirectory: [], onIssuer: expect.any(Function) });
+    expect(createFundamentalProvider).not.toHaveBeenCalled();
+    const calls = vi.mocked(refreshFundamentalSymbol).mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(calls[0][2].collect).toBe(calls[1][2].collect);
+    expect(calls[0][2].analyze).toBeUndefined();
+  });
+  it("persists observed issuer seeds for the next job without mutating the current frozen directory", async () => {
+    vi.stubEnv("FUNDAMENTAL_PROVIDER", "sec");
+    const entry = { symbol: "AMD", cik: "0000000001", sic: 3674, observedAt: new Date().toISOString(),
+      sourceUrl: "https://data.sec.gov/submissions/CIK0000000001.json" };
+    vi.mocked(createSecFundamentalProvider).mockImplementation(options => {
+      options!.onIssuer!(entry);
+      return vi.fn();
+    });
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    await runFundamentalJob(parseFundamentalArgs(["--symbol=AMD", "--no-ai"]));
+    expect(vi.mocked(createSecFundamentalProvider).mock.calls[0][0]?.issuerDirectory).toEqual([]);
+    const snapshot = JSON.parse(readFileSync(path.join(directory, "snapshots/fundamental-sec-issuers.json"), "utf8"));
+    expect(snapshot.records).toEqual([entry]);
+    await runFundamentalJob(parseFundamentalArgs(["--symbol=AMD", "--no-ai"]));
+    expect(vi.mocked(createSecFundamentalProvider).mock.calls[1][0]?.issuerDirectory).toEqual([entry]);
+  });
+  it("rejects unsupported provider configuration instead of silently changing the model", async () => {
+    vi.stubEnv("FUNDAMENTAL_PROVIDER", "unknown");
+    await expect(runFundamentalJob(parseFundamentalArgs(["--symbol=AMD"]))).rejects.toThrow("invalid-fundamental-provider");
+    expect(createSecFundamentalProvider).not.toHaveBeenCalled();
+    expect(createFundamentalProvider).not.toHaveBeenCalled();
+  });
   it("dry-run does not acquire a lock, create snapshots or instantiate paid providers", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     await runFundamentalJob(parseFundamentalArgs(["--symbol=AMD", "--dry-run"]));
     expect(readdirSync(directory)).toEqual([]);
     expect(createFundamentalProvider).not.toHaveBeenCalled(); expect(refreshFundamentalSymbol).not.toHaveBeenCalled();
+    expect(createSecFundamentalProvider).not.toHaveBeenCalled();
     expect(JSON.parse(String(log.mock.calls[0][0]))).toEqual({ symbol: "AMD", status: "dry-run", reasonsCount: 3 });
   });
   it("shares one provider across a capped batch and passes missing-coverage warnings without AI when disabled", async () => {

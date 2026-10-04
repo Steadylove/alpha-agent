@@ -3,8 +3,10 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { calculateValuation, peerMultiples } from "@/lib/fundamental/engine";
 import { createFundamentalProvider, FundamentalRateLimitError, type FundamentalProviderOptions, type FundamentalRequestObservation } from "@/lib/fundamental/providers";
+import { createSecFundamentalProvider, SecFundamentalError } from "@/lib/fundamental/secProvider";
 import { symbolSchema } from "@/lib/fundamental/types";
 import { readFundamentalPeerDirectory } from "@/lib/fundamental/peerDirectory";
+import { readSecIssuerDirectory } from "@/lib/fundamental/secIssuerDirectory";
 
 const DEFAULT_SYMBOLS = ["AAPL", "MSFT", "ADBE", "ORCL", "CRM"];
 export type FundamentalCoverageOptions = { symbols: string[] };
@@ -14,7 +16,7 @@ type CoverageTarget = {
   missing: string[]; warnings: string[];
 };
 export type FundamentalCoverageReport = {
-  version: 1; startedAt: string; completedAt: string; readOnly: true; analysisInvoked: false;
+  version: 1; provider: "sec" | "fmp"; startedAt: string; completedAt: string; readOnly: true; analysisInvoked: false;
   configured: boolean; targets: CoverageTarget[]; requests: FundamentalRequestObservation[];
   totals: { ready: number; unavailable: number; failed: number; rateLimited: number; requests: number; httpFailures: number };
 };
@@ -22,6 +24,7 @@ type Dependencies = {
   now?: Date; apiKey?: string; fetchImpl?: typeof fetch;
   peerDirectory?: FundamentalProviderOptions["peerDirectory"];
   createProvider?: typeof createFundamentalProvider;
+  provider?: "sec" | "fmp"; userAgent?: string; createSecProvider?: typeof createSecFundamentalProvider;
   readDirectory?: typeof readFundamentalPeerDirectory;
 };
 
@@ -39,19 +42,25 @@ export async function runFundamentalCoverage(options: FundamentalCoverageOptions
   // Validate programmatic callers too, before reading directories or opening network connections.
   const { symbols } = parseFundamentalCoverageArgs([`--symbol=${options.symbols.join(",")}`]);
   const now = dependencies.now ?? new Date();
+  const provider = dependencies.provider ?? (process.env.FUNDAMENTAL_PROVIDER?.trim() || "sec");
+  if (provider !== "sec" && provider !== "fmp") throw new Error("invalid-fundamental-provider");
   const apiKey = dependencies.apiKey ?? process.env.FMP_API_KEY;
-  const configured = Boolean(apiKey?.trim());
+  const userAgent = dependencies.userAgent ?? process.env.SEC_USER_AGENT;
+  const configured = Boolean((provider === "sec" ? userAgent : apiKey)?.trim());
   const requests: FundamentalRequestObservation[] = [];
   const targets: CoverageTarget[] = [];
-  const collect = configured ? (dependencies.createProvider ?? createFundamentalProvider)({
-    now, apiKey, fetchImpl: dependencies.fetchImpl,
+  const common = configured ? {
+    now, fetchImpl: dependencies.fetchImpl,
     peerDirectory: dependencies.peerDirectory ?? (dependencies.readDirectory ?? readFundamentalPeerDirectory)(now),
-    onRequest: observation => requests.push(observation),
-  }) : null;
+    onRequest: (observation: FundamentalRequestObservation) => requests.push(observation),
+  } : null;
+  const collect = common ? provider === "sec"
+    ? (dependencies.createSecProvider ?? createSecFundamentalProvider)({ ...common, userAgent, issuerDirectory: readSecIssuerDirectory(now) })
+    : (dependencies.createProvider ?? createFundamentalProvider)({ ...common, apiKey }) : null;
   for (const symbol of symbols) {
     const target: CoverageTarget = { symbol, status: "unavailable", checkedAt: now.toISOString(), validPeers: 0,
       financialsAvailable: false, forecastFiscalEnds: [], missing: [], warnings: [] };
-    if (!collect) target.missing.push("FMP_API_KEY 未配置");
+    if (!collect) target.missing.push(provider === "sec" ? "SEC_USER_AGENT 未配置真实机构名和联系邮箱" : "FMP_API_KEY 未配置");
     else try {
       const input = await collect(symbol);
       if (input.symbol !== symbol) throw new Error("symbol-mismatch");
@@ -66,16 +75,16 @@ export async function runFundamentalCoverage(options: FundamentalCoverageOptions
       target.warnings = input.warnings;
     } catch (error) {
       target.checkedAt = (dependencies.now ?? new Date()).toISOString();
-      target.status = error instanceof FundamentalRateLimitError ? "rate-limited" : "failed";
+      target.status = error instanceof FundamentalRateLimitError || (error instanceof SecFundamentalError && error.message.includes("429")) ? "rate-limited" : "failed";
       // Even custom providers can throw a credential-bearing URL; exception text never reaches output.
-      target.missing = [target.status === "rate-limited"
+      target.missing = [error instanceof SecFundamentalError ? error.message : target.status === "rate-limited"
         ? "FMP HTTP 429 限流；本轮未完成并已停止新增请求，不能据此判断数据缺失或接口权限"
         : "采集或校验失败；查看请求状态确认接口权限与数据可用性"];
     }
     targets.push(target);
   }
   return {
-    version: 1, startedAt: now.toISOString(), completedAt: (dependencies.now ?? new Date()).toISOString(),
+    version: 1, provider, startedAt: now.toISOString(), completedAt: (dependencies.now ?? new Date()).toISOString(),
     readOnly: true, analysisInvoked: false, configured, targets, requests,
     totals: {
       ready: targets.filter(row => row.status === "ready").length,

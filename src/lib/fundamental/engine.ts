@@ -1,20 +1,9 @@
-import { createHash } from "node:crypto";
-import { FUNDAMENTAL_RULE, SCENARIO_WEIGHTS, inputSchema, valuationSchema, type AnnualEstimate,
+import { FUNDAMENTAL_RULE, SEC_SCENARIO_RULE, SCENARIO_WEIGHTS, inputSchema, valuationSchema, type AnnualEstimate,
   type FundamentalHorizon, type FundamentalInput, type FundamentalValuation } from "./types";
-
-const DAY = 86_400_000;
-export const fingerprint = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
-const day = (date: Date) => date.toISOString().slice(0, 10);
-const nextDay = (date: string) => day(new Date(Date.parse(date) + DAY));
-
-/** Calendar months, clamped to the last day rather than overflowing into the next month. */
-export function addMonths(date: string, months: number): string {
-  const d = new Date(`${date}T00:00:00Z`), original = d.getUTCDate();
-  d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() + months);
-  const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
-  d.setUTCDate(Math.min(original, last));
-  return day(d);
-}
+import { DAY, day, nextDay, addMonths, fingerprint, quantile } from "./engineMath";
+import { reportedScenarioHash, reportedPeerMultiples, validateReportedScenario, calculateReportedScenario,
+  verifyReportedScenario } from "./scenarioEngine";
+export { addMonths, fingerprint } from "./engineMath";
 
 /** Prorate annual non-GAAP consensus over [start, start + 12 calendar months).
  * No missing fiscal year is extrapolated and no current quote enters the earnings estimate. */
@@ -36,12 +25,8 @@ export function forwardEps(estimates: AnnualEstimate[], start: string, scenario:
   return coveredUntil === end && Number.isFinite(total) && total > 0 ? total : null;
 }
 
-const quantile = (values: number[], p: number) => {
-  const sorted = [...values].sort((a, b) => a - b), pos = (sorted.length - 1) * p, low = Math.floor(pos);
-  return sorted[low] + (sorted[Math.ceil(pos)] - sorted[low]) * (pos - low);
-};
-
 export function peerMultiples(input: FundamentalInput, anchorDate: string) {
+  if (input.earningsBasis === "gaap-derived-scenario") return reportedPeerMultiples(input);
   const peers: FundamentalValuation["peers"] = [];
   const seen = new Set<string>();
   for (const peer of input.peers) {
@@ -60,6 +45,7 @@ export function peerMultiples(input: FundamentalInput, anchorDate: string) {
 
 /** Ignore retrieval timestamps and quote movement. Earnings/membership changes remain material. */
 export function fundamentalHash(input: FundamentalInput): string {
+  if (input.earningsBasis === "gaap-derived-scenario") return reportedScenarioHash(input);
   const estimates = input.estimates.map(({ sourceId: _source, ...row }) => row).sort((a, b) => a.fiscalEnd.localeCompare(b.fiscalEnd));
   const financials = input.financials ? { ...input.financials, sourceIds: undefined } : null;
   return fingerprint({ rule: FUNDAMENTAL_RULE, symbol: input.symbol, sector: input.sector, industry: input.industry,
@@ -68,6 +54,8 @@ export function fundamentalHash(input: FundamentalInput): string {
 
 export function validateInput(raw: FundamentalInput, now = new Date()): { input: FundamentalInput; reasons: string[] } {
   const input = inputSchema.parse(raw), reasons: string[] = [];
+  if (input.earningsBasis === "gaap-derived-scenario") return { input, reasons: validateReportedScenario(input, now) };
+  if (input.scenario) reasons.push("一致预期模型不能混用自建情景输入");
   const stamp = Date.parse(input.observedAt), today = day(now), f = input.financials;
   if (stamp > now.getTime() || now.getTime() - stamp > DAY) reasons.push("本轮基本面证据尚未更新或采集时间无效");
   if (input.currency !== "USD" || f?.currency !== "USD") reasons.push("V1 仅支持交易及财务报告均为 USD 的公司");
@@ -124,6 +112,12 @@ export function calculateValuation(raw: FundamentalInput, options: {
   now?: Date; previous?: FundamentalValuation | null; updateReasons?: string[];
 } = {}): { valuation: FundamentalValuation | null; reasons: string[] } {
   const now = options.now ?? new Date(), { input, reasons } = validateInput(raw, now), anchor = day(now);
+  if (input.earningsBasis === "gaap-derived-scenario") {
+    if (reasons.length) return { valuation: null, reasons };
+    const result = calculateReportedScenario(input, now, options.previous, options.updateReasons);
+    return { valuation: result.value ? valuationSchema.parse({ ...result.value, id: valuationId(result.value) }) : null,
+      reasons: result.reasons };
+  }
   const peers = peerMultiples(input, anchor);
   if (peers.length < 3) reasons.push("同一行业、同币种且预测覆盖有效的同业不足 3 家");
   const multiples = [0.25, 0.5, 0.75].map(p => peers.length ? quantile(peers.map(row => row.pe), p) : 0);
@@ -141,7 +135,9 @@ export function calculateValuation(raw: FundamentalInput, options: {
     version: 1, rule: FUNDAMENTAL_RULE, symbol: input.symbol, publishedAt: now.toISOString(), anchorDate: anchor,
     validUntil: new Date(now.getTime() + 90 * DAY).toISOString(), inputHash: fundamentalHash(input), input,
     method: "Forward P/E", secondaryCheck: "Reported FCF / earnings quality", peers, sixMonth, twelveMonth,
-    confidence: "low", updateReasons: options.updateReasons ?? ["首次基本面估值"],
+    confidence: "low", updateReasons: previous && previous.rule !== FUNDAMENTAL_RULE
+      ? [...new Set([...(options.updateReasons ?? []), "估值方法变更：切换盈利与倍数口径，不作同口径归因"])]
+      : options.updateReasons ?? ["首次基本面估值"],
     assumptions: [
       "6M / 12M 为从估值基准日起的固定目标日期；各自使用目标日期之后 12 个月的盈利预测。",
       "盈利按年度 non-GAAP 一致预期及财年覆盖天数摊分，未建模季节性；GAAP 财报 EPS 不与预测 EPS 混用。",
@@ -152,7 +148,9 @@ export function calculateValuation(raw: FundamentalInput, options: {
     ],
     revision: previous ? { previousId: previous.id, previousTarget: previous.twelveMonth.weightedTarget,
       newTarget: twelveMonth.weightedTarget, changePct: (twelveMonth.weightedTarget / previous.twelveMonth.weightedTarget - 1) * 100,
-      earningsContribution, multipleContribution } : null,
+      ...(previous.rule === FUNDAMENTAL_RULE ? { earningsContribution, multipleContribution } : {
+        earningsContribution: 0, multipleContribution: 0, kind: "model-change" as const,
+        modelContribution: twelveMonth.weightedTarget - previous.twelveMonth.weightedTarget }) } : null,
     analyst: null,
   };
   return { valuation: valuationSchema.parse({ ...value, id: valuationId(value) }), reasons: [] };
@@ -166,6 +164,20 @@ export function parseValuation(raw: unknown): FundamentalValuation {
   if (Date.parse(value.publishedAt) < Date.parse(value.input.observedAt) ||
     Date.parse(value.validUntil) <= Date.parse(value.publishedAt) || value.anchorDate > value.publishedAt.slice(0, 10))
     throw new Error("估值发布时间校验失败");
+  if (value.rule === SEC_SCENARIO_RULE) {
+    verifyReportedScenario(value);
+    return value;
+  }
+  if (value.input.earningsBasis !== "non-gaap-consensus" || value.method !== "Forward P/E" || value.scenarioAssumptions ||
+    value.input.scenario || value.peers.some(peer => peer.ntmEps == null || peer.reportedEps != null))
+    throw new Error("估值口径校验失败");
+  if (value.revision?.kind === "model-change") {
+    const r = value.revision;
+    if (r.earningsContribution !== 0 || r.multipleContribution !== 0 || r.modelContribution == null ||
+      Math.abs(r.modelContribution - (r.newTarget - r.previousTarget)) > 1e-6 ||
+      Math.abs(r.newTarget - value.twelveMonth.weightedTarget) > 1e-6)
+      throw new Error("估值方法变更归因校验失败");
+  } else if (value.revision?.modelContribution != null) throw new Error("估值方法变更归因校验失败");
   for (const [h, months] of [[value.sixMonth, 6], [value.twelveMonth, 12]] as const) {
     let weighted = 0;
     for (const key of ["bear", "base", "bull"] as const) {
@@ -184,15 +196,16 @@ export function parseValuation(raw: unknown): FundamentalValuation {
 export function updateReasons(previous: FundamentalValuation | null, input: FundamentalInput, now: Date, newEvents: string[] = []): string[] {
   if (!previous) return ["首次基本面估值"];
   const reasons: string[] = [];
-  if (previous.rule !== FUNDAMENTAL_RULE) reasons.push("估值规则版本更新");
-  if (fundamentalHash(input) !== previous.inputHash) reasons.push("财报或盈利预测输入更新");
+  const reported = input.earningsBasis === "gaap-derived-scenario", rule = reported ? SEC_SCENARIO_RULE : FUNDAMENTAL_RULE;
+  if (previous.rule !== rule) reasons.push("估值方法变更：切换盈利与倍数口径，不作同口径归因");
+  if (fundamentalHash(input) !== previous.inputHash) reasons.push(reported ? "已披露财报或同业财务证据更新" : "财报或盈利预测输入更新");
   const peers = peerMultiples(input, day(now));
   if (peers.map(row => row.symbol).join() !== previous.peers.map(row => row.symbol).join()) reasons.push("有效同业样本变化，需重新复核");
   else if (peers.length >= 3) {
     const oldMedian = quantile(previous.peers.map(row => row.pe), 0.5), current = quantile(peers.map(row => row.pe), 0.5);
-    if (Math.abs(current / oldMedian - 1) >= 0.15) reasons.push("同一同业样本 Forward P/E 中位数变化达到 15%");
+    if (Math.abs(current / oldMedian - 1) >= 0.15) reasons.push(reported ? "同一同业样本已实现盈利 P/E 中位数变化达到 15%" : "同一同业样本 Forward P/E 中位数变化达到 15%");
   }
-  if (Date.parse(previous.validUntil) <= now.getTime()) reasons.push("90 天有效期复核，预测窗口向前滚动");
+  if (Date.parse(previous.validUntil) <= now.getTime()) reasons.push(reported ? "90 天有效期复核，年化盈利能力情景重新锚定" : "90 天有效期复核，预测窗口向前滚动");
   if (newEvents.length) reasons.push("发现新的重大公司事件，估值需人工复核");
   return reasons;
 }

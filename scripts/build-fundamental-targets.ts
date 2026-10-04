@@ -10,7 +10,9 @@ import type { LiveBookCache } from "@/lib/fund/liveBooksLogic";
 import { readSignalPoolMembers, signalPoolPath } from "@/lib/fund/signalPool";
 import { generateFundamentalAnalysis } from "@/lib/fundamental/analyst";
 import { createFundamentalProvider } from "@/lib/fundamental/providers";
+import { createSecFundamentalProvider } from "@/lib/fundamental/secProvider";
 import { readFundamentalPeerDirectory } from "@/lib/fundamental/peerDirectory";
+import { readSecIssuerDirectory, writeSecIssuerDirectory, type SecIssuerDirectoryEntry } from "@/lib/fundamental/secIssuerDirectory";
 import { refreshFundamentalSymbol } from "@/lib/fundamental/service";
 import { readFundamentalState } from "@/lib/fundamental/store";
 import { symbolSchema, type FundamentalState } from "@/lib/fundamental/types";
@@ -147,8 +149,15 @@ export async function runFundamentalJob(options: FundamentalJobOptions): Promise
       return;
     }
     if (!selected.length) { if (failed) throw new CliError("partial-failure"); return; }
-    if (!process.env.FMP_API_KEY?.trim()) throw new CliError("missing-fmp-key");
-    const collect = createFundamentalProvider({ peerDirectory: readFundamentalPeerDirectory(now) });
+    const provider = process.env.FUNDAMENTAL_PROVIDER?.trim() || "sec";
+    if (provider !== "sec" && provider !== "fmp") throw new CliError("invalid-fundamental-provider");
+    if (provider === "fmp" && !process.env.FMP_API_KEY?.trim()) throw new CliError("missing-fmp-key");
+    // Keep SEC configuration failures in per-symbol states so the website explains missing inputs.
+    // Dry runs do not construct either provider, read credentials or request external data.
+    const providerOptions = { peerDirectory: readFundamentalPeerDirectory(now) };
+    const discoveredIssuers = new Map<string, SecIssuerDirectoryEntry>();
+    const collect = provider === "fmp" ? createFundamentalProvider(providerOptions) : createSecFundamentalProvider({ ...providerOptions,
+      issuerDirectory: readSecIssuerDirectory(now), onIssuer: entry => discoveredIssuers.set(entry.symbol, entry) });
     const apiKey = process.env.DEEPSEEK_FUNDAMENTAL_API_KEY || process.env.DEEPSEEK_API_KEY || process.env.DEEPSEEK_REVIEW_API_KEY;
     const analyze = !options.noAi && apiKey ? (valuation: Parameters<typeof generateFundamentalAnalysis>[0]) =>
       generateFundamentalAnalysis(valuation, { apiKey, model: process.env.DEEPSEEK_FUNDAMENTAL_MODEL || process.env.DEEPSEEK_REVIEW_MODEL }) : undefined;
@@ -161,6 +170,10 @@ export async function runFundamentalJob(options: FundamentalJobOptions): Promise
         failed = true;
         console.log(JSON.stringify({ symbol: candidate.symbol, status: "failed", reasonsCount: 1 }));
       }
+    }
+    if (discoveredIssuers.size) {
+      try { writeSecIssuerDirectory([...discoveredIssuers.values()], new Date()); }
+      catch { failed = true; console.log(JSON.stringify({ symbol: null, status: "issuer-directory-write-failed", reasonsCount: 1 })); }
     }
     if (failed) throw new CliError("partial-failure");
   };

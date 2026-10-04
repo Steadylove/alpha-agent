@@ -1,11 +1,12 @@
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseFundamentalCoverageArgs, runFundamentalCoverage } from "../scripts/fundamental-coverage";
 import { fundamentalFixture, fundamentalNow as now } from "./fixtures/fundamental";
 import type { FundamentalProviderOptions } from "@/lib/fundamental/providers";
 
+beforeEach(() => vi.stubEnv("FUNDAMENTAL_PROVIDER", "fmp"));
 afterEach(() => vi.unstubAllEnvs());
 
 describe("fundamental coverage arguments", () => {
@@ -25,6 +26,15 @@ describe("fundamental coverage arguments", () => {
 });
 
 describe("read-only fundamental coverage", () => {
+  it("defaults to SEC and reports absent identity without API requests or private data", async () => {
+    vi.stubEnv("FUNDAMENTAL_PROVIDER", ""); vi.stubEnv("SEC_USER_AGENT", "");
+    const createSecProvider = vi.fn(), readDirectory = vi.fn();
+    const report = await runFundamentalCoverage({ symbols: ["ACME"] }, { now, createSecProvider, readDirectory });
+    expect(report.provider).toBe("sec"); expect(report.configured).toBe(false);
+    expect(report.targets[0].missing).toEqual(["SEC_USER_AGENT 未配置真实机构名和联系邮箱"]);
+    expect(createSecProvider).not.toHaveBeenCalled(); expect(readDirectory).not.toHaveBeenCalled();
+    expect(report.requests).toEqual([]);
+  });
   it("does not instantiate providers, read peer directories or make requests without a key", async () => {
     const createProvider = vi.fn(), readDirectory = vi.fn();
     const report = await runFundamentalCoverage({ symbols: ["ACME"] }, { now, apiKey: "", createProvider, readDirectory });

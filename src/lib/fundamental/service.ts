@@ -1,5 +1,6 @@
 import { calculateValuation, updateReasons, validateInput, valuationId } from "./engine";
 import { FundamentalRateLimitError } from "./providers";
+import { SecFundamentalError } from "./secProvider";
 import { readFundamentalState, saveFundamentalState } from "./store";
 import type { FundamentalAnalyst, FundamentalInput, FundamentalState, FundamentalValuation } from "./types";
 
@@ -31,16 +32,19 @@ export async function refreshFundamentalSymbol(symbol: string, options: {
     const input = await deps.collect(symbol);
     if (input.symbol !== symbol) throw new Error("wrong symbol");
     state.latestQuote = input.quote;
-    const validity = validateInput(input, now);
+    // Evidence collected during this call can be newer than the job's start clock.
+    // Validate at completion, while retaining the explicit clock used by deterministic callers.
+    const assessedAt = options.now ?? new Date();
+    const validity = validateInput(input, assessedAt);
     sourceWarnings = validity.input.warnings;
     if (validity.reasons.length) state.reasons = validity.reasons;
     else if (events.length) {
       state.reasons = ["重大事件可能影响财务假设，需复核后发布新估值", ...events.map(id => `待复核事件：${id}`)];
     } else {
-      const reasons = updateReasons(previous?.current ?? null, input, now);
+      const reasons = updateReasons(previous?.current ?? null, input, assessedAt);
       if (previous?.status === "stale" && options.reviewedEventIds?.length) reasons.push("重大事件已完成显式复核");
       // Check all current inputs even on a cache hit: disappearing forecasts/peers cannot remain current.
-      const computed = calculateValuation(input, { now, previous: previous?.current, updateReasons: reasons });
+      const computed = calculateValuation(input, { now: assessedAt, previous: previous?.current, updateReasons: reasons });
       if (!computed.valuation) state.reasons = computed.reasons;
       else if (!reasons.length && previous?.current) {
         state = { ...state, status: "ready", current: previous.current, reasons: [] };
@@ -74,7 +78,7 @@ export async function refreshFundamentalSymbol(symbol: string, options: {
       }
     }
   } catch (error) {
-    state.reasons = [error instanceof FundamentalRateLimitError
+    state.reasons = [error instanceof SecFundamentalError ? error.message : error instanceof FundamentalRateLimitError
       ? "数据源限流（HTTP 429），本轮采集未完成；没有生成新目标价，待下次复核重试"
       : "本轮财务数据采集或校验失败；没有使用缺失数据生成新目标价"];
     state.nextCheckAt = new Date(now.getTime() + 6 * 3600000).toISOString();
