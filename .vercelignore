@@ -12,6 +12,5 @@
 *.tsbuildinfo
 /docs/
 /research/
-/services/
 /deploy/
 /tests/
