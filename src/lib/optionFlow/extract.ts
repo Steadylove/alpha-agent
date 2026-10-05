@@ -49,9 +49,9 @@ function expiryHint(text: string): string | undefined {
   );
   if (monthYear) return `${monthYear[1]} '${(monthYear[2] || monthYear[3] || "").replace(/^20/, "")}`;
   const monthDay = text.match(
-    /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b/i,
+    /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(20\d{2}))?\b/i,
   );
-  if (monthDay) return `${monthDay[1]} ${monthDay[2]}`;
+  if (monthDay) return `${monthDay[1]} ${monthDay[2]}${monthDay[3] ? `, ${monthDay[3]}` : ""}`;
   const month = text.match(MONTH_NAME_RE);
   if (month) return month[1];
   if (/\bnext year\b/i.test(text)) return "next-year";

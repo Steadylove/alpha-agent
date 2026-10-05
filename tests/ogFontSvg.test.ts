@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 
 import { injectSvgFontFace, OG_FONT } from "@/lib/discord/ogFont";
 
@@ -9,4 +10,5 @@ it("把 Noto 子集交给 fontconfig，并保留 SVG @font-face 给 macOS", () =
   expect(svg).toContain("@font-face");
   expect(svg).toContain("font-family:'Noto Sans SC'");
   expect(process.env.FONTCONFIG_FILE).toMatch(/fonts\.conf$/);
+  expect(readFileSync(process.env.FONTCONFIG_FILE!, "utf8")).toContain("<dir>/app/fonts</dir>");
 });

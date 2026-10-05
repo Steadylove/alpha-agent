@@ -211,6 +211,26 @@ describe("option flow extract", () => {
     });
   });
 
+  it("从图表读取英文完整到期日，并校正 OCR 误读的 OTM", () => {
+    expect(parseChartText(
+      "DELL 800 Call $37.9\nExp. March 19, 2027\nOTM: +43.1%\nUnderlying: $559.2",
+    )).toMatchObject({
+      ticker: "DELL",
+      expiry: "03/19/2027",
+      strike: 800,
+      right: "call",
+      otmPct: 43.1,
+    });
+    expect(parseChartText(
+      "DELL 800 Call\nExp. March 19, 2027\nOTM: 443.1%\nUnderlying: $559.2",
+    )?.otmPct).toBe(43.1);
+  });
+
+  it("正文中的英文完整到期日保留年份", () => {
+    expect(extractCard("$4.1 million into these $DELL $800 strike March 19, 2027 calls").legs[0]?.expiry)
+      .toBe("March 19, 2027");
+  });
+
   it("按消息 id 去重合并", () => {
     const first = mergeOptionFlow(emptyOptionFlow("c"), [
       { id: "1", postedAt: "2026-09-08T00:00:00Z", ingestedAt: "", kind: "flow", thesis: "a", legs: [], imageUrls: [], imageProxyUrls: [], rawText: "a" },

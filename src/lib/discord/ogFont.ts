@@ -52,6 +52,7 @@ export function registerOgFonts(fonts: readonly OgFontFace[]): string {
 <!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
 <fontconfig>
   <dir>${FONT_DIR}</dir>
+  <dir>/app/fonts</dir>
   <dir>/usr/share/fonts</dir>
   <dir>/usr/local/share/fonts</dir>
   <cachedir>${FONT_CACHE}</cachedir>
