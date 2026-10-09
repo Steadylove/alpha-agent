@@ -15,6 +15,7 @@ import { analysisHash, prepareAnalysisInput } from "./analysis/fingerprint";
 import type { AnalysisView } from "./analysis/types";
 import { getCatalystReviewDigest } from "@/lib/catalyst/reviewDigestStore";
 import { getContextReport } from "@/lib/context/store";
+import { selectContextBrief } from "@/lib/context/brief";
 
 export const validReviewDate = (s: string): boolean =>
   /^\d{4}-\d{2}-\d{2}$/.test(s) &&
@@ -102,7 +103,7 @@ export async function getReviewData(requested?: string) {
       analysis,
       catalyst: catalystResult.status === "fulfilled" ? catalystResult.value : { status: "unavailable" as const, digest: null },
       context: contextResult.status === "fulfilled" && contextResult.value
-        ? { ...contextResult.value, observations: contextResult.value.highlights } : null,
+        ? { ...contextResult.value, observations: selectContextBrief(contextResult.value).map(item => item.observation) } : null,
     };
   } catch {
     return {

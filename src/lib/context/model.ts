@@ -104,7 +104,7 @@ export function buildContextReport(input: ContextModelInput): ContextReport {
     if ((anchor ?? day) < firstDay || (anchor ?? day) > input.date) continue;
     const evidence: ContextEventEvidence = { id: event.id, title: event.title.slice(0, 1000), type: event.type, sourceUrl: event.sourceUrl,
       publishedAt: event.publishedAt, firstSeenAt: event.firstSeenAt, updatedAt: version, eventDate: day, anchorDate: anchor,
-      timePrecision: event.timePrecision, importance: event.importance, revision: event.revision };
+      timePrecision: event.timePrecision, importance: event.importance, revision: event.revision, scope: event.scope, symbols: event.symbols };
     for (const symbol of new Set(event.symbols.map(ticker).filter(validTicker))) get(symbol).events.push(evidence);
   }
   for (const flow of flowsHealth.state !== "unavailable" ? input.flows : []) {

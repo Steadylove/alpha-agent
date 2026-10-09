@@ -95,38 +95,41 @@
   margin: 0;
 }
 .briefList > li {
-  padding: 17px 0;
+  padding: 15px 0 9px;
   border-top: 1px solid var(--border-subtle, #ffffff17);
 }
+.briefItemHeader { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.briefSymbol { display: inline-flex; align-items: center; gap: 14px; min-height: 36px; font: 600 19px/1.4 var(--font-interface), sans-serif; letter-spacing: .02em; }
+.briefSymbol span { font: 400 10px/1.5 var(--font-interface), sans-serif; color: var(--text-muted, #9caaa3); letter-spacing: 0; }
+.briefBadge { color: #a8c9bc; background: #8dccae0a; border: 1px solid #a8c9bc26; padding: 2px 9px; font-size: 10px; }
+.briefContent { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.3fr); gap: 20px 32px; margin: 9px 0 3px; }
+.briefEvidence h3 { font-size: 14px; font-weight: 400; color: #dce3df; line-height: 1.8; margin: 0 0 10px; max-width: 42em; }
+.briefFlow { font: 11px/1.8 var(--font-interface), sans-serif; color: #b6d4c6; margin: 0 0 5px; }
+.briefMeta { display: flex; flex-wrap: wrap; gap: 3px 16px; color: var(--text-muted, #9caaa3); font-size: 10px; margin: 0; }
+.briefTimeline { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 12px 16px; list-style: none; margin: 0; padding: 0; }
+.briefTimeline > li { border-left: 1px solid #a8c9bc3d; padding-left: 12px; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+.momentLabel { font-size: 10px; color: #a8c9bc; }
+.briefTimeline time { font: 11px/1.8 var(--font-interface), sans-serif; font-variant-numeric: tabular-nums; color: #dce3df; }
+.briefTimeline small { color: var(--text-muted, #9caaa3); font-size: 9px; }
+.known, .uncertain { font-size: 10px; }
+.known { color: #9fc9b5; }
+.uncertain { color: #cbb68b; }
+.briefDisclosure { font-size: 11px; color: var(--text-muted, #9caaa3); }
+.briefDisclosure :global(.ta-disclosure-control) { min-height: 36px; padding: 0; }
+.briefDisclosure :global(.ta-disclosure-label) { font-size: 10px; padding-block: 6px; }
+.briefDisclosure :global(.ta-disclosure-content) { padding: 6px 0 12px; }
+.briefDisclosure p { margin: 6px 0; }
+.originalTitle { color: #c5cfc9; max-width: 85em; }
+.briefOutcomes { display: flex; gap: 24px; margin: 10px 0; }
+.briefOutcomes dt, .briefOutcomes small { font-size: 10px; color: var(--text-muted, #9caaa3); }
+.briefOutcomes dd { margin: 2px 0; color: #dce3df; font-size: 14px; font-variant-numeric: tabular-nums; }
+.briefEmpty { margin: 4px 0 8px; padding: 8px 0; font-size: 12px; color: #aabbb1; }
 .itemMeta strong {
   font-size: 14px;
   color: #dce3df;
 }
 .relation {
   color: #acb9b2;
-  font-size: 10px;
-}
-.briefTracks {
-  display: grid;
-  grid-template-columns: 1.15fr 1fr 1fr;
-  gap: 26px;
-  margin-top: 10px;
-}
-.briefTracks h3 {
-  color: #a8c9bc;
-  font: 10px/1.8 var(--font-interface), sans-serif;
-  letter-spacing: 0.08em;
-  margin: 0 0 5px;
-}
-.briefTracks p {
-  margin: 0;
-  font-size: 12px;
-  color: #c5cfc9;
-}
-.briefTracks small {
-  display: block;
-  margin-top: 5px;
-  color: var(--text-muted, #9caaa3);
   font-size: 10px;
 }
 .metadata {
@@ -310,10 +313,10 @@
   .brief {
     padding: 16px;
   }
-  .briefTracks {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 12px;
-  }
+  .briefContent { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .briefTimeline { grid-template-columns: minmax(0, 1fr); gap: 9px; }
+  .briefTimeline > li { display: grid; grid-template-columns: 66px minmax(0, 1fr); gap: 2px 8px; }
+  .briefTimeline small, .briefTimeline .known, .briefTimeline .uncertain { grid-column: 2; }
   .record {
     grid-template-columns: minmax(0, 1fr);
     gap: 3px;

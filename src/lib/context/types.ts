@@ -15,6 +15,9 @@ export type ContextEventEvidence = {
   publishedAt: string | null; firstSeenAt: string; updatedAt: string | null;
   eventDate: string; anchorDate: string | null; timePrecision: "minute" | "session" | "date" | "unknown";
   importance: "high" | "medium" | "low"; revision: number;
+  /** Optional on older archives; copied from source metadata, never inferred. */
+  scope?: "stock" | "sector" | "market";
+  symbols?: string[];
 };
 export type ContextFlowEvidence = {
   id: string; sourceUrl: string | null; postedAt: string; firstObservedAt: string | null; updatedAt: string | null;

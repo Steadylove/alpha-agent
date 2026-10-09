@@ -29,12 +29,13 @@ function report(): ContextReport {
   return { version: 1, ruleVersion: "context-observation-v1", asOf: "2026-09-25", cutoff: at, generatedAt: "2026-09-26T03:00:00.000Z", sampleLabel: "非完整市场样本，仅用于辅助观察",
     coverage: { events: { state: "partial", checkedAt: at, detail: "公告来源部分覆盖" }, flow: { state: "partial", checkedAt: at, detail: "来源有采集缺口", from: "2026-09-21", through: "2026-09-25" }, signals: { state: "ok", checkedAt: at, detail: "只覆盖近十日实收范围" } }, observations: [row], highlights: [row], summary: { generatedAt: at, model: "deepseek", inputHash: "hash", sentences: [{ text: "AMD 事件与来源异常流在本次窗口内均有记录。", evidenceIds: ["event:event-a", "flow:flow-a"] }] }, summaryStatus: "ready", warnings: [] };
 }
-const renderBrief = (value: ContextReport) => renderToStaticMarkup(createElement(ContextBrief, { report: value }));
+const renderBrief = (value: ContextReport) => renderToStaticMarkup(createElement(MantineProvider, null, createElement(ContextBrief, { report: value })));
 const renderDetail = (value: ContextReport | null, date = "2026-09-25") => renderToStaticMarkup(createElement(SymbolContext, { symbol: "AMD", date, context: value ? { report: value, observation: value.observations[0] } : null }));
 
 describe("Context saved UI", () => {
   it("limits the home supplement to three observations and keeps all links on the saved date", () => {
     const value = report(); value.highlights = ["AMD", "NVDA", "MSFT", "HIDDEN"].map(observation); value.observations = value.highlights;
+    value.observations[3].events[0].importance = "low";
     const html = renderBrief(value);
     expect(html).toContain("Context Today"); expect(html).toContain("OPTIONS FLOW"); expect(html).toContain("Partial Market Sample");
     expect(html).toContain('href="/context/AMD?date=2026-09-25"'); expect(html).toContain('href="/context/MSFT?date=2026-09-25"');
@@ -80,6 +81,30 @@ describe("Context saved UI", () => {
   it("renders saved facts without fetches", () => {
     const fetcher = vi.fn(() => { throw new Error("Read-only render"); }); vi.stubGlobal("fetch", fetcher);
     renderBrief(report()); renderDetail(report()); expect(fetcher).not.toHaveBeenCalled();
+  });
+  it("collapses holding-only and roundup records without deleting their detail pages", () => {
+    const value = report(); const row = value.observations[0];
+    row.events[0].title = "8 Industrials Stocks Whale Activity In Today's Session";
+    const html = renderBrief(value);
+    expect(html).toContain("今日暂无达到展示条件的关联观察");
+    expect(html).not.toContain("查看留档");
+    expect(html).not.toContain("本次归档未收录相关异常流");
+    expect(html).not.toContain(row.events[0].title);
+    expect(renderDetail(value)).toContain(row.events[0].title.replace("'", "&#x27;"));
+  });
+  it("shows Chinese context and known/late/unknown timing without empty flow columns", () => {
+    const value = report(); const row = value.observations[0];
+    row.flows = []; row.associations = []; row.events[0].title = "AMD announces quarterly results";
+    row.events[0].type = "Earnings"; row.events[0].updatedAt = "2026-09-25T14:05:00.000Z";
+    const html = renderBrief(value);
+    expect(html).toContain("财报与业绩报道与 2H 买点记录出现在同一交易日");
+    expect(html).toContain("信号前已知"); expect(html).not.toContain("OPTIONS FLOW");
+    expect(html).toContain("原始报道与事后验证"); expect(html).toContain('href="https://example.com/release"');
+    row.events[0].updatedAt = "2026-09-25T15:00:00.000Z";
+    expect(renderBrief(value)).toContain("信号后才知该版本");
+    row.events[0].timePrecision = "date";
+    expect(renderBrief(value)).toContain("不能判断日内先后");
+    expect(renderBrief(value)).toContain("信号时是否已知待确认");
   });
 });
 

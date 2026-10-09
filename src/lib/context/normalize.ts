@@ -11,7 +11,8 @@ const url = z.string().max(2500).refine(value => {
 const coverage = z.object({ state: z.enum(["ok", "partial", "unavailable"]), checkedAt: stamp.nullable(), from: day.optional(), through: day.optional(), detail: text });
 const knowledge = z.enum(["known-at-signal", "observed-after-signal", "unknown"]);
 const event = z.object({ id, title: text, type: z.string().min(1).max(100), sourceUrl: url, publishedAt: stamp.nullable(), firstSeenAt: stamp, updatedAt: stamp.nullable(),
-  eventDate: day, anchorDate: day.nullable(), timePrecision: z.enum(["minute", "session", "date", "unknown"]), importance: z.enum(["high", "medium", "low"]), revision: z.number().int().positive() });
+  eventDate: day, anchorDate: day.nullable(), timePrecision: z.enum(["minute", "session", "date", "unknown"]), importance: z.enum(["high", "medium", "low"]), revision: z.number().int().positive(),
+  scope: z.enum(["stock", "sector", "market"]).optional(), symbols: z.array(z.string().regex(/^[A-Z][A-Z0-9.-]{0,14}$/)).max(250).optional() });
 const flow = z.object({ id, sourceUrl: url.nullable(), postedAt: stamp, firstObservedAt: stamp.nullable(), updatedAt: stamp.nullable(), anchorDate: day.nullable(),
   right: z.enum(["call", "put"]), side: z.enum(["buyer", "seller", "unknown"]), direction: z.enum(["bull", "bear", "unknown"]),
   premium: z.number().finite().positive().nullable(), strike: z.number().finite().positive().nullable(), expiry: z.string().max(80).nullable(),

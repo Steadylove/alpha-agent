@@ -12,6 +12,14 @@ Same-symbol evidence is associated over ±1 actual exchange session; a separatel
 
 The homepage shows at most three observations. `/context/[symbol]?date=YYYY-MM-DD` shows separate Event, Flow and Trend tracks. Flow Research links retain their archived date. Tomorrow Map continues to show only its existing relevant future 24–72 hour event summary; this module does not repeat the full news page.
 
+### Homepage selection
+
+The homepage selects from the complete saved observation set before reducing its payload. It requires a non-low-importance company event paired with a system signal in the same anchored session, or an existing short-window event/flow association within one exchange session. Market/sector stories, broad multi-company stories and headline roundups are excluded; holdings or RPS alone do not qualify. More evidence types, event versions known before the signal and high event importance receive editorial priority. This priority is not a trading score. Old archives without scope/symbol metadata remain readable and use their saved type, importance and headline.
+
+Each selected ticker shows a rule-based Chinese topic/relationship description and an evidence timeline. The original headline, source and capture/version timestamps are available in a collapsed disclosure. Publication time and relay-message time are labelled separately; the latter is not a trade timestamp. Missing intraday precision remains unknown. Signal-time knowledge requires publication, first observation and current-version availability all to precede the signal.
+
+Matched live buy signals also show existing Signal Journal T+1/T+3/T+5 price returns, capped at the selected review date. The match requires the same ticker, timeframe, signal time and an available capture; replay signals and sell signals do not inherit buy returns. Pending and missing outcomes stay explicit. This is individual outcome inspection, not a cohort backtest or proof that these associations improve returns. No qualifying association produces a compact empty state; source archives remain intact.
+
 ## Availability and revisions
 
 Source publication, actual trade time, first system observation, evidence-version availability and report cutoff are different fields. Actual Flow trade time and original tweet publication time remain unknown unless independently supplied. Legacy Flow first capture is unknown; an old `postedAt` or overwritten `ingestedAt` is not evidence of availability. Later OCR or text revisions cannot be described as known at a previous signal.

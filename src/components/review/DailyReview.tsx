@@ -930,7 +930,7 @@ export function DailyReview({
             ))}
           </nav>
           <MarketStatePanel review={r} />
-          {context?.asOf === r.date ? <ContextBrief report={context} /> : <CatalystToday catalyst={catalyst} />}
+          {context?.asOf === r.date ? <ContextBrief report={context} journal={journal} /> : <CatalystToday catalyst={catalyst} />}
           <Section
             id="options"
             n="02"
