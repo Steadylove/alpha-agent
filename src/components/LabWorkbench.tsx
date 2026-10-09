@@ -48,7 +48,10 @@ export function LabWorkbench() {
   const [chartTarget, setChartTarget] = useState<ChartTarget | null>(null);
   const chartRequest = useMemo(() => ({ champ: tf, index: "SMALLFUND" }), [tf]);
   const cacheRef = useRef(cache);
-  cacheRef.current = cache;
+  // 拉取 effect 只依赖 tf。缓存同步必须写在它前面，这样同一轮提交里两者一起变时，拉取读到的是新缓存，且不会因为 cache 更新把进行中的请求取消掉。
+  useEffect(() => {
+    cacheRef.current = cache;
+  }, [cache]);
 
   useEffect(() => {
     if (cacheRef.current[tf]) {

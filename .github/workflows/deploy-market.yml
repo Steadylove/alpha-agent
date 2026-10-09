@@ -1,10 +1,13 @@
 name: Deploy Market Runtime
 
-# Feature branches must not replace the production VPS.
+# main 上的自动发布只跟在 CI 成功之后。
+# 手点 workflow_dispatch 仍可在 main 上补发当前版本，不经过 CI，留给恢复。
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: read
@@ -14,15 +17,56 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  resolve:
+    name: resolve
+    if: (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.meta.outputs.sha }}
+      proceed: ${{ steps.meta.outputs.proceed }}
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Deploy the green commit only while it is still main
+        id: meta
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git fetch --no-tags origin main
+          tip="$(git rev-parse origin/main)"
+          if [ "$sha" = "$tip" ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            echo "Skip deploy of $sha; origin/main is $tip."
+          fi
+
   deploy:
-    if: github.ref == 'refs/heads/main'
+    needs: resolve
+    if: needs.resolve.result == 'success' && needs.resolve.outputs.proceed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 150
     env:
-      RELEASE_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+      RELEASE_ID: ${{ needs.resolve.outputs.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+
       - uses: docker/setup-buildx-action@v3
+
       - name: Build Linux runtime artifact in CI
         uses: docker/build-push-action@v6
         with:
@@ -34,6 +78,7 @@ jobs:
           outputs: type=local,dest=dist/market-release
           cache-from: type=gha,scope=market-runtime
           cache-to: type=gha,mode=max,scope=market-runtime
+
       - name: Build OCR worker image in CI
         uses: docker/build-push-action@v6
         with:
@@ -45,6 +90,7 @@ jobs:
           tags: alpha-option-flow:${{ env.RELEASE_ID }}
           load: true
           cache-from: type=gha,scope=market-runtime
+
       - name: Package image and installer
         run: |
           set -euo pipefail
@@ -52,13 +98,31 @@ jobs:
           cp deploy/market-http/deploy.sh dist/market-release/deploy.sh
           cd dist/market-release
           sha256sum option-flow-image.tar.gz > option-flow-image.sha256
+
       - name: Keep verified release for recovery
         uses: actions/upload-artifact@v4
         with:
           name: market-runtime-${{ env.RELEASE_ID }}
           path: dist/market-release/
           retention-days: 14
+
+      - name: Confirm commit is still origin/main
+        id: activate
+        if: github.event_name == 'workflow_run'
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          head="$(git rev-parse HEAD)"
+          tip="$(git rev-parse origin/main)"
+          if [ "$head" = "$tip" ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::Built $head but did not activate it; origin/main is now $tip."
+          fi
+
       - name: Transfer and activate release
+        if: steps.activate.outputs.skip != 'true'
         env:
           HOST: 192.210.241.6
           KEY: ${{ secrets.VPS_SSH_KEY }}
