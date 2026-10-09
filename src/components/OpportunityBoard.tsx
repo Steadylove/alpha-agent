@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Pagination, SegmentedControl, TextInput } from "@mantine/core";
 
@@ -180,15 +180,16 @@ function PagedStockList({
 }) {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
+  const [pageScope, setPageScope] = useState({ query, stocks });
+  if (pageScope.query !== query || pageScope.stocks !== stocks) {
+    setPageScope({ query, stocks });
+    setPage(1);
+  }
   const matched = useMemo(() => {
     return flattenStocksBySector(stocks, sectors).filter((s) =>
       matchStock(s, query, sectorTitle(s, sectors)),
     );
   }, [stocks, sectors, query]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [query, stocks]);
 
   const slice = pageSlice(matched, page, PAGE_SIZE);
 

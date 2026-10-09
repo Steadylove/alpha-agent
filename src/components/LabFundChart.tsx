@@ -2,7 +2,7 @@
 
 import { chartTheme } from "@/lib/ui/chartTheme";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Badge, Group, SegmentedControl, Stack, Table, Text, UnstyledButton } from "@mantine/core";
 import {
   CartesianGrid,
@@ -60,12 +60,13 @@ export function LabFundChart({
   const [range, setRange] = useState<"all" | "ytd">("all");
   const [picked, setPicked] = useState<string | null>(null);
   const [dateDraft, setDateDraft] = useState("");
-  const view = range === "ytd" && ytdVisible ? "ytd" : "all";
-
-  useEffect(() => {
+  const [seenBook, setSeenBook] = useState(book);
+  if (book !== seenBook) {
+    setSeenBook(book);
     setPicked(null);
     setDateDraft("");
-  }, [book]);
+  }
+  const view = range === "ytd" && ytdVisible ? "ytd" : "all";
 
   const holdMap = useMemo(() => {
     const m = new Map<string, HoldingDay["rows"]>();

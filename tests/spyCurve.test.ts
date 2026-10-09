@@ -1,7 +1,13 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
+import { CSV_PANEL_DIR } from "@/lib/backtest/csvPanel";
 import type { DayBook, YearRow, YearToDate } from "@/lib/backtest/engine";
 import { benchmarkEquityAlong, benchmarkReturnPct, loadQqqCloses, overlaySpyCurve } from "@/lib/backtest/spyCurve";
+
+const qqqCsv = path.join(CSV_PANEL_DIR, "QQQ.csv");
 
 const day = (date: string, extras: Partial<DayBook> = {}): DayBook => ({
   date,
@@ -76,7 +82,8 @@ describe("overlaySpyCurve", () => {
 });
 
 describe("loadQqqCloses", () => {
-  it("读本地 QQQ 日线 CSV", async () => {
+  // data/ 被 gitignore。没有本地行情时跳过，避免 CI 因缺文件失败；本机有 QQQ.csv 时仍校验。
+  it.skipIf(!existsSync(qqqCsv))("读本地 QQQ 日线 CSV", async () => {
     const closes = await loadQqqCloses();
     expect(closes).not.toBeNull();
     expect(closes!.get("2026-08-21")).toBeGreaterThan(0);
